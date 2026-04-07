@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "graph": {
+      "command": "python",
+      "args": ["-m", "backend.mcp_servers.graph_mcp"]
+    },
+    "cti": {
+      "command": "python",
+      "args": ["-m", "backend.mcp_servers.cti_mcp"]
+    }
+  }
+}
