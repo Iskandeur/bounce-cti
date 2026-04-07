@@ -36,6 +36,26 @@ def graph(inv_id: str):
     return gs.get_graph(inv_id)
 
 
+@app.delete("/api/investigations/{inv_id}")
+def delete_inv(inv_id: str):
+    gs.delete_investigation(inv_id)
+    return {"ok": True}
+
+
+@app.post("/api/investigations/{inv_id}/rerun")
+async def rerun(inv_id: str):
+    """Clear the graph and restart the agent on the same seed."""
+    with gs.conn() as c:
+        row = c.execute("SELECT seed_type, seed_value FROM investigations WHERE id=?", (inv_id,)).fetchone()
+    if not row:
+        return {"error": "not found"}
+    gs.clear_investigation(inv_id)
+    with gs.conn() as c:
+        c.execute("UPDATE investigations SET status='running' WHERE id=?", (inv_id,))
+    asyncio.create_task(run_investigation(inv_id, row["seed_type"], row["seed_value"]))
+    return {"ok": True}
+
+
 @app.websocket("/ws/{inv_id}")
 async def ws(websocket: WebSocket, inv_id: str):
     await websocket.accept()

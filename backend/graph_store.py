@@ -183,6 +183,24 @@ def get_events_since(inv_id: str, since_id: int = 0) -> list[dict]:
     return out
 
 
+def clear_investigation(inv_id: str):
+    """Delete all nodes, edges and events for an investigation and reset it to running."""
+    with conn() as c:
+        c.execute("DELETE FROM nodes WHERE investigation_id=?", (inv_id,))
+        c.execute("DELETE FROM edges WHERE investigation_id=?", (inv_id,))
+        c.execute("DELETE FROM events WHERE investigation_id=?", (inv_id,))
+        c.execute("UPDATE investigations SET status='cleared' WHERE id=?", (inv_id,))
+
+
+def delete_investigation(inv_id: str):
+    """Fully remove an investigation."""
+    with conn() as c:
+        c.execute("DELETE FROM nodes WHERE investigation_id=?", (inv_id,))
+        c.execute("DELETE FROM edges WHERE investigation_id=?", (inv_id,))
+        c.execute("DELETE FROM events WHERE investigation_id=?", (inv_id,))
+        c.execute("DELETE FROM investigations WHERE id=?", (inv_id,))
+
+
 def list_investigations() -> list[dict]:
     with conn() as c:
         return [dict(r) for r in c.execute("SELECT * FROM investigations ORDER BY created_at DESC LIMIT 100")]
