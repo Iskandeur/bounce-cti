@@ -1,12 +1,14 @@
 {
   "mcpServers": {
     "graph": {
-      "command": "python",
-      "args": ["-m", "backend.mcp_servers.graph_mcp"]
+      "command": "${BOUNCE_PYTHON}",
+      "args": ["-m", "backend.mcp_servers.graph_mcp"],
+      "env": {"BOUNCE_INV_ID": "${BOUNCE_INV_ID}", "PYTHONPATH": "${PYTHONPATH}"}
     },
     "cti": {
-      "command": "python",
-      "args": ["-m", "backend.mcp_servers.cti_mcp"]
+      "command": "${BOUNCE_PYTHON}",
+      "args": ["-m", "backend.mcp_servers.cti_mcp"],
+      "env": {"PYTHONPATH": "${PYTHONPATH}"}
     }
   }
 }
