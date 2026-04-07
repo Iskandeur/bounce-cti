@@ -104,6 +104,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str):
 
     cmd = [
         claude_path, "-p", user_prompt,
+        "--model", "sonnet",
         "--append-system-prompt", SYSTEM_PROMPT,
         "--mcp-config", str(mcp_cfg_path),
         "--strict-mcp-config",
