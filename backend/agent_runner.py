@@ -166,14 +166,20 @@ STEP 7 — Strong discriminating pivots (only if you found these markers)
 
 STEP 8 — Final report (MANDATORY — always do this last)
   add_node(report, "investigation_summary", metadata={
-    "summary": "<2-3 sentence overview>",
+    "summary": "<2-3 sentence overview mentioning key IOC values by name>",
     "threat_assessment": "<benign|suspicious|likely_malicious|malicious>",
-    "key_findings": ["<finding1>", "<finding2>", ...],
-    "discriminating_markers": ["<marker1>", ...],
-    "pivot_suggestions": ["<what an analyst should investigate next>", ...],
-    "ioc_list": ["<ioc1>", ...],
+    "key_findings": [
+      {"text": "<finding — include exact IOC values, IPs, domains as they appear in graph>", "sources": ["rdap","virustotal"]},
+      {"text": "<finding2>", "sources": ["crtsh","dns"]},
+      ...
+    ],
+    "discriminating_markers": ["<exact value of strong marker>", ...],
+    "pivot_suggestions": ["<concrete next step mentioning exact IOC values>", ...],
+    "ioc_list": ["<exact value matching a graph node>", ...],
     "sources_used": ["dns","rdap","crtsh","virustotal",...]
   }, source="agent", tags=["report"])
+  IMPORTANT for key_findings: each finding MUST be an object {text, sources[]}, not a plain string.
+  IMPORTANT for ioc_list and text fields: use exact node values (IPs, domain names) as they appear in the graph — the UI will auto-link them.
   add_edge(seed→report, known_ioc)
 
 ══════════════════════════════════════════════
