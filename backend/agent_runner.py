@@ -19,23 +19,25 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _write_mcp_config(inv_id: str) -> Path:
-    """Write a per-investigation mcp.json with absolute paths and env vars baked in."""
+    """Write a per-investigation mcp.json.
+
+    The `env` dict in MCP config *replaces* the subprocess environment entirely,
+    so we must forward the full parent env and then add our overrides on top.
+    """
+    base_env = {k: v for k, v in os.environ.items()}
+    base_env["PYTHONPATH"] = str(ROOT) + os.pathsep + base_env.get("PYTHONPATH", "")
+
     cfg = {
         "mcpServers": {
             "graph": {
                 "command": sys.executable,
                 "args": ["-m", "backend.mcp_servers.graph_mcp"],
-                "env": {
-                    "BOUNCE_INV_ID": inv_id,
-                    "PYTHONPATH": str(ROOT),
-                },
+                "env": {**base_env, "BOUNCE_INV_ID": inv_id},
             },
             "cti": {
                 "command": sys.executable,
                 "args": ["-m", "backend.mcp_servers.cti_mcp"],
-                "env": {
-                    "PYTHONPATH": str(ROOT),
-                },
+                "env": base_env,
             },
         }
     }

@@ -26,6 +26,7 @@ export default function App() {
   const [selected, setSelected] = useState(null)
   const [events, setEvents] = useState([])
   const [report, setReport] = useState(null)
+  const [copied, setCopied] = useState(false)
   const cyRef = useRef(null)
   const containerRef = useRef(null)
   const activeInvRef = useRef(null)
@@ -202,6 +203,29 @@ export default function App() {
     setSeedValue(n.value)
   }
 
+  const copyNodeJson = (n) => {
+    const payload = {
+      type: n.type,
+      value: n.value,
+      tags: n.tags,
+      source: n.source,
+      confidence: n.confidence,
+      metadata: n.metadata,
+    }
+    navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  const copyGraphJson = async () => {
+    if (!activeInv) return
+    const r = await fetch(`/api/investigations/${activeInv}/graph`)
+    const data = await r.json()
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
   return (
     <div className="app">
       {/* ── LEFT SIDEBAR ── */}
@@ -251,6 +275,15 @@ export default function App() {
       {/* ── GRAPH ── */}
       <div className="graph">
         <div id="cy" ref={containerRef} />
+        {/* Toolbar */}
+        {activeInv && (
+          <div className="graph-toolbar">
+            <button className="toolbar-btn" onClick={copyGraphJson} title="Copy full graph as JSON">
+              {copied ? '✓ copied' : '⬇ export graph JSON'}
+            </button>
+            <button className="toolbar-btn" onClick={relayout} title="Re-run layout">⟳ relayout</button>
+          </div>
+        )}
         {/* Legend */}
         <div className="legend">
           {Object.entries(NODE_COLORS).filter(([k]) => k !== 'report').map(([type, color]) => (
@@ -317,9 +350,14 @@ export default function App() {
               <span>src: {selected.source}</span>
               <span>conf: {((selected.confidence || 0) * 100).toFixed(0)}%</span>
             </div>
-            {['domain', 'ip', 'hash'].includes(selected.type) && (
-              <button onClick={() => pivot(selected)}>↳ Pivot from this node</button>
-            )}
+            <div className="btn-row">
+              {['domain', 'ip', 'hash'].includes(selected.type) && (
+                <button onClick={() => pivot(selected)}>↳ Pivot</button>
+              )}
+              <button className="secondary" onClick={() => copyNodeJson(selected)}>
+                {copied ? '✓ copied' : '⬇ copy JSON'}
+              </button>
+            </div>
             <div className="section-label" style={{ marginTop: 12 }}>Metadata</div>
             <pre>{JSON.stringify(selected.metadata, null, 2)}</pre>
           </>

@@ -63,6 +63,17 @@ button:hover { background: #2ea043; }
 .node-meta-row { display: flex; gap: 12px; font-size: 11px; color: #8b949e; }
 pre { background: #010409; border: 1px solid #21262d; padding: 8px; border-radius: 6px; overflow-x: auto; font-size: 11px; max-height: 280px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
 
+/* graph toolbar */
+.graph-toolbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; z-index: 10; }
+.toolbar-btn { width: auto; padding: 5px 12px; background: #161b22cc; backdrop-filter: blur(4px); border: 1px solid #30363d; color: #8b949e; border-radius: 6px; font-size: 11px; font-weight: 500; cursor: pointer; }
+.toolbar-btn:hover { color: #e6edf3; border-color: #8b949e; background: #21262dcc; }
+
+/* btn row */
+.btn-row { display: flex; gap: 6px; }
+.btn-row button { flex: 1; padding: 7px 8px; font-size: 12px; }
+button.secondary { background: transparent; border-color: #30363d; color: #8b949e; }
+button.secondary:hover { border-color: #8b949e; color: #e6edf3; background: #21262d; }
+
 /* report panel */
 .report-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; }
 .report-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #8b949e; margin-bottom: 8px; }
