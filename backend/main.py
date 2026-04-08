@@ -14,15 +14,26 @@ app = FastAPI(title="Bounce-CTI")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
+ALLOWED_MODELS = ["sonnet", "opus", "haiku",
+                  "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"]
+
+
 class StartReq(BaseModel):
-    seed_type: str  # domain | ip | hash
+    seed_type: str   # domain | ip | hash
     seed_value: str
+    model: str = "sonnet"
+
+
+@app.get("/api/models")
+def list_models():
+    return {"models": ALLOWED_MODELS, "default": "sonnet"}
 
 
 @app.post("/api/investigations")
 async def start(req: StartReq):
+    model = req.model if req.model in ALLOWED_MODELS else "sonnet"
     inv_id = gs.create_investigation(req.seed_type, req.seed_value)
-    asyncio.create_task(run_investigation(inv_id, req.seed_type, req.seed_value))
+    asyncio.create_task(run_investigation(inv_id, req.seed_type, req.seed_value, model=model))
     return {"id": inv_id}
 
 
@@ -42,8 +53,12 @@ def delete_inv(inv_id: str):
     return {"ok": True}
 
 
+class RerunReq(BaseModel):
+    model: str = "sonnet"
+
+
 @app.post("/api/investigations/{inv_id}/rerun")
-async def rerun(inv_id: str):
+async def rerun(inv_id: str, req: RerunReq = RerunReq()):
     """Clear the graph and restart the agent on the same seed."""
     with gs.conn() as c:
         row = c.execute("SELECT seed_type, seed_value FROM investigations WHERE id=?", (inv_id,)).fetchone()
@@ -52,7 +67,8 @@ async def rerun(inv_id: str):
     gs.clear_investigation(inv_id)
     with gs.conn() as c:
         c.execute("UPDATE investigations SET status='running' WHERE id=?", (inv_id,))
-    asyncio.create_task(run_investigation(inv_id, row["seed_type"], row["seed_value"]))
+    model = req.model if req.model in ALLOWED_MODELS else "sonnet"
+    asyncio.create_task(run_investigation(inv_id, row["seed_type"], row["seed_value"], model=model))
     return {"ok": True}
 
 

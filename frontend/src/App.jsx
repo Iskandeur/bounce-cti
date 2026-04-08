@@ -47,6 +47,7 @@ function HighlightedText({ text, nodeValues, onNodeClick }) {
 export default function App() {
   const [seedType, setSeedType] = useState('domain')
   const [seedValue, setSeedValue] = useState('')
+  const [model, setModel] = useState('sonnet')
   const [invs, setInvs] = useState([])
   const [activeInv, setActiveInv] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -336,7 +337,7 @@ export default function App() {
     if (!seedValue.trim()) return
     const r = await fetch('/api/investigations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed_type: seedType, seed_value: seedValue.trim() })
+      body: JSON.stringify({ seed_type: seedType, seed_value: seedValue.trim(), model })
     })
     const { id } = await r.json()
     await refreshInvs()
@@ -362,7 +363,7 @@ export default function App() {
 
   const rerunInv = async (id, ev) => {
     ev.stopPropagation()
-    await fetch(`/api/investigations/${id}/rerun`, { method: 'POST' })
+    await fetch(`/api/investigations/${id}/rerun`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ model }) })
     await refreshInvs()
     openInv(id)
   }
@@ -428,6 +429,12 @@ export default function App() {
           onKeyDown={e => e.key === 'Enter' && start()}
           placeholder={seedType === 'domain' ? 'example.com' : seedType === 'ip' ? '1.2.3.4' : 'sha256...'}
         />
+        <div className="section-label">Model</div>
+        <select value={model} onChange={e => setModel(e.target.value)}>
+          <option value="sonnet">Sonnet 4.6 (recommended)</option>
+          <option value="opus">Opus 4.6 (smarter, slower)</option>
+          <option value="haiku">Haiku 4.5 (faster, lighter)</option>
+        </select>
         <button onClick={start}>Investigate →</button>
 
         <div className="section-label">History</div>

@@ -18,25 +18,79 @@ def _log(inv_id: str, kind: str, msg):
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _write_mcp_config(inv_id: str) -> Path:
-    """Write a per-investigation mcp.json.
+def _win_to_wsl(path: str) -> str:
+    """C:\\Users\\foo → /mnt/c/Users/foo (no-op if already unix)."""
+    s = str(path).replace("\\", "/")
+    if len(s) >= 2 and s[1] == ":":
+        return "/mnt/" + s[0].lower() + s[2:]
+    return s
 
-    The `env` dict in MCP config *replaces* the subprocess environment entirely,
-    so we must forward the full parent env and then add our overrides on top.
+
+def _mcp_python() -> str:
+    """Return the Python executable in a form that WSL claude can invoke.
+
+    - On Windows (os.name=='nt'): convert to /mnt/c/... so WSL runs it via interop.
+    - On WSL/Linux: use sys.executable directly.
     """
-    base_env = {k: v for k, v in os.environ.items()}
-    base_env["PYTHONPATH"] = str(ROOT) + os.pathsep + base_env.get("PYTHONPATH", "")
+    exe = sys.executable
+    if os.name == "nt":
+        return _win_to_wsl(exe)
+    return exe
+
+
+def _mcp_launcher() -> str:
+    """Absolute path to run_mcp.py.
+
+    When on Windows: return the Windows path (C:\\...) because WSL interop
+    executes python.exe with the Windows path as-is. The WSL→Win path test
+    confirmed that Windows Python can open C:/... paths passed from WSL.
+    When on Linux/WSL: return the unix path.
+    """
+    p = ROOT / "run_mcp.py"
+    # Use forward slashes for the Windows path — python.exe accepts them
+    return str(p).replace("\\", "/")
+
+
+def _write_mcp_config(inv_id: str) -> Path:
+    """Write a per-investigation mcp.json with correct paths for WSL claude.
+
+    Uses run_mcp.py (a standalone launcher) so we don't need env-var PYTHONPATH tricks.
+    The Python exe is converted to a WSL-accessible path when running on Windows.
+    """
+    python = _mcp_python()
+    launcher = _mcp_launcher()
+
+    # Pass minimal env: only what the MCP server actually needs.
+    # run_mcp.py hard-codes the PYTHONPATH via os.path so no conversion needed.
+    base_env = {
+        k: v for k, v in os.environ.items()
+        if k in ("HOME", "PATH", "TEMP", "TMP", "USERPROFILE", "APPDATA",
+                 "LOCALAPPDATA", "SYSTEMROOT", "WINDIR", "COMSPEC",
+                 "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV",
+                 # API keys
+                 "VIRUSTOTAL_API_KEY", "URLSCAN_API_KEY", "ONYPHE_API_KEY",
+                 "SHODAN_API_KEY", "OTX_API_KEY")
+    }
+    # Load .env file values explicitly so they are available to MCP servers
+    env_file = ROOT / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                if k.strip() and k.strip() not in base_env:
+                    base_env[k.strip()] = v.strip()
 
     cfg = {
         "mcpServers": {
             "graph": {
-                "command": sys.executable,
-                "args": ["-m", "backend.mcp_servers.graph_mcp"],
+                "command": python,
+                "args": [launcher, "graph_mcp"],
                 "env": {**base_env, "BOUNCE_INV_ID": inv_id},
             },
             "cti": {
-                "command": sys.executable,
-                "args": ["-m", "backend.mcp_servers.cti_mcp"],
+                "command": python,
+                "args": [launcher, "cti_mcp"],
                 "env": base_env,
             },
         }
@@ -220,7 +274,7 @@ NOW START the investigation. Execute the workflow step by step. Do not stop unti
 """
 
 
-async def run_investigation(inv_id: str, seed_type: str, seed_value: str):
+async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model: str = "sonnet"):
     user_prompt = f"Seed indicator: type={seed_type} value={seed_value}\nInvestigate now."
     env = os.environ.copy()
     env["BOUNCE_INV_ID"] = inv_id
@@ -235,7 +289,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str):
 
     cmd = [
         claude_path, "-p", user_prompt,
-        "--model", "sonnet",
+        "--model", model,
         "--append-system-prompt", SYSTEM_PROMPT,
         "--mcp-config", str(mcp_cfg_path),
         "--strict-mcp-config",
