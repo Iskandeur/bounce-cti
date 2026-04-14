@@ -56,6 +56,24 @@ html, body, #root {
 }
 .logo span { color: var(--primary); }
 
+/* ── Logo mark (4-point star) ──────────────────────────────────────────── */
+.logo-mark {
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.logo-mark-sidebar {
+  width: 26px; height: 26px;
+  margin-right: 2px;
+  flex: 0 0 auto;
+  opacity: 0.95;
+}
+.logo-mark-auth {
+  width: 96px; height: 96px;
+  margin: 4px auto 8px;
+  filter: drop-shadow(0 0 18px rgba(88, 166, 255, 0.18));
+}
+
 .section-label {
   font-size: 10px;
   text-transform: uppercase;

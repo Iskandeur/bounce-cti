@@ -30,6 +30,7 @@ export default function Login({ onAuth }) {
   return (
     <div className="auth-screen">
       <div className="auth-card">
+        <img className="logo-mark logo-mark-auth" src="/logo-512.png" alt="Bounce-CTI" />
         <div className="logo">BOUNCE<span>CTI</span></div>
         <div className="auth-label">Sign in</div>
         <input

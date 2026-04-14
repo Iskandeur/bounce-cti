@@ -630,7 +630,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     <div className="app">
       {/* ── LEFT SIDEBAR ── */}
       <div className="sidebar">
-        <div className="logo-row"><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
+        <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
 
         <div className="section-label">New investigation</div>
         <select value={seedType} onChange={e => setSeedType(e.target.value)}>
@@ -983,6 +983,7 @@ export default function AppRoot() {
     return (
       <div className="auth-screen">
         <div className="auth-card">
+          <img className="logo-mark logo-mark-auth" src="/logo-512.png" alt="Bounce-CTI" />
           <div className="logo">BOUNCE<span>CTI</span></div>
         </div>
       </div>
