@@ -9,12 +9,13 @@ cytoscape.use(coseBilkent)
 const NODE_COLORS = {
   domain: '#79c0ff', ip: '#ffa657', hash: '#d2a8ff', url: '#56d364',
   cert: '#3fb950', asn: '#e3b341', email: '#f78166', registrar: '#8b949e',
-  ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f0f6fc'
+  ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f0f6fc',
+  country: '#ff7b72'
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
   cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'star',
-  jarm: 'pentagon', url: 'cut-rectangle'
+  jarm: 'pentagon', url: 'cut-rectangle', country: 'tag'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e', error: '#f85149' }
 
@@ -33,6 +34,7 @@ const MALTEGO_TYPES = {
   registrar: () => 'maltego.Organization',
   favicon:   () => 'maltego.Phrase',
   jarm:      () => 'maltego.Phrase',
+  country:   () => 'maltego.Location.Country',
   report:    () => null,
 }
 

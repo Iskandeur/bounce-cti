@@ -233,8 +233,32 @@ the recorded result.
 ══════════════════════════════════════════════
 GRAPH SCHEMA — node types and edge relations
 ══════════════════════════════════════════════
-Node types: domain, ip, ns, registrar, cert, asn, email, url, hash, jarm, favicon, report
+Node types: domain, ip, ns, registrar, cert, asn, email, url, hash, jarm, favicon, country, report
 Tags to use: seed, suspicious, benign, cdn, parking, sinkhole, dyndns, shared_hosting, c2, phishing, expired
+
+COUNTRY NODE — USE SPARINGLY AND ONLY WHEN THE LINK IS UNAMBIGUOUS
+A `country` node represents a jurisdiction/geolocation and MUST be created only when
+the country is an authoritative attribute of the source record, not an inferred one.
+  ✓ DO create+link a country node when you have a direct, authoritative source:
+      • rdap_ip / virustotal_ip / shodan_host / onyphe_ip returns a `country` /
+        `country_code` / `country_name` field for an IP or ASN — the ASN/IP is
+        registered in that country.
+      • rdap_domain returns a registrant `country` field — the registrant is in
+        that country (link registrar OR registrant-email node, NOT the domain).
+      • Any source returning an ISO-3166 alpha-2 code explicitly for the entity.
+  ✗ DO NOT infer a country from:
+      ✗ the TLD of a domain (.fr ≠ French operator; .io ≠ UK; ccTLDs are resold)
+      ✗ the language of the page or domain name (French text ≠ French operator)
+      ✗ the timezone of content or certificate NotBefore dates
+      ✗ GeoIP of a CDN/anycast IP (the IP sits in many POPs)
+      ✗ any chain of ≥ 2 inferences
+  Canonical country node value: the ISO-3166 alpha-2 uppercase code (e.g., "FR",
+  "US", "RU"). Put the long name and any extras in metadata:
+      add_node(country, "FR", metadata={"name":"France","source_field":"rdap_ip.country"}, source="rdap")
+  Always source= the API that produced the field, so an analyst can audit it.
+  If multiple authoritative sources disagree, create one country node per
+  authoritative source and note the discrepancy in the ip/asn node metadata
+  (field: "country_disagreement": [...]) — do not silently pick one.
 
 Source caveats you MUST be aware of:
   - virustotal_resolutions_*: capped at 40 results by the API (we already request the max). If you see exactly 40, assume there is more — note "truncated at 40" in metadata.
@@ -260,6 +284,8 @@ Edge relations (use exactly these strings):
   has_jarm            ip → jarm
   communicates_with   hash → domain/ip
   known_ioc           domain/ip/hash → report  (link to threat intel report)
+  located_in          ip/asn → country         (ONLY when a source returned an authoritative country field)
+  registered_in       registrar/email → country  (ONLY when rdap returned registrant country)
 
 ══════════════════════════════════════════════
 WORKFLOW — DOMAIN seed (execute in order)
@@ -274,6 +300,11 @@ STEP 1 — Seed + RDAP + DNS (always do this)
      → add_edge(domain→ns, uses_ns, evidence="RDAP nameservers")
      → defuse(ns, <each NS>) → if parking: tag_node(ns, "parking"), tag seed domain "parking_ns"
      → store registrar, creation_date, expiry_date, registrant_email in seed node metadata
+     → If rdap returned a registrant country (vcard `country` or entity `country`):
+         add_node(country, <ISO2_upper>, metadata={name, source_field:"rdap_domain.registrant.country"}, source="rdap")
+         add_edge(registrar→country, registered_in)  (or email→country if you graphed the registrant email)
+       Do NOT link the domain itself to the country — the domain's legal jurisdiction
+       is not the same as its operator's. Link only the registrar/registrant-email node.
   c. dns_resolve(<seed>)
      → For each A record: add_node(ip, <ip>), add_edge(domain→ip, resolves_to, source="dns")
      → For each AAAA: same
@@ -335,6 +366,11 @@ STEP 4 — IP pivots (for each unique IP found in steps 1-3, max 5 IPs)
      → add_node(asn, <asn_number>, metadata={name, country, cidr}, source="rdap")
      → add_edge(ip→asn, hosted_on_asn)
      → store netname, country, abuse_email in ip node metadata
+     → If rdap returned a country code for the ASN/IP:
+         add_node(country, <ISO2_upper>, metadata={name, source_field:"rdap_ip.country"}, source="rdap")
+         add_edge(asn→country, located_in)
+         add_edge(ip→country, located_in)
+       (Only when the country field is authoritatively present. Skip otherwise.)
   c. virustotal_resolutions_ip(<ip>)
      → For each co-resident domain (max 15, skip if fan-out >100):
          add_node(domain, <domain>, source="virustotal")
@@ -449,6 +485,11 @@ STEP 2 — Core enrichment (call ALL tools a-j in this step — do not proceed t
      → add_node(asn, <asn>, metadata={name, country, cidr}, source="rdap")
      → add_edge(ip→asn, hosted_on_asn)
      → store netname, country, abuse_email in ip metadata
+     → If rdap returned a country code for the ASN/IP:
+         add_node(country, <ISO2_upper>, metadata={name, source_field:"rdap_ip.country"}, source="rdap")
+         add_edge(asn→country, located_in)
+         add_edge(ip→country, located_in)
+       (See country-node policy: only authoritative fields, never TLD/language/GeoIP-of-CDN.)
   b. virustotal_ip(<seed>)
      → Extract last_analysis_stats → store in ip metadata, tag if malicious>0
      → Extract last_https_certificate → add_node(cert, <thumbprint>, metadata={issuer, subject, serial, SAN, validity}, source="virustotal")
