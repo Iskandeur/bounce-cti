@@ -169,7 +169,20 @@ export default function App() {
           style: { 'line-color': '#56d36466', 'target-arrow-color': '#56d36466', 'width': 2 }
         },
       ],
-      layout: { name: 'cose-bilkent', animate: false }
+      layout: {
+        name: 'cose-bilkent',
+        animate: false,
+        nodeRepulsion: 12000,
+        idealEdgeLength: 140,
+        edgeElasticity: 0.45,
+        gravity: 0.15,
+        gravityRangeCompound: 1.2,
+        nestingFactor: 0.1,
+        numIter: 2500,
+        tile: true,
+        randomize: true,
+        nodeDimensionsIncludeLabels: true,
+      }
     })
 
     cyRef.current.on('tap', 'node', evt => {
@@ -235,10 +248,50 @@ export default function App() {
   }
 
   // ── Graph helpers ────────────────────────────────────────────────────────
+  const relayoutTimer = useRef(null)
   const relayout = useCallback(() => {
     const cy = cyRef.current
     if (!cy || cy.nodes().length === 0) return
-    cy.layout({ name: 'cose-bilkent', animate: true, animationDuration: 400, randomize: false }).run()
+    // Debounce: if many nodes are streaming in, do not run layout for every one
+    if (relayoutTimer.current) clearTimeout(relayoutTimer.current)
+    relayoutTimer.current = setTimeout(() => {
+      cy.layout({
+        name: 'cose-bilkent',
+        animate: true,
+        animationDuration: 500,
+        randomize: false,
+        nodeRepulsion: 12000,
+        idealEdgeLength: 140,
+        edgeElasticity: 0.45,
+        gravity: 0.15,
+        gravityRangeCompound: 1.2,
+        nestingFactor: 0.1,
+        numIter: 2500,
+        tile: true,
+        nodeDimensionsIncludeLabels: true,
+      }).run()
+    }, 250)
+  }, [])
+
+  // Hard relayout (used by toolbar): always randomize so a stuck "line" graph
+  // breaks out of its bad local minimum.
+  const hardRelayout = useCallback(() => {
+    const cy = cyRef.current
+    if (!cy || cy.nodes().length === 0) return
+    if (relayoutTimer.current) clearTimeout(relayoutTimer.current)
+    cy.layout({
+      name: 'cose-bilkent',
+      animate: true,
+      animationDuration: 600,
+      randomize: true,
+      nodeRepulsion: 14000,
+      idealEdgeLength: 160,
+      edgeElasticity: 0.45,
+      gravity: 0.1,
+      numIter: 4000,
+      tile: true,
+      nodeDimensionsIncludeLabels: true,
+    }).run()
   }, [])
 
   const addCyNode = useCallback((n) => {
@@ -316,6 +369,8 @@ export default function App() {
         if (evt.kind === 'agent_starting') return '▶ agent starting'
         if (evt.kind === 'agent_exit') {
           const rc = msg.rc ?? msg?.msg?.rc ?? '?'
+          // Refresh sidebar status when the agent finishes
+          refreshInvs()
           return `■ exit rc=${rc}`
         }
         if (evt.kind === 'agent_stderr') return `⚠ ${(msg.msg || msg || '').toString().slice(0, 80)}`
@@ -408,6 +463,19 @@ export default function App() {
     setSeedValue(n.value)
   }
 
+  // Pivot in-place: spawn another agent pass on the SAME investigation graph
+  // (nodes/edges are merged via idempotent upserts).
+  const pivotHere = async (n) => {
+    if (!activeInv) return
+    if (!['domain', 'ip', 'hash'].includes(n.type)) return
+    await fetch(`/api/investigations/${activeInv}/enrich`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seed_type: n.type, seed_value: n.value, model })
+    })
+    setEvents(e => [`▶ enrich pivot: ${n.type} ${n.value}`, ...e])
+    refreshInvs()
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   const existingTypeList = [...existingTypes].filter(t => t !== 'report')
 
@@ -479,7 +547,7 @@ export default function App() {
           <button className="toolbar-btn" onClick={() => cyRef.current?.fit(undefined, 80)} title="Fit graph">
             ⊡ Fit
           </button>
-          <button className="toolbar-btn" onClick={relayout} title="Re-run layout">
+          <button className="toolbar-btn" onClick={hardRelayout} title="Re-run layout (randomize)">
             ⟳ Relayout
           </button>
           <button
@@ -681,13 +749,24 @@ export default function App() {
 
                   <div style={{ display: 'flex', gap: 6 }}>
                     {['domain', 'ip', 'hash'].includes(selected.type) && (
-                      <button
-                        className="btn-sm"
-                        style={{ flex: 1 }}
-                        onClick={() => pivot(selected)}
-                      >
-                        ↳ Pivot
-                      </button>
+                      <>
+                        <button
+                          className="btn-sm"
+                          style={{ flex: 1 }}
+                          onClick={() => pivotHere(selected)}
+                          title="Run another agent pass on this graph from this node (enrich in place)"
+                        >
+                          ↳ Pivot here
+                        </button>
+                        <button
+                          className="btn-sm secondary"
+                          style={{ flex: 1 }}
+                          onClick={() => pivot(selected)}
+                          title="Send this IOC to the new-investigation form (creates a fresh graph)"
+                        >
+                          ⎘ New inv
+                        </button>
+                      </>
                     )}
                     <button
                       className="btn-sm secondary"

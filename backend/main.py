@@ -21,17 +21,17 @@ ALLOWED_MODELS = ["sonnet", "opus", "haiku",
 class StartReq(BaseModel):
     seed_type: str   # domain | ip | hash
     seed_value: str
-    model: str = "sonnet"
+    model: str = "opus"
 
 
 @app.get("/api/models")
 def list_models():
-    return {"models": ALLOWED_MODELS, "default": "sonnet"}
+    return {"models": ALLOWED_MODELS, "default": "opus"}
 
 
 @app.post("/api/investigations")
 async def start(req: StartReq):
-    model = req.model if req.model in ALLOWED_MODELS else "sonnet"
+    model = req.model if req.model in ALLOWED_MODELS else "opus"
     inv_id = gs.create_investigation(req.seed_type, req.seed_value)
     asyncio.create_task(run_investigation(inv_id, req.seed_type, req.seed_value, model=model))
     return {"id": inv_id}
@@ -54,7 +54,7 @@ def delete_inv(inv_id: str):
 
 
 class RerunReq(BaseModel):
-    model: str = "sonnet"
+    model: str = "opus"
 
 
 @app.post("/api/investigations/{inv_id}/rerun")
@@ -67,8 +67,29 @@ async def rerun(inv_id: str, req: RerunReq = RerunReq()):
     gs.clear_investigation(inv_id)
     with gs.conn() as c:
         c.execute("UPDATE investigations SET status='running' WHERE id=?", (inv_id,))
-    model = req.model if req.model in ALLOWED_MODELS else "sonnet"
+    model = req.model if req.model in ALLOWED_MODELS else "opus"
     asyncio.create_task(run_investigation(inv_id, row["seed_type"], row["seed_value"], model=model))
+    return {"ok": True}
+
+
+class EnrichReq(BaseModel):
+    seed_type: str
+    seed_value: str
+    model: str = "opus"
+
+
+@app.post("/api/investigations/{inv_id}/enrich")
+async def enrich(inv_id: str, req: EnrichReq):
+    """Run another agent pass on the same investigation graph from a new seed.
+    Nodes/edges are merged into the existing graph (idempotent upserts)."""
+    with gs.conn() as c:
+        row = c.execute("SELECT id FROM investigations WHERE id=?", (inv_id,)).fetchone()
+    if not row:
+        return {"error": "not found"}
+    with gs.conn() as c:
+        c.execute("UPDATE investigations SET status='running' WHERE id=?", (inv_id,))
+    model = req.model if req.model in ALLOWED_MODELS else "opus"
+    asyncio.create_task(run_investigation(inv_id, req.seed_type, req.seed_value, model=model))
     return {"ok": True}
 
 

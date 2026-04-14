@@ -9,3 +9,5 @@ dist/
 .vite/
 .DS_Store
 data/
+.claude/
+eval_iter*.py

@@ -40,3 +40,23 @@ async def post_json(url: str, headers: dict | None = None, json_body: dict | Non
             data = {"_status": r.status_code, "_text": r.text[:2000]}
     cache_set(key, data)
     return data
+
+
+async def post_form(url: str, headers: dict | None = None, form_data: dict | None = None,
+                    ttl: float = 86400, cache_key: str | None = None) -> dict:
+    """POST with application/x-www-form-urlencoded body (needed by MalwareBazaar, URLhaus)."""
+    key = cache_key or f"FORM|{url}|{form_data}"
+    cached = cache_get(key, ttl=ttl)
+    if cached is not None:
+        return cached
+    h = {"User-Agent": UA}
+    if headers:
+        h.update(headers)
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.post(url, headers=h, data=form_data)
+        try:
+            data = r.json()
+        except Exception:
+            data = {"_status": r.status_code, "_text": r.text[:2000]}
+    cache_set(key, data)
+    return data

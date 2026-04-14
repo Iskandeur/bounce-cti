@@ -14,4 +14,6 @@ URLSCAN_KEY = os.getenv("URLSCAN_API_KEY", "")
 ONYPHE_KEY = os.getenv("ONYPHE_API_KEY", "")
 SHODAN_KEY = os.getenv("SHODAN_API_KEY", "")
 OTX_KEY = os.getenv("OTX_API_KEY", "")
+# abuse.ch (URLhaus + MalwareBazaar) auth key — free, register at https://auth.abuse.ch/
+ABUSECH_KEY = os.getenv("ABUSECH_AUTH_KEY", "")
 CLAUDE_BIN = os.getenv("CLAUDE_BIN", "claude")

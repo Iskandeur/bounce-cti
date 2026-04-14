@@ -43,9 +43,19 @@ def add_edge(src_type: str, src_value: str, dst_type: str, dst_value: str,
 
 
 @mcp.tool()
-def tag_node(type: str, value: str, tag: str) -> str:
-    """Tag a node (cdn, parking, sinkhole, dyndns, shared_hosting, suspicious, benign, etc.)."""
-    gs.tag_node(INV_ID, type, value, tag)
+def tag_node(type: str, value: str, tag: str | None = None,
+             tags: list[str] | None = None) -> str:
+    """Tag a node (cdn, parking, sinkhole, dyndns, shared_hosting, suspicious, benign, etc.).
+
+    Pass either `tag` (single) or `tags` (list). Both are accepted for convenience.
+    """
+    items: list[str] = []
+    if tag:
+        items.append(tag)
+    if tags:
+        items.extend(tags)
+    for t in items:
+        gs.tag_node(INV_ID, type, value, t)
     return "ok"
 
 

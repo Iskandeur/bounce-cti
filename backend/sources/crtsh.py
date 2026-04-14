@@ -13,4 +13,8 @@ async def subdomains_for(domain: str) -> list[dict]:
             if n and n not in seen:
                 seen.add(n)
                 out.append({"name": n, "issuer": row.get("issuer_name"), "not_before": row.get("not_before")})
-    return out[:500]
+    # Cap aggressively — claude tool_result has a max size and 500 entries can
+    # exceed it (~118KB observed). 80 most-recent is enough for the agent to
+    # pick representatives; total count is preserved for context.
+    out.sort(key=lambda r: r.get("not_before") or "", reverse=True)
+    return out[:80]

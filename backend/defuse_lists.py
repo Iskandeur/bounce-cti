@@ -27,6 +27,20 @@ PARKING_NS = {
     "ns1.dan.com", "ns2.dan.com",
     "ns1.parkingcrew.net", "ns2.parkingcrew.net",
     "ns1.uniregistrymarket.link", "ns2.uniregistrymarket.link",
+    # HugeDomains / NameBright / Afternic marketplace
+    "nsg1.namebrightdns.com", "nsg2.namebrightdns.com",
+    "ns1.hugedomains.com", "ns2.hugedomains.com",
+    # Sav.com / ParkLogic / other common parking providers
+    "ns1.afternic.com", "ns2.afternic.com",
+    "ns1.undeveloped.com", "ns2.undeveloped.com",
+    "ns1.parklogic.com", "ns2.parklogic.com",
+}
+
+# Registrant orgs/emails that confirm a domain is parked/for-sale
+PARKING_REGISTRANTS = {
+    "hugedomains.com", "domainmarket.com", "afternic.com",
+    "sedo.com", "bodis.com", "dan.com", "undeveloped.com",
+    "parklogic.com", "godaddy.com parking",
 }
 
 DYNDNS_TLDS = {
@@ -34,6 +48,19 @@ DYNDNS_TLDS = {
     "freedns.afraid.org", "dynu.com", "ydns.io", "dynv6.net", "myftp.org",
     "hopto.org", "zapto.org", "serveftp.com", "myvnc.com",
 }
+
+# CNAME targets that confirm domain is parked
+PARKING_CNAMES = {
+    "hugedomains.com", "traff-https.hugedomains.com", "traff-3.hugedomains.com",
+    "parkingpage.namecheap.com", "sedoparking.com", "bodis.com",
+    "above.com", "parklogic.com", "afternic.com",
+}
+
+# Sinkhole nameserver patterns (substring match)
+SINKHOLE_NS_PATTERNS = [
+    "sinkhole.", "sinkholed.", ".shadowserver.org", ".abuse.ch",
+    "rpz.", "blackhole.",
+]
 
 KNOWN_SINKHOLES = {
     "204.13.200.103",  # Microsoft sinkhole
@@ -63,6 +90,11 @@ def is_parking_ns(ns: str) -> bool:
     return ns.lower().strip(".") in PARKING_NS
 
 
+def is_sinkhole_ns(ns: str) -> bool:
+    ns_l = ns.lower().strip(".")
+    return any(p in ns_l for p in SINKHOLE_NS_PATTERNS)
+
+
 def is_sinkhole(ip: str) -> bool:
     return ip in KNOWN_SINKHOLES
 
@@ -87,4 +119,7 @@ def defuse_check(kind: str, value: str) -> dict:
         if is_parking_ns(value):
             tags.append("parking")
             reasons.append("Known parking nameserver")
+        if is_sinkhole_ns(value):
+            tags.append("sinkhole")
+            reasons.append("Known sinkhole nameserver")
     return {"tags": tags, "reasons": reasons, "should_stop_pivot": bool(tags)}
