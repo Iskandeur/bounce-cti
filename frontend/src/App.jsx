@@ -369,7 +369,22 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
 
   const addCyNode = useCallback((n) => {
     const cy = cyRef.current
-    const label = n.value.length > 30 ? n.value.slice(0, 28) + '…' : n.value
+    // For hash nodes, prefer a human-readable filename for the label;
+    // a raw sha256 truncated to 28 chars is useless. Fall back to a short
+    // hash prefix when no filename is available.
+    const displayValue = (() => {
+      if (n.type === 'hash') {
+        const md = n.metadata || {}
+        const name = md.file_name
+          || (Array.isArray(md.names) && md.names[0])
+          || (Array.isArray(md.file_names) && md.file_names[0])
+          || md.meaningful_name
+        if (name) return String(name)
+        return n.value.slice(0, 10) + '…'
+      }
+      return n.value
+    })()
+    const label = displayValue.length > 30 ? displayValue.slice(0, 28) + '…' : displayValue
     const d = {
       id: n.id, type: n.type, label, value: n.value,
       metadata: n.metadata, tags: n.tags, source: n.source, confidence: n.confidence
@@ -441,7 +456,16 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           return evt.kind
         }
         const msg = evt.msg || evt.data || {}
-        if (evt.kind === 'agent_starting') return '▶ agent starting'
+        if (evt.kind === 'agent_starting') {
+          // Refresh sidebar so a pivot/rerun immediately shows "running"
+          refreshInvs()
+          return '▶ agent starting'
+        }
+        if (evt.kind === 'status_change') {
+          // Backend flipped status (typically to "running" on pivot start)
+          refreshInvs()
+          return `● status: ${evt.status || '?'}`
+        }
         if (evt.kind === 'agent_exit') {
           const rc = msg.rc ?? msg?.msg?.rc ?? '?'
           // Refresh sidebar status when the agent finishes

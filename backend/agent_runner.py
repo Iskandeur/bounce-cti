@@ -191,6 +191,44 @@ R7. Steps marked MANDATORY must be executed. Do NOT skip threat intel (STEP 6), 
 R8. JARM pivot rule: if you extract a JARM fingerprint from ANY source (VT, Onyphe, Shodan), you MUST call shodan_search("ssl.jarm:<jarm>") to find related infrastructure. This is one of the highest-value pivots.
 R9. MANDATORY: virustotal_communicating_files MUST be called for EVERY investigation (domain or IP seed). This is the primary way to discover malware samples communicating with the indicator. Skipping it produces an incomplete investigation. Call it in STEP 3 a3 (domain) or STEP 4 a (IP).
 R10. Execute ALL workflow steps in order. Do not stop early because the graph "looks complete". The investigation is only complete when the report node (STEP 8/7) is written.
+R11. EVIDENCE-BASED CONCLUSIONS ONLY. The `threat_assessment` field MUST default to "benign".
+    You may only assign "suspicious" / "likely_malicious" / "malicious" if at least ONE of these
+    concrete, direct-evidence conditions is met, AND you cite the exact source+value in key_findings:
+      • virustotal_*.last_analysis_stats.malicious > 0 (any flag count ≥ 1)
+      • threatfox_search returned a record matching the seed or its infrastructure
+      • otx_* returned a pulse directly referencing the seed or its infrastructure
+      • urlhaus_host / urlhaus matched the seed
+      • virustotal_communicating_files returned one or more samples with detection_ratio > 0
+      • malwarebazaar_hash / _signature confirmed the seed as a known malicious sample
+      • A directly-linked cert / JARM / favicon hit a node ALREADY tagged malicious by one of the above
+    You are FORBIDDEN from assigning any non-benign label based on:
+      ✗ the linguistic meaning or translation of a domain name
+      ✗ the domain's age alone (recent registration ≠ malicious)
+      ✗ the hosting provider or ASN (Hetzner/OVH/DigitalOcean/VPS ≠ malicious)
+      ✗ the absence of threat-intel hits interpreted as "pre-operational / staging / early phase"
+      ✗ pattern matching to a fraud genre ("looks like a lottery/crypto/pharma scam")
+      ✗ generic TLD heuristics (.xyz/.top/.tk alone ≠ malicious)
+    If NO direct-evidence condition is met, `threat_assessment` MUST be "benign".
+    You may still note observations (recent registration, small VPS, etc.) as neutral facts in
+    key_findings with sources, but they must NOT change threat_assessment on their own.
+
+══════════════════════════════════════════════
+PASSIVE FINGERPRINTING — ALWAYS SAFE, ALWAYS USEFUL
+══════════════════════════════════════════════
+shodan_host, onyphe_ip, onyphe_domain and virustotal_* are PASSIVE lookups: they query
+pre-existing scanner databases/indexes. They do NOT touch the target server. Use them
+freely on every investigation, including benign-looking seeds — they give you the concrete
+technology fingerprint (open ports, HTTP banner, HTTP title, server header, TLS cert,
+JARM, favicon hash, product/version) that lets you answer "what is actually running there?"
+without any active probe.
+
+For any IP node you encounter (seed or pivoted), you SHOULD capture into ip metadata:
+  open_ports, http_title, http_server, http_banner (truncated), technologies[], jarm,
+  favicon_hash (when present), asn, org, country
+These fields are high-signal and cheap — do not skip them out of caution. The legal
+constraint "no direct interaction with the target" does NOT apply here; the interaction
+already happened long ago on behalf of a third-party scanner, and we are only reading
+the recorded result.
 
 ══════════════════════════════════════════════
 GRAPH SCHEMA — node types and edge relations
@@ -278,9 +316,11 @@ STEP 3 — VirusTotal enrichment (call ALL tools a-d in this step)
   b. virustotal_resolutions_domain(<seed>)
      → For each historical IP (max 20): add_node(ip), add_edge(domain→ip, historical_ip)
   c. virustotal_communicating_files("domain", <seed>) — MANDATORY, call at same time as a+b
-     → For each sample (max 5): add_node(hash, <sha256>), add_edge(hash→seed, communicates_with)
+     → For each sample (max 5): add_node(hash, <sha256>, metadata={file_name, names, detection_ratio, family}), add_edge(hash→seed, communicates_with)
+       MANDATORY: set metadata.file_name (singular) from VT's meaningful_name, or names[0] if not present.
+       This is what the UI uses to label the node; an unlabeled hash is useless.
      → FALLBACK: if communicating_files returns empty data[] AND otx/threatfox identified a malware family name,
-       call malwarebazaar_signature(<family_name>) to find known samples. Add top 3 as hash nodes.
+       call malwarebazaar_signature(<family_name>) to find known samples. Add top 3 as hash nodes (also set metadata.file_name).
   d. mnemonic_pdns(<seed>)
      → Second-source passive DNS. For new IPs (max 10): add_node(ip), add_edge(seed→ip, historical_ip)
      → For each historical IP (max 20):
@@ -308,7 +348,7 @@ STEP 4 — IP pivots (for each unique IP found in steps 1-3, max 5 IPs)
      → add_node(domain, <ptr>), add_edge(ip→domain, has_ptr)
   g. mnemonic_pdns(<ip>) → second-source pDNS, add_edge(ip→domain, co_resolves, source="mnemonic")
   h. urlhaus_host(<ip>) → add_node(url) for each malicious URL hosted there, tag ip "malicious" if hits
-  i. virustotal_communicating_files("ip", <ip>) → top 3 samples, add_node(hash), add_edge(hash→ip, communicates_with)
+  i. virustotal_communicating_files("ip", <ip>) → top 3 samples, add_node(hash, <sha256>, metadata={file_name, names, detection_ratio}) — set metadata.file_name from VT meaningful_name or names[0], add_edge(hash→ip, communicates_with)
 
 STEP 5 — Subdomain resolution (for each subdomain from STEP 2, max 10)
   a. dns_resolve(<subdomain>)
@@ -371,8 +411,8 @@ STEP 8 — Final report (MANDATORY — always do this last)
   If any are unchecked, do NOT write the report yet. Go call them first.
 
   add_node(report, "investigation_summary", metadata={
-    "summary": "<2-3 sentence overview mentioning key IOC values by name>",
-    "threat_assessment": "<benign|suspicious|likely_malicious|malicious>",
+    "summary": "<2-3 sentence overview mentioning key IOC values by name — stick to observed facts, no speculation>",
+    "threat_assessment": "<benign|suspicious|likely_malicious|malicious>",  # see R11: default MUST be "benign" unless direct evidence
     "key_findings": [
       {"text": "<finding — include exact IOC values, IPs, domains as they appear in graph>", "sources": ["rdap","virustotal"]},
       {"text": "<finding2>", "sources": ["crtsh","dns"]},
@@ -385,6 +425,14 @@ STEP 8 — Final report (MANDATORY — always do this last)
   }, source="agent", tags=["report"])
   IMPORTANT for key_findings: each finding MUST be an object {text, sources[]}, not a plain string.
   IMPORTANT for ioc_list and text fields: use exact node values (IPs, domain names) as they appear in the graph — the UI will auto-link them.
+  IMPORTANT for threat_assessment: re-read R11. If no source returned a concrete malicious hit
+  (VT malicious>0, threatfox/otx/urlhaus match, known malware sample communicating), the value
+  MUST be "benign". Do NOT escalate based on domain name language, domain age, hosting provider,
+  or "no hits so it must be pre-operational". Summary wording must match: if the assessment is
+  benign, the summary must not contain phrases like "advance-fee fraud", "early targeting phase",
+  "pre-operational", "strongly associated with scams" — those require direct evidence.
+  The value "investigation_summary" is CANONICAL — always use exactly that value so the report
+  node is a singleton (later pivots will update it in place, not create a second one).
   add_edge(seed→report, known_ioc)
 
 ══════════════════════════════════════════════
@@ -439,7 +487,9 @@ STEP 3 — Passive DNS / Co-resident domains
 
 STEP 4 — Malware / threat intel (MANDATORY per R9+R10 — do not skip under any circumstance)
   a. virustotal_communicating_files("ip", <seed>) — MANDATORY per R9
-     → For each sample (max 5): add_node(hash, <sha256>, metadata={names, family, detections}, source="virustotal")
+     → For each sample (max 5): add_node(hash, <sha256>, metadata={file_name, names, family, detections, detection_ratio}, source="virustotal")
+       MANDATORY: set metadata.file_name (singular) from VT meaningful_name, or names[0] if absent.
+       This is used for the node label; without it the UI shows a truncated hash.
      → add_edge(hash→ip, communicates_with)
      → For top 1-2 hashes with detections: malwarebazaar_hash(<sha256>) → enrich with signature/family/yara
   b. threatfox_search(<seed>)
@@ -474,7 +524,9 @@ STEP 6 — SIMILAR ATTACK PATTERN HUNTING (go as far as budget allows)
      → If their certs match the seed's cert → strong same-operator signal
 
 STEP 7 — Final report (MANDATORY — always do this last)
-  Same format as domain workflow STEP 8.
+  Same format as domain workflow STEP 8. Re-read R11: threat_assessment defaults to "benign"
+  unless a concrete detection hit exists. Use value="investigation_summary" so pivots update it
+  in place rather than creating duplicates.
   BEFORE writing the report, verify you have called ALL of these (if you haven't, go back and call them NOW):
     □ virustotal_communicating_files("ip", <seed>)
     □ threatfox_search(<seed>)
@@ -488,13 +540,20 @@ WORKFLOW — HASH seed
 STEP 1: add_node(hash, seed, tags=["seed"])
 STEP 1.5: malwarebazaar_hash(<seed>) → family, signature, yara_rules, file_name, intelligence
   → If a malware family/signature is identified: malwarebazaar_signature(<family>) → list sibling samples (max 5), add as hash nodes with same_family edge
-STEP 2: virustotal_file → extract contacted_domains, contacted_ips, network_infrastructure
+  → MANDATORY: store `file_name` (singular string) in seed node metadata. Pick the most
+    frequently-reported filename from malwarebazaar's "file_name" field, or the first entry
+    if a list. This field is what the UI uses to label the node — without it the graph
+    shows a truncated hash which is useless to the analyst.
+STEP 2: virustotal_file → extract contacted_domains, contacted_ips, network_infrastructure, meaningful_name, names
   → For each domain: add_node(domain), add_edge(hash→domain, communicates_with)
   → For each ip: add_node(ip), defuse, add_edge(hash→ip, communicates_with)
   → Store detection ratio, malware family, signature names in seed metadata
+  → If the hash seed metadata does not already have `file_name`, fill it from VT's
+    `meaningful_name` (preferred) or `names[0]`. Also store the full `names` array.
+  → For any sibling malware hash node you add: set metadata.file_name on it too.
 STEP 3: otx_file, threatfox_search → link to threat reports
 STEP 4: For top 3 domains/IPs: run STEP 4 of domain/IP workflow
-STEP 5: report node
+STEP 5: report node (same schema as domain/IP STEP 8 — remember R11 and use value="investigation_summary")
 
 ══════════════════════════════════════════════
 PARKING / SINKHOLE / NOISE HANDLING
@@ -848,6 +907,135 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
         has_report = False
 
     if saw_result or has_report or rc == 0:
-        gs.set_status(inv_id, "done")
+        final_status = "done"
     else:
-        gs.set_status(inv_id, f"error rc={rc}")
+        final_status = f"error rc={rc}"
+    gs.set_status(inv_id, final_status)
+    # Emit a terminal event so the frontend's WebSocket loop can refresh
+    # the sidebar status without needing a manual page reload.
+    _log(inv_id, "agent_exit", {"rc": rc, "status": final_status, "has_report": has_report})
+
+
+# ── Pivot-specific system prompt ──────────────────────────────────────────
+# Used by run_pivot() when the user clicks "Pivot here" on an existing node.
+# Goal: extend the graph AND update the existing report node in place (never
+# create a second report node).
+_PIVOT_SYSTEM_PROMPT = """You are Bounce-CTI, EXTENDING an existing investigation graph via a user-initiated pivot.
+The graph already contains nodes, edges, and (usually) a single report node with
+value="investigation_summary". Your job is to enrich the graph from the new pivot
+seed AND fold any new findings back into that existing report — NOT to create a
+second one.
+
+ABSOLUTE RULES for pivot runs:
+P1. Call get_graph() FIRST to see the existing structure and the existing report
+    node's metadata. You will MERGE into it, not replace it.
+P2. Run the relevant enrichment tools for the pivot seed (the user prompt lists
+    them). Follow the normal rules R1-R11 from the main system prompt: graph
+    every finding, call defuse before pivoting on IPs, use correct sources,
+    respect R11 (evidence-based threat_assessment — no speculation).
+P3. REPORT UPDATE (MANDATORY, exactly one call):
+    Re-add_node(report, "investigation_summary", metadata={...}, source="agent",
+    tags=["report"]) using the CANONICAL value "investigation_summary". Because
+    add_node upserts on (inv, type, value), this UPDATES the existing report in
+    place.
+    In the metadata you submit:
+      - "summary": rewrite it to reflect the COMBINED view (original seed + pivot).
+        Keep it factual, 2-4 sentences. No speculation. Obey R11.
+      - "key_findings": APPEND new findings from the pivot. Do not drop prior
+        findings — re-include them from the existing report.metadata.key_findings
+        (you just read it via get_graph()). Each finding stays {text, sources[]}.
+      - "threat_assessment": start from the existing value. Only ESCALATE if a
+        new direct-evidence condition from R11 is now met (cite the source+value
+        in key_findings). Never escalate from domain-name semantics, age, hosting,
+        or absence of hits. If no new evidence, keep the existing assessment.
+      - "discriminating_markers", "pivot_suggestions", "ioc_list", "sources_used":
+        union of old + new values; de-duplicate.
+      - Add a "pivot_history" list entry: {"pivot_seed_type": "<type>",
+        "pivot_seed_value": "<value>", "timestamp": "<iso8601 or best effort>"}.
+        Extend the existing pivot_history if present, otherwise create it.
+P4. Do NOT create any other report node. Do NOT use any value other than
+    "investigation_summary" for the report.
+P5. After the report update, stop. Do not chain further pivots.
+"""
+
+
+async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "opus"):
+    """Extend an existing investigation graph with a new pivot seed.
+
+    Uses a pivot-specific prompt that tells the agent to update the existing
+    report node (singleton with value="investigation_summary") in place rather
+    than create a duplicate. The investigation's status is flipped to "running"
+    by the API endpoint, and this function emits agent_exit on completion so
+    the frontend sidebar refreshes live.
+    """
+    user_prompt = (
+        f"Pivot seed: type={seed_type} value={seed_value}\n"
+        f"Investigation id: {inv_id}\n\n"
+        "STEP 1: Call get_graph() and locate the existing report node\n"
+        "        (type=report, value=investigation_summary). Read its metadata —\n"
+        "        you will merge into it.\n\n"
+        "STEP 2: Run pivot enrichment for this seed. "
+    )
+    if seed_type == "ip":
+        user_prompt += (
+            "Call these tools (skip any whose results are already in the graph):\n"
+            f"  - rdap_ip({seed_value})\n"
+            f"  - virustotal_ip({seed_value})\n"
+            f"  - shodan_host({seed_value})  (passive — extract JARM, banners, technologies)\n"
+            f"  - onyphe_ip({seed_value})  (passive — banners, cert, technologies)\n"
+            f"  - reverse_dns({seed_value})\n"
+            f"  - virustotal_resolutions_ip({seed_value})\n"
+            f"  - virustotal_communicating_files(\"ip\", {seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - otx_ip({seed_value})\n"
+            "If a JARM is extracted and it is not a well-known CDN JARM, also call\n"
+            f"  - shodan_search(\"ssl.jarm:<jarm>\") and add new IPs with same_jarm edges.\n"
+        )
+    elif seed_type == "domain":
+        user_prompt += (
+            "Call these tools (skip any whose results are already in the graph):\n"
+            f"  - rdap_domain({seed_value}) / dns_resolve({seed_value})\n"
+            f"  - crtsh_subdomains({seed_value})\n"
+            f"  - virustotal_domain({seed_value})\n"
+            f"  - virustotal_resolutions_domain({seed_value})\n"
+            f"  - virustotal_communicating_files(\"domain\", {seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - otx_domain({seed_value})\n"
+            f"  - onyphe_domain({seed_value})  (passive fingerprinting)\n"
+        )
+    elif seed_type == "hash":
+        user_prompt += (
+            "Call these tools (skip any whose results are already in the graph):\n"
+            f"  - malwarebazaar_hash({seed_value})\n"
+            f"  - virustotal_file({seed_value})\n"
+            f"  - otx_file({seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            "For every hash node created or updated, set metadata.file_name.\n"
+        )
+    user_prompt += (
+        "\nSTEP 3: UPDATE THE REPORT (do this exactly once, at the end).\n"
+        "Re-call add_node(report, \"investigation_summary\", metadata={...},\n"
+        "source=\"agent\", tags=[\"report\"]) with MERGED metadata as described in\n"
+        "P3 of the system prompt. Preserve prior key_findings; append new ones.\n"
+        "Only escalate threat_assessment if a new direct-evidence R11 condition\n"
+        "is met (cite the source in key_findings).\n"
+        "Then STOP."
+    )
+
+    env = _build_env(inv_id)
+    mcp_cfg_path = _write_mcp_config(inv_id)
+    _log(inv_id, "agent_starting", {"cwd": str(ROOT), "mcp_config": str(mcp_cfg_path), "phase": "pivot",
+                                    "pivot_seed_type": seed_type, "pivot_seed_value": seed_value})
+
+    rc, saw_result, has_report = await _run_claude_phase(
+        inv_id, user_prompt, _PIVOT_SYSTEM_PROMPT, model, env, mcp_cfg_path,
+        phase="pivot", max_turns=40
+    )
+
+    # Final status — pivot is considered successful as long as the agent ran
+    # (saw_result or rc==0). A pivot does not necessarily add a brand-new report;
+    # it updates the existing one.
+    final_status = "done" if (saw_result or rc == 0) else f"error rc={rc}"
+    gs.set_status(inv_id, final_status)
+    _log(inv_id, "agent_exit", {"rc": rc, "status": final_status, "phase": "pivot",
+                                "has_report": has_report})

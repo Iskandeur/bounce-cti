@@ -17,7 +17,7 @@ from typing import Optional
 
 from . import graph_store as gs
 from . import auth
-from .agent_runner import run_investigation
+from .agent_runner import run_investigation, run_pivot
 
 app = FastAPI(title="Bounce-CTI")
 # Tight CORS: the frontend is served from the same origin as the API.
@@ -254,9 +254,17 @@ class EnrichReq(BaseModel):
 async def enrich(inv_id: str, req: EnrichReq, user_id: int = Depends(current_user)):
     _require_owner(inv_id, user_id)
     model = _check_model(user_id, req.model)
+    gs.set_status(inv_id, "running")
+    # Emit a status_change event so any connected WebSocket clients can refresh
+    # the sidebar status live (otherwise the sidebar keeps showing "done" while
+    # the pivot is actively writing new nodes).
+    import json as _json, time as _time
     with gs.conn() as c:
-        c.execute("UPDATE investigations SET status='running' WHERE id=?", (inv_id,))
-    asyncio.create_task(run_investigation(inv_id, req.seed_type, req.seed_value, model=model))
+        payload = {"kind": "status_change", "status": "running",
+                   "pivot_seed_type": req.seed_type, "pivot_seed_value": req.seed_value}
+        c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                  (inv_id, "status_change", _json.dumps(payload), _time.time()))
+    asyncio.create_task(run_pivot(inv_id, req.seed_type, req.seed_value, model=model))
     return {"ok": True}
 
 
