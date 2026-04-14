@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
+import Login from './Login.jsx'
+import AdminPanel from './AdminPanel.jsx'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 
@@ -44,10 +46,16 @@ function HighlightedText({ text, nodeValues, onNodeClick }) {
   )
 }
 
-export default function App() {
+function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [seedType, setSeedType] = useState('domain')
   const [seedValue, setSeedValue] = useState('')
   const [model, setModel] = useState('sonnet')
+  const [adminOpen, setAdminOpen] = useState(false)
+  useEffect(() => { /* model-coercion */
+    if (allowedModels && allowedModels.length && !allowedModels.includes(model)) {
+      setModel(allowedModels[0])
+    }
+  }, [allowedModels])
   const [invs, setInvs] = useState([])
   const [activeInv, setActiveInv] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -356,7 +364,8 @@ export default function App() {
     setFilterTypes(new Set())
     cyRef.current.elements().remove()
 
-    const ws = new WebSocket(`ws://${location.host}/ws/${id}`)
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${wsProto}//${location.host}/ws/${id}`)
     wsMap[id] = ws
     ws.onmessage = (m) => {
       const evt = JSON.parse(m.data)
@@ -483,7 +492,7 @@ export default function App() {
     <div className="app">
       {/* ── LEFT SIDEBAR ── */}
       <div className="sidebar">
-        <div className="logo">BOUNCE<span>CTI</span></div>
+        <div className="logo-row"><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
 
         <div className="section-label">New investigation</div>
         <select value={seedType} onChange={e => setSeedType(e.target.value)}>
@@ -499,9 +508,9 @@ export default function App() {
         />
         <div className="section-label">Model</div>
         <select value={model} onChange={e => setModel(e.target.value)}>
-          <option value="sonnet">Sonnet 4.6 (recommended)</option>
-          <option value="opus">Opus 4.6 (smarter, slower)</option>
-          <option value="haiku">Haiku 4.5 (faster, lighter)</option>
+          {(!allowedModels || allowedModels.includes('sonnet')) && <option value="sonnet">Sonnet 4.6 (recommended)</option>}
+          {(!allowedModels || allowedModels.includes('opus')) && <option value="opus">Opus 4.6 (smarter, slower)</option>}
+          {(!allowedModels || allowedModels.includes('haiku')) && <option value="haiku">Haiku 4.5 (faster, lighter)</option>}
         </select>
         <button onClick={start}>Investigate →</button>
 
@@ -786,7 +795,42 @@ export default function App() {
             </>
           )}
         </div>
-      </div>
+      {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} selfId={userId} />}
+    </div>
     </div>
   )
+}
+
+export default function AppRoot() {
+  const [authState, setAuthState] = useState('checking')
+  const [me, setMe] = useState(null)
+  useEffect(() => {
+    fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) { setMe(data); setAuthState('authed') } else { setMe(null); setAuthState('needed') } })
+      .catch(() => { setMe(null); setAuthState('needed') })
+  }, [])
+  const logout = async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }) } catch (e) { /* ignore */ }
+    setMe(null)
+    setAuthState('needed')
+  }
+  if (authState === 'checking') {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="logo">BOUNCE<span>CTI</span></div>
+        </div>
+      </div>
+    )
+  }
+  if (authState === 'needed') {
+    return <Login onAuth={() => fetch('/api/auth/me', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : null).then(data => { if (data) { setMe(data); setAuthState('authed') } })} />
+  }
+  return <MainApp
+    onLogout={logout}
+    isAdmin={!!me?.is_admin}
+    allowedModels={me?.allowed_models || null}
+    userId={me?.user_id}
+  />
 }

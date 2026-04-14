@@ -3,6 +3,7 @@ import json
 import sqlite3
 import time
 import hashlib
+from collections import Counter
 from contextlib import contextmanager
 from typing import Any, Optional
 from .config import DB_PATH
@@ -13,7 +14,8 @@ CREATE TABLE IF NOT EXISTS investigations (
     seed_type TEXT,
     seed_value TEXT,
     created_at REAL,
-    status TEXT
+    status TEXT,
+    user_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
@@ -51,6 +53,21 @@ CREATE TABLE IF NOT EXISTS cache (
     value TEXT,
     created_at REAL
 );
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pin_hmac TEXT UNIQUE NOT NULL,
+    created_at REAL NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    allowed_models TEXT
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_investigations_user ON investigations(user_id);
+CREATE INDEX IF NOT EXISTS idx_events_inv ON events(investigation_id);
 """
 
 
@@ -73,17 +90,29 @@ def conn():
         c.close()
 
 
+def _ensure_column(c, table: str, column: str, ddl: str):
+    cols = [r["name"] for r in c.execute(f"PRAGMA table_info({table})")]
+    if cols and column not in cols:
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
 def init_db():
     with conn() as c:
+        # Migrations: add columns to pre-existing tables before creating indexes
+        _ensure_column(c, "investigations", "user_id", "user_id INTEGER")
+        # users table may pre-date is_admin/allowed_models
+        if c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone():
+            _ensure_column(c, "users", "is_admin", "is_admin INTEGER NOT NULL DEFAULT 0")
+            _ensure_column(c, "users", "allowed_models", "allowed_models TEXT")
         c.executescript(SCHEMA)
 
 
-def create_investigation(seed_type: str, seed_value: str) -> str:
+def create_investigation(seed_type: str, seed_value: str, user_id: Optional[int] = None) -> str:
     inv_id = hashlib.sha1(f"{time.time()}|{seed_type}|{seed_value}".encode()).hexdigest()[:12]
     with conn() as c:
         c.execute(
-            "INSERT INTO investigations(id, seed_type, seed_value, created_at, status) VALUES (?,?,?,?,?)",
-            (inv_id, seed_type, seed_value, time.time(), "running"),
+            "INSERT INTO investigations(id, seed_type, seed_value, created_at, status, user_id) VALUES (?,?,?,?,?,?)",
+            (inv_id, seed_type, seed_value, time.time(), "running", user_id),
         )
     return inv_id
 
@@ -91,6 +120,12 @@ def create_investigation(seed_type: str, seed_value: str) -> str:
 def set_status(inv_id: str, status: str):
     with conn() as c:
         c.execute("UPDATE investigations SET status=? WHERE id=?", (status, inv_id))
+
+
+def get_investigation_owner(inv_id: str) -> Optional[int]:
+    with conn() as c:
+        row = c.execute("SELECT user_id FROM investigations WHERE id=?", (inv_id,)).fetchone()
+    return row["user_id"] if row else None
 
 
 def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
@@ -109,7 +144,6 @@ def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
                                                      "metadata": metadata or {}, "tags": tags or [],
                                                      "confidence": confidence, "source": source}}
         except sqlite3.IntegrityError:
-            # merge metadata
             row = c.execute("SELECT metadata, tags FROM nodes WHERE id=?", (nid,)).fetchone()
             existing_md = json.loads(row["metadata"] or "{}")
             existing_md.update(metadata or {})
@@ -184,7 +218,6 @@ def get_events_since(inv_id: str, since_id: int = 0) -> list[dict]:
 
 
 def clear_investigation(inv_id: str):
-    """Delete all nodes, edges and events for an investigation and reset it to running."""
     with conn() as c:
         c.execute("DELETE FROM nodes WHERE investigation_id=?", (inv_id,))
         c.execute("DELETE FROM edges WHERE investigation_id=?", (inv_id,))
@@ -193,7 +226,6 @@ def clear_investigation(inv_id: str):
 
 
 def delete_investigation(inv_id: str):
-    """Fully remove an investigation."""
     with conn() as c:
         c.execute("DELETE FROM nodes WHERE investigation_id=?", (inv_id,))
         c.execute("DELETE FROM edges WHERE investigation_id=?", (inv_id,))
@@ -201,9 +233,89 @@ def delete_investigation(inv_id: str):
         c.execute("DELETE FROM investigations WHERE id=?", (inv_id,))
 
 
-def list_investigations() -> list[dict]:
+def list_investigations(user_id: Optional[int] = None) -> list[dict]:
     with conn() as c:
-        return [dict(r) for r in c.execute("SELECT * FROM investigations ORDER BY created_at DESC LIMIT 100")]
+        if user_id is None:
+            rows = c.execute("SELECT * FROM investigations ORDER BY created_at DESC LIMIT 100")
+        else:
+            rows = c.execute(
+                "SELECT * FROM investigations WHERE user_id=? ORDER BY created_at DESC LIMIT 100",
+                (user_id,),
+            )
+        return [dict(r) for r in rows]
+
+
+# ── Admin queries ────────────────────────────────────────────────────────
+def get_users_with_stats() -> list[dict]:
+    """Return all users with per-user investigation + tool-use stats."""
+    with conn() as c:
+        user_rows = [dict(r) for r in c.execute(
+            "SELECT id, created_at, is_admin, allowed_models FROM users ORDER BY id"
+        )]
+        out = []
+        for u in user_rows:
+            invs = [dict(r) for r in c.execute(
+                "SELECT id, seed_type, seed_value, status, created_at FROM investigations WHERE user_id=? ORDER BY created_at DESC",
+                (u["id"],),
+            )]
+            total = len(invs)
+            done = sum(1 for i in invs if i["status"] == "done")
+            running = sum(1 for i in invs if i["status"] == "running")
+            err = sum(1 for i in invs if str(i["status"]).startswith("error"))
+            tools: Counter = Counter()
+            for inv in invs:
+                for (payload,) in c.execute(
+                    "SELECT payload FROM events WHERE investigation_id=? AND kind='agent_assistant'",
+                    (inv["id"],),
+                ):
+                    try:
+                        d = json.loads(payload)
+                    except Exception:
+                        continue
+                    for block in d.get("msg", {}).get("message", {}).get("content", []):
+                        if block.get("type") == "tool_use":
+                            name = block.get("name", "")
+                            if name:
+                                # Strip mcp__cti__ / mcp__graph__ prefix for readability
+                                for p in ("mcp__cti__", "mcp__graph__"):
+                                    if name.startswith(p):
+                                        name = name[len(p):]
+                                        break
+                                tools[name] += 1
+            out.append({
+                "id": u["id"],
+                "created_at": u["created_at"],
+                "is_admin": bool(u["is_admin"]),
+                "allowed_models": json.loads(u["allowed_models"]) if u["allowed_models"] else None,
+                "stats": {
+                    "total": total, "done": done, "running": running, "error": err,
+                    "tool_calls": sum(tools.values()),
+                },
+                "top_tools": tools.most_common(8),
+                "investigations": invs,
+            })
+        return out
+
+
+def update_user_allowed_models(user_id: int, allowed_models: Optional[list[str]]):
+    val = json.dumps(allowed_models) if allowed_models else None
+    with conn() as c:
+        c.execute("UPDATE users SET allowed_models=? WHERE id=?", (val, user_id))
+
+
+def delete_user(user_id: int):
+    """Cascade-delete user and everything they own."""
+    with conn() as c:
+        inv_ids = [r["id"] for r in c.execute(
+            "SELECT id FROM investigations WHERE user_id=?", (user_id,)
+        )]
+        for iid in inv_ids:
+            c.execute("DELETE FROM nodes WHERE investigation_id=?", (iid,))
+            c.execute("DELETE FROM edges WHERE investigation_id=?", (iid,))
+            c.execute("DELETE FROM events WHERE investigation_id=?", (iid,))
+        c.execute("DELETE FROM investigations WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM users WHERE id=?", (user_id,))
 
 
 def cache_get(key: str, ttl: float = 86400) -> Optional[Any]:

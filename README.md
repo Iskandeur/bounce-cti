@@ -1,5 +1,13 @@
 # bounce-cti
 
+> **Copyright (c) 2026 Alexandre Pinoteau · All rights reserved.**
+> Licensed under the [PolyForm Noncommercial License 1.0.0](./LICENSE).
+> You may use, study, and modify this project for **non-commercial** purposes
+> (personal, academic, research, hobby). **Any commercial use — including
+> internal use at a for-profit company — requires a separate commercial
+> license from the author.** Please open a GitHub issue or reach out to
+> arrange one.
+
 Autonomous CTI investigation tool. Feed it a domain / IP / file hash, and a
 Claude Code agent pivots through public sources (crt.sh, RDAP, DNS, VirusTotal,
 URLScan, Onyphe, Shodan, OTX, ThreatFox, Wayback) building a live infrastructure
