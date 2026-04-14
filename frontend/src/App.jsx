@@ -18,6 +18,24 @@ const NODE_SHAPES = {
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e', error: '#f85149' }
 
+// ── Maltego entity type mapping ──────────────────────────────────────────────
+// Maps bounce-cti node.type -> Maltego entity type string. The paste format is
+// `<maltego_entity_type>#<value>` (one per line). Falsy return = skip this type.
+const MALTEGO_TYPES = {
+  domain:    () => 'maltego.Domain',
+  ip:        v  => v.includes(':') ? 'maltego.IPv6Address' : 'maltego.IPv4Address',
+  hash:      () => 'maltego.Hash',
+  url:       () => 'maltego.URL',
+  cert:      () => 'maltego.X509Certificate',
+  asn:       () => 'maltego.AS',
+  email:     () => 'maltego.EmailAddress',
+  ns:        () => 'maltego.NSRecord',
+  registrar: () => 'maltego.Organization',
+  favicon:   () => 'maltego.Phrase',
+  jarm:      () => 'maltego.Phrase',
+  report:    () => null,
+}
+
 const wsMap = {}
 
 // ── HighlightedText ──────────────────────────────────────────────────────────
@@ -67,6 +85,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
   const [rightTab, setRightTab] = useState('report')
   const [existingTypes, setExistingTypes] = useState(new Set())
+  // Multi-selection for "copy / export" scope. Ctrl/Cmd/Shift + click toggles
+  // a node into this set without touching the single-click details panel.
+  // Empty set == "all nodes" (implicit select-all).
+  const [pickedIds, setPickedIds] = useState(new Set())
+  const [nodeCount, setNodeCount] = useState(0)
 
   const cyRef = useRef(null)
   const containerRef = useRef(null)
@@ -140,6 +163,16 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           }
         },
         {
+          selector: 'node.picked',
+          style: {
+            'border-color': '#58a6ff',
+            'border-width': 4,
+            'shadow-blur': 14,
+            'shadow-color': '#58a6ffaa',
+            'shadow-opacity': 0.9,
+          }
+        },
+        {
           selector: 'edge',
           style: {
             'width': 1.5,
@@ -195,6 +228,17 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
 
     cyRef.current.on('tap', 'node', evt => {
       const d = evt.target.data()
+      const oe = evt.originalEvent
+      const multiKey = oe && (oe.ctrlKey || oe.metaKey || oe.shiftKey)
+      if (multiKey) {
+        // Multi-select toggle: don't change the details panel.
+        setPickedIds(prev => {
+          const next = new Set(prev)
+          if (next.has(d.id)) next.delete(d.id); else next.add(d.id)
+          return next
+        })
+        return
+      }
       setSelected(d)
       if (d.type === 'report') {
         setReport(d.metadata)
@@ -204,7 +248,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       }
     })
     cyRef.current.on('tap', evt => {
-      if (evt.target === cyRef.current) setSelected(null)
+      if (evt.target === cyRef.current) {
+        setSelected(null)
+        // Clicking empty canvas also clears the multi-selection.
+        setPickedIds(prev => (prev.size === 0 ? prev : new Set()))
+      }
     })
 
     refreshInvs()
@@ -219,6 +267,23 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       .style('label', ele => showEdgeLabels ? (ele.data('relation') || '') : '')
       .update()
   }, [showEdgeLabels])
+
+  // Sync the `picked` CSS class on nodes whenever the selection set changes.
+  useEffect(() => {
+    const cy = cyRef.current
+    if (!cy) return
+    cy.nodes().forEach(n => n.toggleClass('picked', pickedIds.has(n.id())))
+  }, [pickedIds])
+
+  // Keep a reactive node count so toolbar labels (e.g. "all (N)") update live.
+  useEffect(() => {
+    const cy = cyRef.current
+    if (!cy) return
+    const update = () => setNodeCount(cy.nodes().length)
+    cy.on('add remove', 'node', update)
+    update()
+    return () => cy.off('add remove', 'node', update)
+  }, [])
 
   // ── focusNode ────────────────────────────────────────────────────────────
   const focusNode = useCallback((id) => {
@@ -362,6 +427,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setNodeValues(new Map())
     setExistingTypes(new Set())
     setFilterTypes(new Set())
+    setPickedIds(new Set())
     cyRef.current.elements().remove()
 
     const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -442,11 +508,57 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setTimeout(() => setCopied(false), 1500)
   }
 
-  const copyGraphJson = async () => {
-    if (!activeInv) return
-    const r = await fetch(`/api/investigations/${activeInv}/graph`)
-    const data = await r.json()
-    navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+  // Return the cytoscape node collection to export / copy:
+  //   - if the user has explicitly picked nodes (ctrl+click), use exactly those;
+  //   - otherwise, use every node currently on the graph (implicit select-all).
+  const getTargetNodes = () => {
+    const cy = cyRef.current
+    if (!cy) return null
+    return pickedIds.size > 0
+      ? cy.nodes().filter(n => pickedIds.has(n.id()))
+      : cy.nodes()
+  }
+
+  const copyGraphJson = () => {
+    const targets = getTargetNodes()
+    if (!targets || targets.length === 0) return
+    const idSet = new Set(); targets.forEach(n => idSet.add(n.id()))
+    const cy = cyRef.current
+    const nodes = targets.map(n => {
+      const d = n.data()
+      return {
+        id: d.id, type: d.type, value: d.value,
+        tags: d.tags || [], source: d.source, confidence: d.confidence,
+        metadata: d.metadata || {},
+      }
+    })
+    // Only include edges that connect two nodes in the selection.
+    const edges = cy.edges()
+      .filter(e => idSet.has(e.source().id()) && idSet.has(e.target().id()))
+      .map(e => ({
+        id: e.id(), src: e.source().id(), dst: e.target().id(),
+        relation: e.data('relation'), evidence: e.data('evidence'),
+      }))
+    navigator.clipboard.writeText(JSON.stringify({ nodes, edges }, null, 2))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  // Build Maltego-paste text: one `<entity_type>#<value>` per line.
+  // See https://docs.maltego.com/ (Pasting Data) for the format.
+  const copyToMaltego = () => {
+    const targets = getTargetNodes()
+    if (!targets || targets.length === 0) return
+    const lines = []
+    targets.forEach(n => {
+      const d = n.data()
+      const mapper = MALTEGO_TYPES[d.type]
+      const mtype = mapper ? mapper(d.value) : 'maltego.Phrase'
+      if (!mtype) return // e.g. report
+      lines.push(`${mtype}#${d.value}`)
+    })
+    if (lines.length === 0) return
+    navigator.clipboard.writeText(lines.join('\n'))
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -566,9 +678,35 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           >
             {showEdgeLabels ? '⌗ Labels on' : '⌗ Labels off'}
           </button>
-          <button className="toolbar-btn" onClick={copyGraphJson} title="Export graph as JSON">
-            {copied ? '✓ copied' : '↓ Export JSON'}
+          <button
+            className="toolbar-btn"
+            onClick={copyGraphJson}
+            disabled={nodeCount === 0}
+            title={pickedIds.size > 0
+              ? `Copy ${pickedIds.size} selected node(s) as JSON`
+              : `Copy all ${nodeCount} node(s) as JSON — ctrl+click nodes to narrow`}
+          >
+            {copied ? '✓ copied' : `↓ JSON (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}
           </button>
+          <button
+            className="toolbar-btn"
+            onClick={copyToMaltego}
+            disabled={nodeCount === 0}
+            title={pickedIds.size > 0
+              ? `Copy ${pickedIds.size} selected node(s) in Maltego paste format`
+              : `Copy all ${nodeCount} node(s) in Maltego paste format — ctrl+click nodes to narrow`}
+          >
+            {copied ? '✓ copied' : `⟶ Maltego (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}
+          </button>
+          {pickedIds.size > 0 && (
+            <button
+              className="toolbar-btn"
+              onClick={() => setPickedIds(new Set())}
+              title="Clear selection (back to all-nodes default)"
+            >
+              ✕ clear
+            </button>
+          )}
         </div>
 
         {/* Node type filter bar */}
