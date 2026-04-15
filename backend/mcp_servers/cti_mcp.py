@@ -144,6 +144,72 @@ async def onyphe_ip(ip: str) -> dict:
 
 
 @mcp.tool()
+async def onyphe_datascan(query: str) -> dict:
+    """Onyphe Griffin datascan — run a raw Onyphe query against banners/HTTP/TLS
+    indices (e.g. `ip:1.2.3.4`, `jarm:<jarm>`, `product:nginx os:Linux`).
+    Returns scan records — read them like you would shodan hits."""
+    return await _src("onyphe").onyphe_datascan(query)
+
+
+@mcp.tool()
+async def onyphe_threatlist(ip: str) -> dict:
+    """Onyphe threatlist — curated malicious-IP feed hits (C2, scanners, abuse)."""
+    return await _src("onyphe").onyphe_threatlist(ip)
+
+
+@mcp.tool()
+async def onyphe_resolver_forward(domain: str) -> dict:
+    """Onyphe forward DNS resolver history for a domain."""
+    return await _src("onyphe").onyphe_resolver_forward(domain)
+
+
+@mcp.tool()
+async def onyphe_resolver_reverse(ip: str) -> dict:
+    """Onyphe reverse DNS resolver history for an IP (passive DNS)."""
+    return await _src("onyphe").onyphe_resolver_reverse(ip)
+
+
+@mcp.tool()
+async def onyphe_ctl(domain: str) -> dict:
+    """Onyphe Certificate Transparency Logs — SAN pivots for a domain."""
+    return await _src("onyphe").onyphe_ctl(domain)
+
+
+@mcp.tool()
+async def onyphe_pastries(query: str) -> dict:
+    """Onyphe pastries — paste-site mentions for an IOC (domain/IP/email)."""
+    return await _src("onyphe").onyphe_pastries(query)
+
+
+@mcp.tool()
+async def onyphe_geoloc(ip: str) -> dict:
+    """Onyphe geolocation for an IP — authoritative country/city."""
+    return await _src("onyphe").onyphe_geoloc(ip)
+
+
+@mcp.tool()
+async def ip_api_lookup(ip: str) -> dict:
+    """ip-api.com geolocation lookup (country, ASN, ISP, proxy/hosting hints).
+    Free tier, no key needed. Good second opinion next to rdap/virustotal."""
+    return await _src("ip_api").ip_api_single(ip)
+
+
+@mcp.tool()
+async def ip_api_batch_lookup(ips: list[str]) -> dict:
+    """Batch geolocation lookup for up to 100 IPs at once via ip-api.com.
+    Returns {results: [{query, country, as, ...}, ...]}. Use this when you
+    pivoted to many IPs and need to classify them cheaply."""
+    return await _src("ip_api").ip_api_batch(ips)
+
+
+@mcp.tool()
+async def ip_api_edns(ip: str) -> dict:
+    """ip-api.com EDNS-aware geolocation — shows the CDN edge that answered
+    the client-subnet query (helpful to distinguish anycast POPs)."""
+    return await _src("ip_api").ip_api_edns(ip)
+
+
+@mcp.tool()
 async def shodan_host(ip: str) -> dict:
     """Shodan host info (open ports, banners, vulns)."""
     return await _src("shodan").shodan_host(ip)

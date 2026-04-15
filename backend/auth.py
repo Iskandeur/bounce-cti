@@ -44,9 +44,13 @@ def _gen_pin() -> str:
     return f"{secrets.randbelow(10 ** PIN_LENGTH):0{PIN_LENGTH}d}"
 
 
-def create_user(allowed_models: Optional[list[str]] = None) -> tuple[int, str]:
+def create_user(allowed_models: Optional[list[str]] = None,
+                label: Optional[str] = None) -> tuple[int, str]:
     """Create a user with a freshly generated PIN and optional model whitelist.
-    None/empty allowed_models means no restriction (all models OK)."""
+    None/empty allowed_models means no restriction (all models OK).
+    `label` is a short human-readable name the admin can set for their own
+    reference; stored nullable."""
+    label_val = (label or "").strip() or None
     for _ in range(20):
         pin = _gen_pin()
         h = pin_hmac(pin)
@@ -54,8 +58,8 @@ def create_user(allowed_models: Optional[list[str]] = None) -> tuple[int, str]:
             if c.execute("SELECT 1 FROM users WHERE pin_hmac=?", (h,)).fetchone():
                 continue
             cur = c.execute(
-                "INSERT INTO users(pin_hmac, created_at, is_admin, allowed_models) VALUES (?, ?, 0, ?)",
-                (h, time.time(), json.dumps(allowed_models) if allowed_models else None),
+                "INSERT INTO users(pin_hmac, created_at, is_admin, allowed_models, label) VALUES (?, ?, 0, ?, ?)",
+                (h, time.time(), json.dumps(allowed_models) if allowed_models else None, label_val),
             )
             return cur.lastrowid, pin
     raise RuntimeError("PIN collision after 20 tries")
@@ -151,13 +155,18 @@ def destroy_session(token: Optional[str]):
 
 
 def get_user(user_id: int) -> Optional[dict]:
-    """Return basic user info: {id, is_admin, allowed_models} or None."""
+    """Return basic user info: {id, is_admin, allowed_models, label} or None."""
     with gs.conn() as c:
         row = c.execute(
-            "SELECT id, is_admin, allowed_models FROM users WHERE id=?",
+            "SELECT id, is_admin, allowed_models, label FROM users WHERE id=?",
             (user_id,),
         ).fetchone()
     if not row:
         return None
     allowed = json.loads(row["allowed_models"]) if row["allowed_models"] else None
-    return {"id": row["id"], "is_admin": bool(row["is_admin"]), "allowed_models": allowed}
+    return {
+        "id": row["id"],
+        "is_admin": bool(row["is_admin"]),
+        "allowed_models": allowed,
+        "label": row["label"],
+    }

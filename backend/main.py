@@ -133,6 +133,7 @@ def auth_me(user_id: int = Depends(current_user)):
 # ── Admin routes ───────────────────────────────────────────────────────────
 class CreateUserReq(BaseModel):
     allowed_models: Optional[list[str]] = None  # None/[] → unrestricted
+    label: Optional[str] = None                 # short human-readable name
 
 
 @app.get("/api/admin/users")
@@ -147,22 +148,30 @@ def admin_create_user(req: CreateUserReq, _: int = Depends(current_admin)):
         bad = [m for m in allowed if m not in ALLOWED_MODELS]
         if bad:
             raise HTTPException(status_code=400, detail=f"unknown models: {bad}")
-    uid, pin = auth.create_user(allowed_models=allowed)
+    uid, pin = auth.create_user(allowed_models=allowed, label=req.label)
     return {"id": uid, "pin": pin}
 
 
 class UpdateUserReq(BaseModel):
     allowed_models: Optional[list[str]] = None  # None/[] → unrestricted
+    label: Optional[str] = None                 # None means "leave unchanged"
 
 
 @app.patch("/api/admin/users/{target_id}")
 def admin_update_user(target_id: int, req: UpdateUserReq, _: int = Depends(current_admin)):
-    allowed = req.allowed_models or None
-    if allowed:
-        bad = [m for m in allowed if m not in ALLOWED_MODELS]
-        if bad:
-            raise HTTPException(status_code=400, detail=f"unknown models: {bad}")
-    gs.update_user_allowed_models(target_id, allowed)
+    # allowed_models: treat None as "leave unchanged" only when the key is absent
+    # from the JSON payload. Pydantic gives us None for missing keys too, so we
+    # use .model_fields_set (or __fields_set__) to distinguish.
+    fields = getattr(req, "model_fields_set", None) or getattr(req, "__fields_set__", set())
+    if "allowed_models" in fields:
+        allowed = req.allowed_models or None
+        if allowed:
+            bad = [m for m in allowed if m not in ALLOWED_MODELS]
+            if bad:
+                raise HTTPException(status_code=400, detail=f"unknown models: {bad}")
+        gs.update_user_allowed_models(target_id, allowed)
+    if "label" in fields:
+        gs.update_user_label(target_id, req.label)
     return {"ok": True}
 
 
@@ -193,6 +202,9 @@ def list_models(user_id: int = Depends(current_user)):
     return {"models": models, "default": default}
 
 
+ALLOWED_SEED_TYPES = {"domain", "ip", "hash", "url"}
+
+
 class StartReq(BaseModel):
     seed_type: str
     seed_value: str
@@ -202,9 +214,40 @@ class StartReq(BaseModel):
 @app.post("/api/investigations")
 async def start(req: StartReq, user_id: int = Depends(current_user)):
     model = _check_model(user_id, req.model)
+    if req.seed_type not in ALLOWED_SEED_TYPES:
+        raise HTTPException(status_code=400, detail=f"unknown seed_type: {req.seed_type}")
     inv_id = gs.create_investigation(req.seed_type, req.seed_value, user_id=user_id)
     asyncio.create_task(run_investigation(inv_id, req.seed_type, req.seed_value, model=model))
     return {"id": inv_id}
+
+
+class BatchItem(BaseModel):
+    seed_type: str
+    seed_value: str
+
+
+class BatchStartReq(BaseModel):
+    items: list[BatchItem]
+    model: str = "opus"
+
+
+@app.post("/api/investigations/batch")
+async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
+    """Kick off many investigations at once (one agent run each). Returns ids."""
+    model = _check_model(user_id, req.model)
+    # Cap to 50 per request so a slip doesn't spawn thousands of agents.
+    items = req.items[:50]
+    ids = []
+    for it in items:
+        if it.seed_type not in ALLOWED_SEED_TYPES:
+            continue
+        sv = (it.seed_value or "").strip()
+        if not sv:
+            continue
+        inv_id = gs.create_investigation(it.seed_type, sv, user_id=user_id)
+        asyncio.create_task(run_investigation(inv_id, it.seed_type, sv, model=model))
+        ids.append({"id": inv_id, "seed_type": it.seed_type, "seed_value": sv})
+    return {"started": ids, "skipped": len(req.items) - len(ids)}
 
 
 @app.get("/api/investigations")

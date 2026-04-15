@@ -14,7 +14,7 @@ const NODE_COLORS = {
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
-  cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'star',
+  cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'concave-hexagon',
   jarm: 'pentagon', url: 'cut-rectangle', country: 'tag'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e', error: '#f85149' }
@@ -69,6 +69,8 @@ function HighlightedText({ text, nodeValues, onNodeClick }) {
 function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [seedType, setSeedType] = useState('domain')
   const [seedValue, setSeedValue] = useState('')
+  const [batchMode, setBatchMode] = useState(false)
+  const [batchText, setBatchText] = useState('')
   const [model, setModel] = useState('sonnet')
   const [adminOpen, setAdminOpen] = useState(false)
   useEffect(() => { /* model-coercion */
@@ -150,7 +152,16 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         },
         {
           selector: 'node[type="report"]',
-          style: { 'width': 38, 'height': 38, 'shape': 'star', 'background-color': '#f0f6fc' }
+          style: {
+            'width': 38, 'height': 38,
+            'shape': 'concave-hexagon',
+            'background-color': '#f5a623',
+            'border-color': '#d48806',
+            'border-width': 3,
+            'color': '#1a1a1a',
+            'font-weight': 'bold',
+            'font-size': 11,
+          }
         },
         {
           selector: 'node:selected',
@@ -500,6 +511,27 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     openInv(id)
   }
 
+  // Launch a batch of investigations — one per non-empty line in the textarea.
+  // Splits on newlines/commas/whitespace. After kick-off, opens the FIRST one
+  // so the user gets immediate feedback; the rest show up in the sidebar.
+  const startBatch = async () => {
+    const items = batchText
+      .split(/[\n,]+/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(v => ({ seed_type: seedType, seed_value: v }))
+    if (items.length === 0) return
+    const r = await fetch('/api/investigations/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, model })
+    })
+    const d = await r.json()
+    await refreshInvs()
+    const first = (d.started || [])[0]
+    if (first) openInv(first.id)
+    setBatchText('')
+  }
+
   // ── deleteInv / rerunInv ──────────────────────────────────────────────────
   const deleteInv = async (id, ev) => {
     ev.stopPropagation()
@@ -604,8 +636,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   }
 
   // ── pivot ─────────────────────────────────────────────────────────────────
+  const PIVOTABLE = ['domain', 'ip', 'hash', 'url']
   const pivot = (n) => {
-    if (!['domain', 'ip', 'hash'].includes(n.type)) return
+    if (!PIVOTABLE.includes(n.type)) return
+    setBatchMode(false)
     setSeedType(n.type)
     setSeedValue(n.value)
   }
@@ -614,13 +648,64 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // (nodes/edges are merged via idempotent upserts).
   const pivotHere = async (n) => {
     if (!activeInv) return
-    if (!['domain', 'ip', 'hash'].includes(n.type)) return
+    if (!PIVOTABLE.includes(n.type)) return
     await fetch(`/api/investigations/${activeInv}/enrich`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ seed_type: n.type, seed_value: n.value, model })
     })
     setEvents(e => [`▶ enrich pivot: ${n.type} ${n.value}`, ...e])
     refreshInvs()
+  }
+
+  // Build a markdown view of the current report for "Copy MD". Uses exact
+  // IOC values so analysts can paste into a ticket / chat without losing the
+  // auto-linking on the UI (IOCs will be rediscoverable via search there).
+  const reportToMarkdown = (r) => {
+    if (!r) return ''
+    const lines = []
+    lines.push(`# Investigation summary`)
+    lines.push('')
+    if (r.threat_assessment) lines.push(`**Threat assessment:** \`${r.threat_assessment}\``)
+    if (r.summary) { lines.push(''); lines.push(r.summary) }
+    if (r.key_findings?.length) {
+      lines.push(''); lines.push('## Key findings')
+      r.key_findings.forEach(f => {
+        const text = typeof f === 'string' ? f : (f.text || '')
+        const srcs = (typeof f === 'object' && Array.isArray(f.sources)) ? f.sources : []
+        const srcStr = srcs.length ? `  *(${srcs.join(', ')})*` : ''
+        lines.push(`- ${text}${srcStr}`)
+      })
+    }
+    if (r.discriminating_markers?.length) {
+      lines.push(''); lines.push('## Discriminating markers')
+      r.discriminating_markers.forEach(m => lines.push(`- \`${m}\``))
+    }
+    if (r.pivot_suggestions?.length) {
+      lines.push(''); lines.push('## Pivot suggestions')
+      r.pivot_suggestions.forEach(p => lines.push(`- ${p}`))
+    }
+    if (r.ioc_list?.length) {
+      lines.push(''); lines.push('## IOC list')
+      r.ioc_list.forEach(i => lines.push(`- \`${i}\``))
+    }
+    if (r.sources_used?.length) {
+      lines.push(''); lines.push(`**Sources used:** ${r.sources_used.map(s => `\`${s}\``).join(', ')}`)
+    }
+    return lines.join('\n')
+  }
+
+  const copyReportMarkdown = () => {
+    if (!report) return
+    navigator.clipboard.writeText(reportToMarkdown(report))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  const copyText = (txt) => {
+    if (!txt) return
+    navigator.clipboard.writeText(String(txt))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -632,25 +717,64 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       <div className="sidebar">
         <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
 
-        <div className="section-label">New investigation</div>
-        <select value={seedType} onChange={e => setSeedType(e.target.value)}>
-          <option value="domain">Domain</option>
-          <option value="ip">IP address</option>
-          <option value="hash">File hash</option>
-        </select>
-        <input
-          value={seedValue}
-          onChange={e => setSeedValue(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && start()}
-          placeholder={seedType === 'domain' ? 'example.com' : seedType === 'ip' ? '1.2.3.4' : 'sha256...'}
-        />
+        <div className="section-label">
+          New investigation
+          <button
+            type="button"
+            className={`batch-toggle${batchMode ? ' active' : ''}`}
+            onClick={() => setBatchMode(v => !v)}
+            title={batchMode ? 'Back to single IOC input' : 'Switch to batch mode (many IOCs at once)'}
+          >
+            {batchMode ? '↩ single' : '⧉ batch'}
+          </button>
+        </div>
+        {!batchMode && (
+          <>
+            <select value={seedType} onChange={e => setSeedType(e.target.value)}>
+              <option value="domain">Domain</option>
+              <option value="ip">IP address</option>
+              <option value="hash">File hash</option>
+              <option value="url">URL</option>
+            </select>
+            <input
+              value={seedValue}
+              onChange={e => setSeedValue(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && start()}
+              placeholder={
+                seedType === 'domain' ? 'example.com' :
+                seedType === 'ip'     ? '1.2.3.4' :
+                seedType === 'url'    ? 'https://example.com/path' :
+                                         'sha256...'
+              }
+            />
+          </>
+        )}
+        {batchMode && (
+          <>
+            <select value={seedType} onChange={e => setSeedType(e.target.value)}>
+              <option value="domain">Domain (one per line)</option>
+              <option value="ip">IP address (one per line)</option>
+              <option value="hash">File hash (one per line)</option>
+              <option value="url">URL (one per line)</option>
+            </select>
+            <textarea
+              className="batch-textarea"
+              value={batchText}
+              onChange={e => setBatchText(e.target.value)}
+              placeholder={`Paste one IOC per line:\nexample.com\nbad.example.net\n…`}
+              rows={6}
+            />
+          </>
+        )}
         <div className="section-label">Model</div>
         <select value={model} onChange={e => setModel(e.target.value)}>
           {(!allowedModels || allowedModels.includes('sonnet')) && <option value="sonnet">Sonnet 4.6 (recommended)</option>}
           {(!allowedModels || allowedModels.includes('opus')) && <option value="opus">Opus 4.6 (smarter, slower)</option>}
           {(!allowedModels || allowedModels.includes('haiku')) && <option value="haiku">Haiku 4.5 (faster, lighter)</option>}
         </select>
-        <button onClick={start}>Investigate →</button>
+        <button onClick={batchMode ? startBatch : start}>
+          {batchMode ? 'Launch batch →' : 'Investigate →'}
+        </button>
 
         <div className="section-label">History</div>
         <div className="inv-list">
@@ -796,10 +920,18 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               )}
               {report && (
                 <>
-                  <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className={`threat-badge threat-${(report.threat_assessment || 'unknown').replace(/\s+/g, '_')}`}>
                       {(report.threat_assessment || 'UNKNOWN').toUpperCase()}
                     </span>
+                    <button
+                      className="btn-sm secondary export-btn"
+                      style={{ marginLeft: 'auto' }}
+                      onClick={copyReportMarkdown}
+                      title="Copy the full report as markdown (paste into ticket / chat)"
+                    >
+                      {copied ? '✓ copied' : '↓ Copy MD'}
+                    </button>
                   </div>
 
                   {report.summary && (
@@ -921,7 +1053,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                   </div>
 
                   <div style={{ display: 'flex', gap: 6 }}>
-                    {['domain', 'ip', 'hash'].includes(selected.type) && (
+                    {PIVOTABLE.includes(selected.type) && (
                       <>
                         <button
                           className="btn-sm"
@@ -949,6 +1081,44 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                       {copied ? '✓ copied' : '↓ Copy JSON'}
                     </button>
                   </div>
+
+                  {/* Hash nodes: prominent filename block + copy-hash shortcut.
+                      The graph label already shows file_name when present;
+                      here we surface both fields explicitly so the analyst
+                      can grab either one quickly. */}
+                  {selected.type === 'hash' && (
+                    <div className="hash-detail">
+                      {(() => {
+                        const md = selected.metadata || {}
+                        const name = md.file_name
+                          || (Array.isArray(md.names) && md.names[0])
+                          || (Array.isArray(md.file_names) && md.file_names[0])
+                          || md.meaningful_name
+                        return name ? (
+                          <div className="hash-detail-row">
+                            <span className="hash-detail-label">filename</span>
+                            <span className="hash-detail-value" title={String(name)}>{String(name)}</span>
+                            <button
+                              className="btn-sm secondary hash-copy-btn"
+                              onClick={() => copyText(name)}
+                              title="Copy filename"
+                            >⧉</button>
+                          </div>
+                        ) : (
+                          <div className="hash-detail-row muted">no filename in metadata</div>
+                        )
+                      })()}
+                      <div className="hash-detail-row">
+                        <span className="hash-detail-label">hash</span>
+                        <span className="hash-detail-value mono" title={selected.value}>{selected.value}</span>
+                        <button
+                          className="btn-sm secondary hash-copy-btn"
+                          onClick={() => copyText(selected.value)}
+                          title="Copy hash"
+                        >⧉</button>
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <div className="section-label" style={{ margin: '8px 0 6px' }}>Metadata</div>

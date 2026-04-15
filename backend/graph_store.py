@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS users (
     pin_hmac TEXT UNIQUE NOT NULL,
     created_at REAL NOT NULL,
     is_admin INTEGER NOT NULL DEFAULT 0,
-    allowed_models TEXT
+    allowed_models TEXT,
+    label TEXT
 );
 CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
@@ -104,6 +105,7 @@ def init_db():
         if c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone():
             _ensure_column(c, "users", "is_admin", "is_admin INTEGER NOT NULL DEFAULT 0")
             _ensure_column(c, "users", "allowed_models", "allowed_models TEXT")
+            _ensure_column(c, "users", "label", "label TEXT")
         c.executescript(SCHEMA)
 
 
@@ -250,7 +252,7 @@ def get_users_with_stats() -> list[dict]:
     """Return all users with per-user investigation + tool-use stats."""
     with conn() as c:
         user_rows = [dict(r) for r in c.execute(
-            "SELECT id, created_at, is_admin, allowed_models FROM users ORDER BY id"
+            "SELECT id, created_at, is_admin, allowed_models, label FROM users ORDER BY id"
         )]
         out = []
         for u in user_rows:
@@ -262,6 +264,16 @@ def get_users_with_stats() -> list[dict]:
             done = sum(1 for i in invs if i["status"] == "done")
             running = sum(1 for i in invs if i["status"] == "running")
             err = sum(1 for i in invs if str(i["status"]).startswith("error"))
+            # Last activity = max(created_at of investigations, event timestamps).
+            last_active = max((i["created_at"] or 0) for i in invs) if invs else None
+            if invs:
+                row = c.execute(
+                    "SELECT MAX(created_at) AS ts FROM events WHERE investigation_id IN ("
+                    + ",".join("?" * len(invs)) + ")",
+                    tuple(i["id"] for i in invs),
+                ).fetchone()
+                if row and row["ts"]:
+                    last_active = max(last_active or 0, row["ts"])
             tools: Counter = Counter()
             for inv in invs:
                 for (payload,) in c.execute(
@@ -287,6 +299,8 @@ def get_users_with_stats() -> list[dict]:
                 "created_at": u["created_at"],
                 "is_admin": bool(u["is_admin"]),
                 "allowed_models": json.loads(u["allowed_models"]) if u["allowed_models"] else None,
+                "label": u.get("label"),
+                "last_active": last_active,
                 "stats": {
                     "total": total, "done": done, "running": running, "error": err,
                     "tool_calls": sum(tools.values()),
@@ -301,6 +315,13 @@ def update_user_allowed_models(user_id: int, allowed_models: Optional[list[str]]
     val = json.dumps(allowed_models) if allowed_models else None
     with conn() as c:
         c.execute("UPDATE users SET allowed_models=? WHERE id=?", (val, user_id))
+
+
+def update_user_label(user_id: int, label: Optional[str]):
+    """Set or clear a short human-readable label for a user (admin-only)."""
+    val = (label or "").strip() or None
+    with conn() as c:
+        c.execute("UPDATE users SET label=? WHERE id=?", (val, user_id))
 
 
 def delete_user(user_id: int):

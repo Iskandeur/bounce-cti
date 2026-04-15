@@ -79,6 +79,14 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
             ("otx_domain", f'otx_domain("{seed_value}")'),
             ("crtsh_subdomains", f'crtsh_subdomains("{seed_value}")'),
         ]
+    elif seed_type == "url":
+        # For URL seeds we can't reliably rebuild the host from seed_value here,
+        # so only mandate URL-specific tools. The agent handles host pivots via
+        # the URL workflow prompt.
+        mandatory = [
+            ("urlscan_search", f'urlscan_search("page.url:{seed_value}")'),
+            ("threatfox_search", f'threatfox_search("{seed_value}")'),
+        ]
     else:  # hash
         mandatory = [
             ("virustotal_file", f'virustotal_file("{seed_value}")'),
@@ -645,6 +653,10 @@ _ALLOWED_TOOLS = (
     "mcp__cti__virustotal_subdomains,mcp__cti__virustotal_communicating_files,"
     "mcp__cti__urlscan_search,mcp__cti__urlscan_result,"
     "mcp__cti__onyphe_domain,mcp__cti__onyphe_ip,"
+    "mcp__cti__onyphe_datascan,mcp__cti__onyphe_threatlist,"
+    "mcp__cti__onyphe_resolver_forward,mcp__cti__onyphe_resolver_reverse,"
+    "mcp__cti__onyphe_ctl,mcp__cti__onyphe_pastries,mcp__cti__onyphe_geoloc,"
+    "mcp__cti__ip_api_lookup,mcp__cti__ip_api_batch_lookup,mcp__cti__ip_api_edns,"
     "mcp__cti__shodan_host,mcp__cti__shodan_search,"
     "mcp__cti__otx_domain,mcp__cti__otx_ip,mcp__cti__otx_file,"
     "mcp__cti__threatfox_search,mcp__cti__wayback,"
@@ -836,7 +848,29 @@ RULES:
 
 
 async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model: str = "opus"):
-    if seed_type == "ip":
+    if seed_type == "url":
+        user_prompt = (
+            f"Seed indicator: type=url value={seed_value}\n"
+            "This is a URL — derive the host (domain or IP) and investigate that as the\n"
+            "primary pivot, but keep the URL itself as a node in the graph.\n\n"
+            "STEP 1: add_node(url, <seed>, tags=[\"seed\"])\n"
+            "STEP 2: Extract the host from the URL. If it is a domain, add_node(domain, <host>)\n"
+            "        and add_edge(url→domain, has_host). If it is an IP, add_node(ip, <host>)\n"
+            "        and add_edge(url→ip, has_host). Defuse the host before pivoting.\n"
+            "STEP 3: For the host, run the MANDATORY domain or IP workflow tools in full:\n"
+            f"  - urlscan_search(\"page.url:{seed_value}\") AND urlscan_search(\"domain:<host>\")\n"
+            f"  - urlhaus_host(<host>)\n"
+            f"  - rdap_domain(<host>) / dns_resolve(<host>)   (or rdap_ip if host is an IP)\n"
+            f"  - virustotal_domain(<host>) / virustotal_ip(<host>)\n"
+            f"  - virustotal_communicating_files(\"domain\"|\"ip\", <host>)\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - otx_domain(<host>) / otx_ip(<host>)\n"
+            "STEP 4: Follow the similar-attack-pattern hunting steps (JARM, favicon,\n"
+            "        page.title, cert) on the host. Every finding becomes a node/edge.\n"
+            "STEP 5: Final report — use value=\"investigation_summary\" and tie the URL\n"
+            "        seed to it with known_ioc."
+        )
+    elif seed_type == "ip":
         user_prompt = (
             f"Seed indicator: type={seed_type} value={seed_value}\n"
             "Investigate now. You MUST call ALL of these tools before writing the report:\n"
@@ -1052,6 +1086,16 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
             f"  - otx_file({seed_value})\n"
             f"  - threatfox_search({seed_value})\n"
             "For every hash node created or updated, set metadata.file_name.\n"
+        )
+    elif seed_type == "url":
+        user_prompt += (
+            "This is a URL pivot. Graph the URL as a url node (tag as seed if new),\n"
+            "extract the host and graph it as domain/ip node. Then run enrichment on\n"
+            "the host as you would for a domain/ip pivot:\n"
+            f"  - urlscan_search(\"page.url:{seed_value}\")\n"
+            f"  - urlhaus_host(<host>)\n"
+            "  - rdap + DNS + VT (domain or ip flavor, depending on host)\n"
+            "  - threatfox_search on both the URL and the host\n"
         )
     user_prompt += (
         "\nSTEP 3: UPDATE THE REPORT (do this exactly once, at the end).\n"

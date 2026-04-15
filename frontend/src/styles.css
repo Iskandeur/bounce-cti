@@ -822,3 +822,143 @@ button.secondary:hover {
   transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 .admin-btn:hover { color: var(--primary); border-color: var(--primary); background: rgba(88, 166, 255, 0.06); }
+
+/* ── Batch mode toggle (sidebar) ─────────────────────────────────────────── */
+.batch-toggle {
+  font-size: 10px;
+  padding: 2px 8px;
+  margin-left: auto;
+  background: transparent;
+  color: var(--on-dim);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.batch-toggle:hover { color: var(--primary); border-color: var(--primary); }
+.batch-toggle.active {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: rgba(88, 166, 255, 0.1);
+}
+.batch-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 100px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 6px 8px;
+  background: var(--surface);
+  color: var(--on-surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+}
+
+/* ── Admin: summary / search / label ─────────────────────────────────────── */
+.admin-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: rgba(88, 166, 255, 0.05);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+}
+.admin-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 70px;
+  font-size: 11px;
+  color: var(--on-dim);
+}
+.admin-summary-item .num {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--on-surface);
+  line-height: 1;
+}
+.admin-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  background: var(--surface);
+  color: var(--on-surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.admin-label-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 10px;
+  background: var(--surface);
+  color: var(--on-surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.admin-user-label {
+  color: var(--primary);
+  font-weight: 500;
+  font-size: 12px;
+  padding: 2px 6px;
+  background: rgba(88, 166, 255, 0.1);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Report export button ────────────────────────────────────────────────── */
+.export-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+/* ── Hash node details panel ─────────────────────────────────────────────── */
+.hash-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(210, 168, 255, 0.06);
+  border: 1px solid rgba(210, 168, 255, 0.2);
+  border-radius: var(--radius-sm);
+  margin-top: 4px;
+}
+.hash-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.hash-detail-row.muted {
+  color: var(--on-dim);
+  font-style: italic;
+}
+.hash-detail-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--on-dim);
+  letter-spacing: 0.05em;
+  min-width: 55px;
+}
+.hash-detail-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--on-surface);
+}
+.hash-detail-value.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.hash-copy-btn {
+  padding: 2px 8px;
+  font-size: 12px;
+  min-width: auto;
+}
