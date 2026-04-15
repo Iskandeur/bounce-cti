@@ -228,7 +228,7 @@ function UserRow({ user, selfId, allModels, expanded, onToggle, onDelete, onSave
           {user.is_admin && <span className="admin-badge admin-badge-admin">ADMIN</span>}
           {user.id === selfId && <span className="admin-badge admin-badge-self">you</span>}
           <span className="admin-user-date" title={`created ${fmtDate(user.created_at)}`}>
-            active {fmtRelative(user.last_active)}
+            last inv {fmtRelative(user.last_active)}
           </span>
         </div>
         <div className="admin-user-stats">

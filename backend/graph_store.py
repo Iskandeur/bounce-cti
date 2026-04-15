@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS investigations (
     seed_value TEXT,
     created_at REAL,
     status TEXT,
-    user_id INTEGER
+    user_id INTEGER,
+    model TEXT
 );
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
@@ -101,6 +102,7 @@ def init_db():
     with conn() as c:
         # Migrations: add columns to pre-existing tables before creating indexes
         _ensure_column(c, "investigations", "user_id", "user_id INTEGER")
+        _ensure_column(c, "investigations", "model", "model TEXT")
         # users table may pre-date is_admin/allowed_models
         if c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone():
             _ensure_column(c, "users", "is_admin", "is_admin INTEGER NOT NULL DEFAULT 0")
@@ -109,12 +111,13 @@ def init_db():
         c.executescript(SCHEMA)
 
 
-def create_investigation(seed_type: str, seed_value: str, user_id: Optional[int] = None) -> str:
+def create_investigation(seed_type: str, seed_value: str, user_id: Optional[int] = None,
+                         model: Optional[str] = None) -> str:
     inv_id = hashlib.sha1(f"{time.time()}|{seed_type}|{seed_value}".encode()).hexdigest()[:12]
     with conn() as c:
         c.execute(
-            "INSERT INTO investigations(id, seed_type, seed_value, created_at, status, user_id) VALUES (?,?,?,?,?,?)",
-            (inv_id, seed_type, seed_value, time.time(), "running", user_id),
+            "INSERT INTO investigations(id, seed_type, seed_value, created_at, status, user_id, model) VALUES (?,?,?,?,?,?,?)",
+            (inv_id, seed_type, seed_value, time.time(), "running", user_id, model),
         )
     return inv_id
 

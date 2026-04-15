@@ -894,12 +894,14 @@ button.secondary:hover {
 .admin-label-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 5px 10px;
-  background: var(--surface);
-  color: var(--on-surface);
+  padding: 8px 12px;
+  min-height: 36px;
+  background: var(--surface) !important;
+  color: var(--on-surface) !important;
   border: 1px solid var(--outline);
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.4;
   margin-bottom: 8px;
 }
 .admin-user-label {
@@ -961,4 +963,85 @@ button.secondary:hover {
   padding: 2px 8px;
   font-size: 12px;
   min-width: auto;
+}
+
+/* ── Batch combined toggle ───────────────────────────────────────────────── */
+.batch-combined-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--on-dim);
+  cursor: pointer;
+  margin-top: 4px;
+}
+.batch-combined-toggle input { accent-color: var(--primary); }
+
+/* ── Graph IOC search bar ────────────────────────────────────────────────── */
+.graph-search-bar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.graph-search-input {
+  width: 180px;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--surface-2);
+  color: var(--on-surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+.graph-search-input:focus { border-color: var(--primary); }
+.graph-search-info {
+  font-size: 11px;
+  color: var(--on-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.graph-search-action {
+  background: transparent;
+  border: 1px solid var(--outline);
+  color: var(--on-dim);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  width: auto;
+  min-width: auto;
+  transition: color 120ms, border-color 120ms;
+}
+.graph-search-action:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* ── Investigation model badge ───────────────────────────────────────────── */
+.inv-model-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  background: rgba(88, 166, 255, 0.1);
+  color: var(--primary);
+  border: 1px solid rgba(88, 166, 255, 0.25);
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.03em;
+}
+
+/* ── Admin model grid: clean columns ─────────────────────────────────────── */
+.admin-model-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px 12px;
 }

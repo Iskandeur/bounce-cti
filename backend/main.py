@@ -24,8 +24,7 @@ app = FastAPI(title="Bounce-CTI")
 app.add_middleware(CORSMiddleware, allow_origins=[], allow_methods=["*"], allow_headers=["*"])
 
 
-ALLOWED_MODELS = ["sonnet", "opus", "haiku",
-                  "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"]
+ALLOWED_MODELS = ["sonnet", "opus", "haiku"]
 DEFAULT_MODEL = "opus"
 
 SESSION_COOKIE = "session"
@@ -216,7 +215,7 @@ async def start(req: StartReq, user_id: int = Depends(current_user)):
     model = _check_model(user_id, req.model)
     if req.seed_type not in ALLOWED_SEED_TYPES:
         raise HTTPException(status_code=400, detail=f"unknown seed_type: {req.seed_type}")
-    inv_id = gs.create_investigation(req.seed_type, req.seed_value, user_id=user_id)
+    inv_id = gs.create_investigation(req.seed_type, req.seed_value, user_id=user_id, model=model)
     asyncio.create_task(run_investigation(inv_id, req.seed_type, req.seed_value, model=model))
     return {"id": inv_id}
 
@@ -229,25 +228,60 @@ class BatchItem(BaseModel):
 class BatchStartReq(BaseModel):
     items: list[BatchItem]
     model: str = "opus"
+    combined: bool = False  # True → all IOCs on a single investigation graph
 
 
 @app.post("/api/investigations/batch")
 async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
-    """Kick off many investigations at once (one agent run each). Returns ids."""
+    """Kick off many investigations at once.
+
+    When `combined=false` (default): one investigation per IOC (parallel).
+    When `combined=true`: one investigation seeded from the first IOC,
+    then each additional IOC is launched as a pivot on that same graph
+    so the agent can find cross-IOC links.
+    """
     model = _check_model(user_id, req.model)
-    # Cap to 50 per request so a slip doesn't spawn thousands of agents.
     items = req.items[:50]
-    ids = []
+    valid = []
     for it in items:
         if it.seed_type not in ALLOWED_SEED_TYPES:
             continue
         sv = (it.seed_value or "").strip()
         if not sv:
             continue
-        inv_id = gs.create_investigation(it.seed_type, sv, user_id=user_id)
-        asyncio.create_task(run_investigation(inv_id, it.seed_type, sv, model=model))
-        ids.append({"id": inv_id, "seed_type": it.seed_type, "seed_value": sv})
-    return {"started": ids, "skipped": len(req.items) - len(ids)}
+        valid.append((it.seed_type, sv))
+    if not valid:
+        return {"started": [], "skipped": len(req.items)}
+
+    if req.combined and len(valid) >= 1:
+        # Combined batch: single investigation, pivots for extra IOCs
+        st0, sv0 = valid[0]
+        inv_id = gs.create_investigation(st0, sv0, user_id=user_id, model=model)
+        asyncio.create_task(run_investigation(inv_id, st0, sv0, model=model))
+        # Schedule pivots for the remaining IOCs (sequentially after main finishes
+        # would be ideal, but for simplicity just delay them slightly)
+        for idx, (st, sv) in enumerate(valid[1:], 1):
+            async def _delayed_pivot(_iid=inv_id, _st=st, _sv=sv, _delay=idx * 5):
+                await asyncio.sleep(_delay)
+                gs.set_status(_iid, "running")
+                import json as _json, time as _time
+                with gs.conn() as c:
+                    payload = {"kind": "status_change", "status": "running",
+                               "pivot_seed_type": _st, "pivot_seed_value": _sv}
+                    c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                              (_iid, "status_change", _json.dumps(payload), _time.time()))
+                await run_pivot(_iid, _st, _sv, model=model)
+            asyncio.create_task(_delayed_pivot())
+        return {"started": [{"id": inv_id, "seed_type": st0, "seed_value": sv0, "combined": True, "total_seeds": len(valid)}],
+                "skipped": len(req.items) - len(valid)}
+    else:
+        # Separate batch: one investigation per IOC
+        ids = []
+        for st, sv in valid:
+            inv_id = gs.create_investigation(st, sv, user_id=user_id, model=model)
+            asyncio.create_task(run_investigation(inv_id, st, sv, model=model))
+            ids.append({"id": inv_id, "seed_type": st, "seed_value": sv})
+        return {"started": ids, "skipped": len(req.items) - len(ids)}
 
 
 @app.get("/api/investigations")

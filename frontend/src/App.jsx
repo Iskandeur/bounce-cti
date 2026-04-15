@@ -9,7 +9,7 @@ cytoscape.use(coseBilkent)
 const NODE_COLORS = {
   domain: '#79c0ff', ip: '#ffa657', hash: '#d2a8ff', url: '#56d364',
   cert: '#3fb950', asn: '#e3b341', email: '#f78166', registrar: '#8b949e',
-  ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f0f6fc',
+  ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f5a623',
   country: '#ff7b72'
 }
 const NODE_SHAPES = {
@@ -94,6 +94,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // Empty set == "all nodes" (implicit select-all).
   const [pickedIds, setPickedIds] = useState(new Set())
   const [nodeCount, setNodeCount] = useState(0)
+  const [graphSearch, setGraphSearch] = useState('')
+  const [searchMatches, setSearchMatches] = useState(0)
+  const [batchCombined, setBatchCombined] = useState(false)
 
   const cyRef = useRef(null)
   const containerRef = useRef(null)
@@ -158,10 +161,24 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             'background-color': '#f5a623',
             'border-color': '#d48806',
             'border-width': 3,
-            'color': '#1a1a1a',
+            'color': '#e6edf3',
             'font-weight': 'bold',
             'font-size': 11,
           }
+        },
+        {
+          selector: 'node.search-match',
+          style: {
+            'border-color': '#58a6ff',
+            'border-width': 4,
+            'shadow-blur': 14,
+            'shadow-color': '#58a6ffbb',
+            'shadow-opacity': 0.9,
+          }
+        },
+        {
+          selector: 'node.search-dim',
+          style: { 'opacity': 0.25 }
         },
         {
           selector: 'node:selected',
@@ -511,9 +528,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     openInv(id)
   }
 
-  // Launch a batch of investigations — one per non-empty line in the textarea.
-  // Splits on newlines/commas/whitespace. After kick-off, opens the FIRST one
-  // so the user gets immediate feedback; the rest show up in the sidebar.
+  // Launch a batch of investigations.
+  // combined=false → one investigation per IOC (parallel).
+  // combined=true  → single investigation graph with all IOCs as pivots (correlation mode).
   const startBatch = async () => {
     const items = batchText
       .split(/[\n,]+/)
@@ -523,7 +540,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (items.length === 0) return
     const r = await fetch('/api/investigations/batch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, model })
+      body: JSON.stringify({ items, model, combined: batchCombined })
     })
     const d = await r.json()
     await refreshInvs()
@@ -708,6 +725,58 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setTimeout(() => setCopied(false), 1500)
   }
 
+  // ── Graph IOC search ────────────────────────────────────────────────────
+  const doGraphSearch = useCallback((q) => {
+    setGraphSearch(q)
+    const cy = cyRef.current
+    if (!cy) return
+    const lq = q.trim().toLowerCase()
+    if (!lq) {
+      cy.nodes().removeClass('search-match search-dim')
+      setSearchMatches(0)
+      return
+    }
+    let count = 0
+    cy.nodes().forEach(n => {
+      const d = n.data()
+      const val = (d.value || '').toLowerCase()
+      const label = (d.label || '').toLowerCase()
+      const match = val.includes(lq) || label.includes(lq)
+      n.toggleClass('search-match', match)
+      n.toggleClass('search-dim', !match)
+      if (match) count++
+    })
+    setSearchMatches(count)
+  }, [])
+
+  const selectAllSearchMatches = useCallback(() => {
+    const cy = cyRef.current
+    if (!cy) return
+    const ids = new Set()
+    cy.nodes('.search-match').forEach(n => ids.add(n.id()))
+    if (ids.size > 0) setPickedIds(ids)
+  }, [])
+
+  const focusNextSearchMatch = useCallback(() => {
+    const cy = cyRef.current
+    if (!cy) return
+    const matches = cy.nodes('.search-match')
+    if (matches.length === 0) return
+    // Find first match not currently selected, or wrap around
+    const current = cy.$(':selected')
+    let target = matches[0]
+    if (current.length) {
+      const idx = matches.indexOf(current[0])
+      if (idx >= 0 && idx + 1 < matches.length) target = matches[idx + 1]
+      else target = matches[0]
+    }
+    cy.nodes().unselect()
+    target.select()
+    cy.animate({ fit: { eles: target.closedNeighborhood(), padding: 80 }, duration: 300 })
+    setSelected(target.data())
+    setRightTab('node')
+  }, [])
+
   // ── Render ────────────────────────────────────────────────────────────────
   const existingTypeList = [...existingTypes].filter(t => t !== 'report')
 
@@ -764,6 +833,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               placeholder={`Paste one IOC per line:\nexample.com\nbad.example.net\n…`}
               rows={6}
             />
+            <label className="batch-combined-toggle" title="Combined: all IOCs on one graph (find cross-links). Separate: one investigation per IOC.">
+              <input type="checkbox" checked={batchCombined} onChange={e => setBatchCombined(e.target.checked)} />
+              <span>{batchCombined ? 'Combined (one graph)' : 'Separate investigations'}</span>
+            </label>
           </>
         )}
         <div className="section-label">Model</div>
@@ -791,6 +864,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               <div className="inv-item-meta">
                 <span className="inv-status-dot" style={{ background: STATUS_COLOR[i.status] || '#8b949e' }} />
                 <span className="inv-status-text" style={{ color: STATUS_COLOR[i.status] || '#8b949e' }}>{i.status}</span>
+                {i.model && <span className="inv-model-badge">{i.model}</span>}
                 <span className="inv-actions">
                   <button className="icon-btn" title="Rerun" onClick={e => rerunInv(i.id, e)}>↺</button>
                   <button className="icon-btn danger" title="Delete" onClick={e => deleteInv(i.id, e)}>✕</button>
@@ -812,6 +886,34 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       {/* ── GRAPH ── */}
       <div className="graph">
         <div id="cy" ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+
+        {/* IOC search bar */}
+        <div className="graph-search-bar">
+          <input
+            className="graph-search-input"
+            type="text"
+            value={graphSearch}
+            onChange={e => doGraphSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && e.shiftKey) selectAllSearchMatches()
+              else if (e.key === 'Enter') focusNextSearchMatch()
+              else if (e.key === 'Escape') { doGraphSearch(''); e.target.blur() }
+            }}
+            placeholder="Search IOCs…"
+          />
+          {graphSearch && (
+            <span className="graph-search-info">
+              {searchMatches} match{searchMatches !== 1 ? 'es' : ''}
+              {searchMatches > 0 && (
+                <>
+                  <button className="graph-search-action" onClick={focusNextSearchMatch} title="Focus next (Enter)">↵</button>
+                  <button className="graph-search-action" onClick={selectAllSearchMatches} title="Select all matches (Shift+Enter)">☐⁺</button>
+                </>
+              )}
+              <button className="graph-search-action" onClick={() => doGraphSearch('')} title="Clear search">✕</button>
+            </span>
+          )}
+        </div>
 
         {/* Graph toolbar */}
         <div className="graph-toolbar">
