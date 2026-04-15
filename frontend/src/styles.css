@@ -965,35 +965,56 @@ button.secondary:hover {
   min-width: auto;
 }
 
-/* ── Batch combined toggle ───────────────────────────────────────────────── */
-.batch-combined-toggle {
+/* ── Batch switch (Separate / Combined toggle) ──────────────────────────── */
+.batch-switch {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  margin-top: 6px;
+}
+.batch-switch-label {
   font-size: 11px;
   color: var(--on-dim);
+  transition: color 150ms ease;
+  user-select: none;
+}
+.batch-switch-label.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+.switch-track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--outline);
+  border: none;
   cursor: pointer;
-  margin-top: 4px;
+  padding: 0;
+  transition: background 200ms ease;
+  flex-shrink: 0;
 }
-.batch-combined-toggle input { accent-color: var(--primary); }
-
-/* ── Graph IOC search bar ────────────────────────────────────────────────── */
-.graph-search-bar {
+.switch-track.on {
+  background: var(--primary);
+}
+.switch-thumb {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--surface);
-  border: 1px solid var(--outline);
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 200ms ease;
+  pointer-events: none;
 }
+.switch-track.on .switch-thumb {
+  transform: translateX(18px);
+}
+
+/* ── Graph toolbar search (integrated) ───────────────────────────────────── */
 .graph-search-input {
-  width: 180px;
+  width: 160px;
   padding: 4px 8px;
   font-size: 12px;
   background: var(--surface-2);
@@ -1027,6 +1048,12 @@ button.secondary:hover {
   color: var(--primary);
   border-color: var(--primary);
 }
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--outline);
+  flex-shrink: 0;
+}
 
 /* ── Investigation model badge ───────────────────────────────────────────── */
 .inv-model-badge {
@@ -1039,9 +1066,9 @@ button.secondary:hover {
   letter-spacing: 0.03em;
 }
 
-/* ── Admin model grid: clean columns ─────────────────────────────────────── */
+/* ── Admin model grid: single column ─────────────────────────────────────── */
 .admin-model-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }

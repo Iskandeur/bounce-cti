@@ -245,24 +245,22 @@ function UserRow({ user, selfId, allModels, expanded, onToggle, onDelete, onSave
           {/* Label editor */}
           <div className="admin-subsection">
             <div className="admin-model-label">Label (admin-only, for your reference):</div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input
-                className="admin-label-input"
-                type="text"
-                maxLength={40}
-                placeholder="(no label)"
-                value={labelDraft}
-                onChange={e => setLabelDraft(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <button
-                className="auth-btn"
-                disabled={busy || !labelDirty}
-                onClick={() => onSaveLabel(labelDraft.trim())}
-              >
-                Save label
-              </button>
-            </div>
+            <input
+              className="admin-label-input"
+              type="text"
+              maxLength={40}
+              placeholder="(no label)"
+              value={labelDraft}
+              onChange={e => setLabelDraft(e.target.value)}
+            />
+            <button
+              className="auth-btn"
+              disabled={busy || !labelDirty}
+              onClick={() => onSaveLabel(labelDraft.trim())}
+              style={{ marginTop: 4 }}
+            >
+              Save label
+            </button>
           </div>
 
           {/* Allowed models editor */}

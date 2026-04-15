@@ -833,10 +833,18 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               placeholder={`Paste one IOC per line:\nexample.com\nbad.example.net\n…`}
               rows={6}
             />
-            <label className="batch-combined-toggle" title="Combined: all IOCs on one graph (find cross-links). Separate: one investigation per IOC.">
-              <input type="checkbox" checked={batchCombined} onChange={e => setBatchCombined(e.target.checked)} />
-              <span>{batchCombined ? 'Combined (one graph)' : 'Separate investigations'}</span>
-            </label>
+            <div className="batch-switch" title="Separate: one investigation per IOC. Combined: all IOCs on one graph to find cross-links.">
+              <span className={`batch-switch-label${!batchCombined ? ' active' : ''}`}>Separate</span>
+              <button
+                type="button"
+                className={`switch-track${batchCombined ? ' on' : ''}`}
+                onClick={() => setBatchCombined(v => !v)}
+                aria-label="Toggle combined mode"
+              >
+                <span className="switch-thumb" />
+              </button>
+              <span className={`batch-switch-label${batchCombined ? ' active' : ''}`}>Combined</span>
+            </div>
           </>
         )}
         <div className="section-label">Model</div>
@@ -887,8 +895,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       <div className="graph">
         <div id="cy" ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
-        {/* IOC search bar */}
-        <div className="graph-search-bar">
+        {/* Graph toolbar (search integrated) */}
+        <div className="graph-toolbar">
           <input
             className="graph-search-input"
             type="text"
@@ -913,10 +921,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               <button className="graph-search-action" onClick={() => doGraphSearch('')} title="Clear search">✕</button>
             </span>
           )}
-        </div>
-
-        {/* Graph toolbar */}
-        <div className="graph-toolbar">
+          <span className="toolbar-separator" />
           <button className="toolbar-btn" onClick={() => cyRef.current?.fit(undefined, 80)} title="Fit graph">
             ⊡ Fit
           </button>
