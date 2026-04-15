@@ -1066,9 +1066,21 @@ button.secondary:hover {
   letter-spacing: 0.03em;
 }
 
-/* ── Admin model grid: single column ─────────────────────────────────────── */
+/* ── Admin model list ────────────────────────────────────────────────────── */
 .admin-model-grid {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  padding-left: 4px;
+}
+.admin-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  width: fit-content;
+}
+.admin-checkbox span {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
