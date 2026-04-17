@@ -11,6 +11,27 @@ from .config import CLAUDE_BIN
 from . import graph_store as gs
 
 
+# Global registry of running agent processes, keyed by investigation id.
+# Used by stop_investigation() to kill a running agent on demand.
+_running_procs: dict[str, asyncio.subprocess.Process] = {}
+
+
+def stop_investigation(inv_id: str) -> bool:
+    """Kill the running agent process for an investigation. Returns True if killed."""
+    proc = _running_procs.pop(inv_id, None)
+    if proc is None or proc.returncode is not None:
+        return False
+    try:
+        import signal
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    return True
+
+
 def _log(inv_id: str, kind: str, msg):
     with gs.conn() as c:
         c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
@@ -663,8 +684,10 @@ STEP 3: For the top 5 IPs with the most interesting fingerprints (non-generic
   the asn "abused_asn".
 STEP 4: rdap on one representative IP to retrieve canonical ASN metadata
   (netname, country, abuse_email, org). Store those in the asn node metadata.
-  If rdap returns an authoritative country, add_node(country, <ISO2>) and
-  add_edge(asn→country, located_in).
+  MANDATORY: add_node(country, <ISO2_country_code>) and add_edge(asn→country,
+  located_in). The country MUST always be linked to the ASN node — use the
+  country from rdap, whois, or Shodan host data (whichever is available first).
+  If multiple sources disagree, use the rdap value.
 STEP 5: threatfox_search("AS<digits>") — sometimes indexed under the ASN.
   If any hits: add_node(report), add_edge(asn→report, known_ioc).
 STEP 6: Look for JARM/title/favicon CLUSTERS inside the AS — if multiple hosts
@@ -807,6 +830,8 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
         _log(inv_id, "agent_error", f"claude CLI not found: {e}")
         return (None, False, False)
 
+    _running_procs[inv_id] = proc
+
     async def pump_stderr():
         assert proc.stderr is not None
         async for line in proc.stderr:
@@ -900,6 +925,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
     except Exception:
         has_report = False
 
+    _running_procs.pop(inv_id, None)
     _log(inv_id, f"phase_{phase}_exit", {"rc": rc, "saw_result": saw_result["v"], "has_report": has_report})
     return (rc, saw_result["v"], has_report)
 
@@ -990,6 +1016,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             f"3. For top 5 most interesting IPs (unusual JARM / non-generic title / unusual ports):\n"
             f"   defuse + virustotal_ip + threatfox_search + otx_ip\n"
             f"4. rdap_ip on ONE representative IP from the ASN to capture netname/country/abuse_email\n"
+            f"   MANDATORY: add_node(country, <ISO2>) + add_edge(asn→country, located_in)\n"
             f"5. threatfox_search(\"AS{asn_num}\")\n"
             "If multiple hosts inside the AS share the same JARM, graph the JARM node and link\n"
             "every matching IP to it. Tag the asn 'abused_asn' when ≥2 hosts return detection hits.\n"

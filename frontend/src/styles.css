@@ -79,7 +79,9 @@ html, body, #root {
   text-transform: uppercase;
   letter-spacing: 1.2px;
   color: var(--on-dim);
-  margin: 10px 0 4px;
+  margin: 14px 0 6px;
+  display: flex;
+  align-items: center;
 }
 
 /* ── Inputs / Selects / Buttons ─────────────────────────────────────────── */
@@ -281,6 +283,11 @@ button.secondary:hover {
   border-color: var(--error);
   color: var(--error);
   background: #f8514912;
+}
+.icon-btn.warning:hover {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: #e3b34112;
 }
 
 /* ── Event log ───────────────────────────────────────────────────────────── */
@@ -1266,8 +1273,9 @@ button.secondary:hover {
 /* ── Custom prompt ───────────────────────────────────────────────────── */
 .custom-prompt-section {
   border-top: 1px solid var(--outline);
-  margin-top: 12px;
-  padding-top: 4px;
+  padding: 10px 14px;
+  background: var(--surface);
+  flex-shrink: 0;
 }
 .custom-prompt-input {
   width: 100%;

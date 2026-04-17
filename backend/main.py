@@ -17,7 +17,7 @@ from typing import Optional
 
 from . import graph_store as gs
 from . import auth
-from .agent_runner import run_investigation, run_pivot, run_add_seed, run_custom_prompt
+from .agent_runner import run_investigation, run_pivot, run_add_seed, run_custom_prompt, stop_investigation
 from .refang import refang
 
 app = FastAPI(title="Bounce-CTI")
@@ -399,9 +399,24 @@ def graph(inv_id: str, user_id: int = Depends(current_user)):
     return gs.get_graph(inv_id)
 
 
+@app.post("/api/investigations/{inv_id}/stop")
+def stop_inv(inv_id: str, user_id: int = Depends(current_user)):
+    _require_owner(inv_id, user_id)
+    killed = stop_investigation(inv_id)
+    if killed:
+        gs.set_status(inv_id, "done")
+        import json as _json, time as _time
+        with gs.conn() as c:
+            payload = {"kind": "status_change", "status": "done", "stopped_by_user": True}
+            c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                      (inv_id, "status_change", _json.dumps(payload), _time.time()))
+    return {"ok": True, "killed": killed}
+
+
 @app.delete("/api/investigations/{inv_id}")
 def delete_inv(inv_id: str, user_id: int = Depends(current_user)):
     _require_owner(inv_id, user_id)
+    stop_investigation(inv_id)  # kill agent if running before deleting
     gs.delete_investigation(inv_id)
     return {"ok": True}
 

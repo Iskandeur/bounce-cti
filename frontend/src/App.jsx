@@ -659,6 +659,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     await refreshInvs()
   }
 
+  const stopInv = async (id, ev) => {
+    ev.stopPropagation()
+    await fetch(`/api/investigations/${id}/stop`, { method: 'POST' })
+    await refreshInvs()
+  }
+
   const rerunInv = async (id, ev) => {
     ev.stopPropagation()
     await fetch(`/api/investigations/${id}/rerun`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ model }) })
@@ -1047,6 +1053,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                   <span className="inv-status-text" style={{ color: STATUS_COLOR[i.status] || '#8b949e' }}>{i.status}</span>
                   {i.model && <span className="inv-model-badge">{i.model}</span>}
                   <span className="inv-actions">
+                    {i.status === 'running' && (
+                      <button className="icon-btn warning" title="Stop" onClick={e => stopInv(i.id, e)}>■</button>
+                    )}
                     <button className="icon-btn" title="Rerun" onClick={e => rerunInv(i.id, e)}>↺</button>
                     <button className="icon-btn danger" title="Delete" onClick={e => deleteInv(i.id, e)}>✕</button>
                   </span>
@@ -1446,28 +1455,6 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                 </>
               )}
 
-              {/* Custom prompt — ask the agent to do more */}
-              {activeInv && (
-                <div className="custom-prompt-section">
-                  <div className="section-label" style={{ margin: '12px 0 6px' }}>Prompt the agent</div>
-                  <textarea
-                    className="custom-prompt-input"
-                    value={customPrompt}
-                    onChange={e => setCustomPrompt(e.target.value)}
-                    placeholder="Ask the agent to dig deeper, check specific IOCs, re-analyze with different criteria…"
-                    rows={3}
-                    onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitCustomPrompt() }}
-                  />
-                  <button
-                    className="auth-btn"
-                    disabled={promptBusy || !customPrompt.trim()}
-                    onClick={submitCustomPrompt}
-                    style={{ marginTop: 4, width: '100%' }}
-                  >
-                    {promptBusy ? 'Sending…' : 'Run prompt →'}
-                  </button>
-                </div>
-              )}
             </>
           )}
 
@@ -1585,6 +1572,27 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             </>
           )}
         </div>
+        {/* Custom prompt — pinned at bottom of right panel */}
+        {activeInv && (
+          <div className="custom-prompt-section">
+            <textarea
+              className="custom-prompt-input"
+              value={customPrompt}
+              onChange={e => setCustomPrompt(e.target.value)}
+              placeholder="Prompt the agent: dig deeper, re-analyze, check specific IOCs… (Ctrl+Enter to send)"
+              rows={2}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitCustomPrompt() }}
+            />
+            <button
+              className="auth-btn"
+              disabled={promptBusy || !customPrompt.trim()}
+              onClick={submitCustomPrompt}
+              style={{ marginTop: 4, width: '100%' }}
+            >
+              {promptBusy ? 'Sending…' : 'Run prompt →'}
+            </button>
+          </div>
+        )}
       {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} selfId={userId} onImpersonate={() => window.location.reload()} />}
     </div>
     </div>
