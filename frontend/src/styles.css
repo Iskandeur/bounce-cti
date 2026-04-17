@@ -1329,3 +1329,67 @@ button.secondary:hover {
   margin-right: 4px;
   font-size: 10px;
 }
+
+/* ── Prompt history ──────────────────────────────────────────────────── */
+.prompt-history {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.prompt-history-entry {
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.prompt-history-q {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--on-surface);
+  font-style: italic;
+}
+.prompt-history-a {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--on-bg);
+  line-height: 1.5;
+}
+.prompt-history-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--primary-dim);
+  color: var(--primary);
+}
+.prompt-history-icon.a {
+  background: #56d36420;
+  color: var(--success);
+}
+.prompt-history-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding-left: 28px;
+}
+.prompt-history-stats {
+  display: flex;
+  gap: 8px;
+  padding-left: 28px;
+  font-size: 11px;
+  color: var(--on-dim);
+}
+.ioc-chip.small {
+  font-size: 10px;
+  padding: 0 4px;
+}

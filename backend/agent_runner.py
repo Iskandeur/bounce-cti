@@ -1514,9 +1514,25 @@ C3. REPORT UPDATE (MANDATORY, exactly one call, at the end):
       - Update "summary" to incorporate the new findings from this prompt run.
       - APPEND new key_findings. Do not drop prior findings.
       - Only ESCALATE threat_assessment if new direct-evidence conditions are met.
-      - Add a "prompt_history" list entry: {"prompt": "<analyst prompt text>",
-        "timestamp": "<iso8601>"}.
-        Extend existing prompt_history if present, otherwise create it.
+      - CRITICAL — "prompt_history": append an entry with this EXACT schema:
+        {
+          "prompt": "<the analyst's instruction, verbatim>",
+          "response": "<your direct answer to the analyst — 2-6 sentences,
+                        factual, referencing specific IOCs and tool results.
+                        This is shown directly to the analyst as THE answer to
+                        their question. Be specific and useful, not generic.>",
+          "nodes_added": <integer — how many new nodes you added to the graph>,
+          "nodes_updated": <integer — how many existing nodes you updated>,
+          "selected_nodes": ["<value1>", "<value2>", ...] or null,
+          "timestamp": "<iso8601>"
+        }
+        Extend existing prompt_history if present, otherwise create it as a list.
+        The "response" field is the MOST IMPORTANT part — it is what the analyst
+        sees. Make it a direct, actionable answer. Examples:
+          GOOD: "Found 3 additional IPs (1.2.3.4, 5.6.7.8, 9.10.11.12) sharing
+                 the same JARM fingerprint. Two of them (1.2.3.4, 5.6.7.8) have
+                 VirusTotal detections, confirming malicious infrastructure."
+          BAD:  "I have investigated the selected nodes and updated the report."
 C4. Do NOT create any other report node. Do NOT use any value other than
     "investigation_summary" for the report.
 C5. After the report update, stop. Do not chain further actions beyond what was asked.

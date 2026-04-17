@@ -526,9 +526,16 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (evt.kind === 'snapshot') {
       evt.graph.nodes.forEach(n => addCyNode(n))
       evt.graph.edges.forEach(e => addCyEdge(e))
+      // Auto-load report if present in snapshot
+      const reportNode = evt.graph.nodes.find(n => n.type === 'report' && n.value === 'investigation_summary')
+      if (reportNode?.metadata) setReport(reportNode.metadata)
       relayout()
     } else if (evt.kind === 'node_added' || evt.kind === 'node_updated') {
       addCyNode(evt.node)
+      // Auto-refresh report when the report node is updated (e.g. after custom prompt)
+      if (evt.node.type === 'report' && evt.node.value === 'investigation_summary' && evt.node.metadata) {
+        setReport(evt.node.metadata)
+      }
       relayout()
     } else if (evt.kind === 'edge_added') {
       addCyEdge(evt.edge)
@@ -589,9 +596,16 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         }
         if (evt.kind === 'agent_exit') {
           const rc = msg.rc ?? msg?.msg?.rc ?? '?'
+          const phase = msg.phase ?? msg?.msg?.phase ?? ''
           // Refresh sidebar status when the agent finishes
           refreshInvs()
-          return `■ exit rc=${rc}`
+          // After a custom prompt, switch to report tab so the user sees the result
+          if (phase === 'custom_prompt') {
+            setRightTab('report')
+          }
+          return phase === 'custom_prompt'
+            ? `✓ prompt done`
+            : `■ exit rc=${rc}`
         }
         if (evt.kind === 'agent_stderr') return `⚠ ${(msg.msg || msg || '').toString().slice(0, 80)}`
         if (evt.kind === 'agent_rate_limit_event') return '__ratelimit__'
@@ -1464,6 +1478,42 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {report.sources_used.map((s, i) => (
                           <span key={i} className="source-chip">{iocString(s)}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Prompt history — shows analyst prompts + agent responses */}
+                  {Array.isArray(report.prompt_history) && report.prompt_history.length > 0 && (
+                    <div>
+                      <div className="section-label" style={{ margin: '12px 0 6px' }}>Analyst prompts</div>
+                      <div className="prompt-history">
+                        {report.prompt_history.slice().reverse().map((entry, i) => (
+                          <div key={i} className="prompt-history-entry">
+                            <div className="prompt-history-q">
+                              <span className="prompt-history-icon">Q</span>
+                              <span>{typeof entry === 'string' ? entry : iocString(entry.prompt)}</span>
+                            </div>
+                            {entry.selected_nodes && entry.selected_nodes.length > 0 && (
+                              <div className="prompt-history-nodes">
+                                {entry.selected_nodes.map((v, j) => (
+                                  <span key={j} className="ioc-chip small">{iocString(v)}</span>
+                                ))}
+                              </div>
+                            )}
+                            {entry.response && (
+                              <div className="prompt-history-a">
+                                <span className="prompt-history-icon a">A</span>
+                                <span><HighlightedText text={entry.response} nodeValues={nodeValues} onNodeClick={focusNode} /></span>
+                              </div>
+                            )}
+                            {(entry.nodes_added > 0 || entry.nodes_updated > 0) && (
+                              <div className="prompt-history-stats">
+                                {entry.nodes_added > 0 && <span>+{entry.nodes_added} nodes</span>}
+                                {entry.nodes_updated > 0 && <span>~{entry.nodes_updated} updated</span>}
+                              </div>
+                            )}
+                          </div>
                         ))}
                       </div>
                     </div>
