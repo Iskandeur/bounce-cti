@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
+const MODEL_LABELS = {
+  sonnet: 'Sonnet 4.6',
+  opus: 'Opus 4.6',
+  'opus-4.7': 'Opus 4.7',
+  haiku: 'Haiku 4.5',
+}
+
 function fmtDate(ts) {
   if (!ts) return '—'
   try { return new Date(ts * 1000).toLocaleString() } catch { return '—' }
@@ -166,7 +173,7 @@ export default function AdminPanel({ onClose, selfId }) {
                         e.target.checked ? [...prev, m] : prev.filter(x => x !== m)
                       )}
                     />
-                    <span>{m}</span>
+                    <span>{MODEL_LABELS[m] || m}</span>
                   </label>
                 ))}
               </div>
@@ -277,7 +284,7 @@ function UserRow({ user, selfId, allModels, expanded, onToggle, onDelete, onSave
                         e.target.checked ? [...prev, m] : prev.filter(x => x !== m)
                       )}
                     />
-                    <span>{m}</span>
+                    <span>{MODEL_LABELS[m] || m}</span>
                   </label>
                 ))}
               </div>
