@@ -1523,13 +1523,38 @@ C5. After the report update, stop. Do not chain further actions beyond what was 
 """
 
 
-async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus"):
+async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus",
+                            selected_nodes: list[dict] | None = None):
     """Run a custom analyst prompt on an existing investigation."""
-    user_prompt = (
-        f"Investigation id: {inv_id}\n\n"
+    user_prompt = f"Investigation id: {inv_id}\n\n"
+
+    if selected_nodes:
+        user_prompt += (
+            "SELECTED NODES — the analyst has highlighted these specific nodes on the graph.\n"
+            "Your instructions below apply PRIMARILY to these nodes, but you still have\n"
+            "access to the full graph for context.\n"
+        )
+        for i, n in enumerate(selected_nodes, 1):
+            user_prompt += f"  {i}. [{n['type']}] {n['value']}\n"
+        user_prompt += "\n"
+
+    user_prompt += (
         f"ANALYST INSTRUCTION:\n{prompt_text}\n\n"
         "STEP 1: Call get_graph() to see the current investigation state.\n"
-        "STEP 2: Execute the analyst's instruction above using available CTI tools.\n"
+    )
+
+    if selected_nodes:
+        user_prompt += (
+            "STEP 2: Focus on the SELECTED NODES listed above. Execute the analyst's\n"
+            "instruction using available CTI tools, applying it to those nodes specifically.\n"
+            "You may also use the rest of the graph for context and cross-referencing.\n"
+        )
+    else:
+        user_prompt += (
+            "STEP 2: Execute the analyst's instruction above using available CTI tools.\n"
+        )
+
+    user_prompt += (
         "STEP 3: UPDATE THE REPORT (exactly one add_node call, at the end).\n"
         "Re-call add_node(report, \"investigation_summary\", metadata={...},\n"
         "source=\"agent\", tags=[\"report\"]) with MERGED metadata as described in\n"

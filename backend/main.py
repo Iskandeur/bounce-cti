@@ -504,9 +504,15 @@ async def enrich(inv_id: str, req: EnrichReq, user_id: int = Depends(current_use
     return {"ok": True}
 
 
+class SelectedNode(BaseModel):
+    type: str
+    value: str
+
+
 class CustomPromptReq(BaseModel):
     prompt: str
     model: str = "opus"
+    selected_nodes: Optional[list[SelectedNode]] = None
 
 
 @app.post("/api/investigations/{inv_id}/prompt")
@@ -523,7 +529,8 @@ async def custom_prompt(inv_id: str, req: CustomPromptReq, user_id: int = Depend
                    "custom_prompt": prompt_text[:200]}
         c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
                   (inv_id, "status_change", _json.dumps(payload), _time.time()))
-    asyncio.create_task(run_custom_prompt(inv_id, prompt_text, model=model))
+    sel = [{"type": n.type, "value": n.value} for n in req.selected_nodes] if req.selected_nodes else None
+    asyncio.create_task(run_custom_prompt(inv_id, prompt_text, model=model, selected_nodes=sel))
     return {"ok": True}
 
 

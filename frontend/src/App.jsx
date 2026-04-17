@@ -772,11 +772,27 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const submitCustomPrompt = async () => {
     if (!activeInv || !customPrompt.trim()) return
     setPromptBusy(true)
+    // Collect selected nodes (pickedIds) so the agent knows what the analyst is pointing at
+    const selectedNodes = []
+    const cy = cyRef.current
+    if (cy && pickedIds.size > 0) {
+      cy.nodes().forEach(n => {
+        if (pickedIds.has(n.id())) {
+          const d = n.data()
+          selectedNodes.push({ type: d.type, value: d.value })
+        }
+      })
+    }
     await fetch(`/api/investigations/${activeInv}/prompt`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: customPrompt.trim(), model })
+      body: JSON.stringify({
+        prompt: customPrompt.trim(),
+        model,
+        selected_nodes: selectedNodes.length > 0 ? selectedNodes : null,
+      })
     })
-    setEvents(e => [`▶ custom prompt: ${customPrompt.trim().slice(0, 60)}…`, ...e])
+    const sel = selectedNodes.length > 0 ? ` [${selectedNodes.length} selected]` : ''
+    setEvents(e => [`▶ custom prompt${sel}: ${customPrompt.trim().slice(0, 60)}…`, ...e])
     setCustomPrompt('')
     setPromptBusy(false)
     refreshInvs()
@@ -1575,11 +1591,39 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         {/* Custom prompt — pinned at bottom of right panel */}
         {activeInv && (
           <div className="custom-prompt-section">
+            {pickedIds.size > 0 && (
+              <div className="prompt-selected-nodes">
+                <span className="prompt-selected-label">Selected ({pickedIds.size}):</span>
+                <div className="prompt-selected-chips">
+                  {(() => {
+                    const cy = cyRef.current
+                    if (!cy) return null
+                    const chips = []
+                    cy.nodes().forEach(n => {
+                      if (pickedIds.has(n.id())) {
+                        const d = n.data()
+                        if (d.type !== 'report') {
+                          chips.push(
+                            <span key={n.id()} className="prompt-chip" style={{ borderColor: NODE_COLORS[d.type] || '#8b949e' }}>
+                              <span className="prompt-chip-type">{d.type}</span>
+                              {d.value?.length > 30 ? d.value.slice(0, 28) + '…' : d.value}
+                            </span>
+                          )
+                        }
+                      }
+                    })
+                    return chips
+                  })()}
+                </div>
+              </div>
+            )}
             <textarea
               className="custom-prompt-input"
               value={customPrompt}
               onChange={e => setCustomPrompt(e.target.value)}
-              placeholder="Prompt the agent: dig deeper, re-analyze, check specific IOCs… (Ctrl+Enter to send)"
+              placeholder={pickedIds.size > 0
+                ? `Instruct the agent about these ${pickedIds.size} selected node(s)… (Ctrl+Enter)`
+                : 'Prompt the agent: dig deeper, re-analyze, check specific IOCs… (Ctrl+Enter)'}
               rows={2}
               onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitCustomPrompt() }}
             />
@@ -1589,7 +1633,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               onClick={submitCustomPrompt}
               style={{ marginTop: 4, width: '100%' }}
             >
-              {promptBusy ? 'Sending…' : 'Run prompt →'}
+              {promptBusy ? 'Sending…' : (pickedIds.size > 0
+                ? `Run on ${pickedIds.size} selected →`
+                : 'Run prompt →')}
             </button>
           </div>
         )}

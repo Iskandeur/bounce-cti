@@ -1295,3 +1295,37 @@ button.secondary:hover {
   outline: none;
   border-color: var(--primary);
 }
+
+/* Selected nodes in prompt section */
+.prompt-selected-nodes {
+  margin-bottom: 6px;
+}
+.prompt-selected-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--on-dim);
+}
+.prompt-selected-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  max-height: 72px;
+  overflow-y: auto;
+}
+.prompt-chip {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+  background: var(--surface-2);
+  color: var(--on-surface);
+  white-space: nowrap;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.prompt-chip-type {
+  color: var(--on-dim);
+  margin-right: 4px;
+  font-size: 10px;
+}
