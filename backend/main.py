@@ -17,7 +17,7 @@ from typing import Optional
 
 from . import graph_store as gs
 from . import auth
-from .agent_runner import run_investigation, run_pivot, run_add_seed
+from .agent_runner import run_investigation, run_pivot, run_add_seed, run_custom_prompt
 from .refang import refang
 
 app = FastAPI(title="Bounce-CTI")
@@ -212,6 +212,16 @@ def admin_delete_user(target_id: int, admin_id: int = Depends(current_admin)):
     return {"ok": True}
 
 
+@app.post("/api/admin/impersonate/{target_id}")
+def admin_impersonate(target_id: int, response: Response, admin_id: int = Depends(current_admin)):
+    target = auth.get_user(target_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="user not found")
+    token = auth.issue_session(target_id)
+    _set_session_cookie(response, token)
+    return {"ok": True, "user_id": target_id}
+
+
 # ── Core routes (all scoped to user_id) ────────────────────────────────────
 def _require_owner(inv_id: str, user_id: int):
     owner = gs.get_investigation_owner(inv_id)
@@ -229,6 +239,44 @@ def list_models(user_id: int = Depends(current_user)):
 
 
 ALLOWED_SEED_TYPES = {"domain", "ip", "hash", "url", "jarm", "asn"}
+
+import re
+
+_RE_URL = re.compile(r"^(https?|ftp)://", re.I)
+_RE_IPV4 = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$")
+_RE_IPV6 = re.compile(r"^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$")
+_RE_ASN = re.compile(r"^(asn?)\s*\d{1,10}$", re.I)
+_RE_JARM = re.compile(r"^[0-9a-fA-F]{62}$")
+_RE_SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
+_RE_SHA1 = re.compile(r"^[0-9a-fA-F]{40}$")
+_RE_MD5 = re.compile(r"^[0-9a-fA-F]{32}$")
+_RE_DOMAIN = re.compile(r"^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$")
+
+
+def detect_seed_type(value: str) -> str:
+    """Auto-detect the IOC type from a refanged value."""
+    v = refang(value).strip()
+    if not v:
+        return "domain"
+    if _RE_URL.match(v):
+        return "url"
+    if _RE_ASN.match(v):
+        return "asn"
+    if _RE_IPV4.match(v):
+        return "ip"
+    if _RE_IPV6.match(v):
+        return "ip"
+    if _RE_JARM.match(v):
+        return "jarm"
+    if _RE_SHA256.match(v):
+        return "hash"
+    if _RE_SHA1.match(v):
+        return "hash"
+    if _RE_MD5.match(v):
+        return "hash"
+    if _RE_DOMAIN.match(v):
+        return "domain"
+    return "domain"
 
 
 def _clean_seed(seed_type: str, seed_value: str) -> str:
@@ -248,7 +296,7 @@ def _clean_seed(seed_type: str, seed_value: str) -> str:
 
 
 class StartReq(BaseModel):
-    seed_type: str
+    seed_type: str = "auto"
     seed_value: str
     model: str = "opus"
 
@@ -256,18 +304,21 @@ class StartReq(BaseModel):
 @app.post("/api/investigations")
 async def start(req: StartReq, user_id: int = Depends(current_user)):
     model = _check_model(user_id, req.model)
-    if req.seed_type not in ALLOWED_SEED_TYPES:
-        raise HTTPException(status_code=400, detail=f"unknown seed_type: {req.seed_type}")
-    sv = _clean_seed(req.seed_type, req.seed_value)
+    seed_type = req.seed_type
+    if seed_type == "auto":
+        seed_type = detect_seed_type(req.seed_value)
+    if seed_type not in ALLOWED_SEED_TYPES:
+        raise HTTPException(status_code=400, detail=f"unknown seed_type: {seed_type}")
+    sv = _clean_seed(seed_type, req.seed_value)
     if not sv:
         raise HTTPException(status_code=400, detail="seed_value required")
-    inv_id = gs.create_investigation(req.seed_type, sv, user_id=user_id, model=model)
-    asyncio.create_task(run_investigation(inv_id, req.seed_type, sv, model=model))
-    return {"id": inv_id}
+    inv_id = gs.create_investigation(seed_type, sv, user_id=user_id, model=model)
+    asyncio.create_task(run_investigation(inv_id, seed_type, sv, model=model))
+    return {"id": inv_id, "seed_type": seed_type}
 
 
 class BatchItem(BaseModel):
-    seed_type: str
+    seed_type: str = "auto"
     seed_value: str
 
 
@@ -290,12 +341,13 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
     items = req.items[:50]
     valid = []
     for it in items:
-        if it.seed_type not in ALLOWED_SEED_TYPES:
+        st = it.seed_type if it.seed_type != "auto" else detect_seed_type(it.seed_value)
+        if st not in ALLOWED_SEED_TYPES:
             continue
-        sv = _clean_seed(it.seed_type, it.seed_value)
+        sv = _clean_seed(st, it.seed_value)
         if not sv:
             continue
-        valid.append((it.seed_type, sv))
+        valid.append((st, sv))
     if not valid:
         return {"started": [], "skipped": len(req.items)}
 
@@ -380,7 +432,7 @@ class EnrichReq(BaseModel):
 
 
 class AddSeedReq(BaseModel):
-    seed_type: str
+    seed_type: str = "auto"
     seed_value: str
     model: str = "opus"
 
@@ -396,9 +448,10 @@ async def add_seed(inv_id: str, req: AddSeedReq, user_id: int = Depends(current_
     links automatically via the (inv,type,value) upsert in add_node.
     """
     _require_owner(inv_id, user_id)
-    if req.seed_type not in ALLOWED_SEED_TYPES:
-        raise HTTPException(status_code=400, detail=f"unknown seed_type: {req.seed_type}")
-    sv = _clean_seed(req.seed_type, req.seed_value)
+    seed_type = req.seed_type if req.seed_type != "auto" else detect_seed_type(req.seed_value)
+    if seed_type not in ALLOWED_SEED_TYPES:
+        raise HTTPException(status_code=400, detail=f"unknown seed_type: {seed_type}")
+    sv = _clean_seed(seed_type, req.seed_value)
     if not sv:
         raise HTTPException(status_code=400, detail="seed_value required")
     model = _check_model(user_id, req.model)
@@ -406,10 +459,10 @@ async def add_seed(inv_id: str, req: AddSeedReq, user_id: int = Depends(current_
     import json as _json, time as _time
     with gs.conn() as c:
         payload = {"kind": "status_change", "status": "running",
-                   "add_seed_type": req.seed_type, "add_seed_value": sv}
+                   "add_seed_type": seed_type, "add_seed_value": sv}
         c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
                   (inv_id, "status_change", _json.dumps(payload), _time.time()))
-    asyncio.create_task(run_add_seed(inv_id, req.seed_type, sv, model=model))
+    asyncio.create_task(run_add_seed(inv_id, seed_type, sv, model=model))
     return {"ok": True}
 
 
@@ -433,6 +486,29 @@ async def enrich(inv_id: str, req: EnrichReq, user_id: int = Depends(current_use
         c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
                   (inv_id, "status_change", _json.dumps(payload), _time.time()))
     asyncio.create_task(run_pivot(inv_id, req.seed_type, sv, model=model))
+    return {"ok": True}
+
+
+class CustomPromptReq(BaseModel):
+    prompt: str
+    model: str = "opus"
+
+
+@app.post("/api/investigations/{inv_id}/prompt")
+async def custom_prompt(inv_id: str, req: CustomPromptReq, user_id: int = Depends(current_user)):
+    _require_owner(inv_id, user_id)
+    prompt_text = (req.prompt or "").strip()
+    if not prompt_text:
+        raise HTTPException(status_code=400, detail="prompt required")
+    model = _check_model(user_id, req.model)
+    gs.set_status(inv_id, "running")
+    import json as _json, time as _time
+    with gs.conn() as c:
+        payload = {"kind": "status_change", "status": "running",
+                   "custom_prompt": prompt_text[:200]}
+        c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                  (inv_id, "status_change", _json.dumps(payload), _time.time()))
+    asyncio.create_task(run_custom_prompt(inv_id, prompt_text, model=model))
     return {"ok": True}
 
 

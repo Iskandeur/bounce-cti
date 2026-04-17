@@ -241,13 +241,47 @@ def delete_investigation(inv_id: str):
 def list_investigations(user_id: Optional[int] = None) -> list[dict]:
     with conn() as c:
         if user_id is None:
-            rows = c.execute("SELECT * FROM investigations ORDER BY created_at DESC LIMIT 100")
+            rows = c.execute("SELECT * FROM investigations ORDER BY created_at DESC LIMIT 100").fetchall()
         else:
             rows = c.execute(
                 "SELECT * FROM investigations WHERE user_id=? ORDER BY created_at DESC LIMIT 100",
                 (user_id,),
-            )
-        return [dict(r) for r in rows]
+            ).fetchall()
+        invs = [dict(r) for r in rows]
+        if not invs:
+            return invs
+        ids = [i["id"] for i in invs]
+        qmarks = ",".join(["?"] * len(ids))
+        seed_rows = c.execute(
+            f"SELECT investigation_id, type, value, tags, created_at FROM nodes "
+            f"WHERE investigation_id IN ({qmarks}) ORDER BY created_at",
+            tuple(ids),
+        ).fetchall()
+    seed_map: dict[str, list] = {}
+    for r in seed_rows:
+        tags = json.loads(r["tags"] or "[]")
+        if "seed" in tags:
+            seed_map.setdefault(r["investigation_id"], []).append({
+                "type": r["type"], "value": r["value"], "added_at": r["created_at"],
+            })
+    for i in invs:
+        i["seeds"] = seed_map.get(i["id"], [])
+    return invs
+
+
+def get_investigation_seeds(inv_id: str) -> list[dict]:
+    """Return the list of seed-tagged nodes for a single investigation, in order added."""
+    with conn() as c:
+        rows = c.execute(
+            "SELECT type, value, tags, created_at FROM nodes WHERE investigation_id=? ORDER BY created_at",
+            (inv_id,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        tags = json.loads(r["tags"] or "[]")
+        if "seed" in tags:
+            out.append({"type": r["type"], "value": r["value"], "added_at": r["created_at"]})
+    return out
 
 
 # ── Admin queries ────────────────────────────────────────────────────────

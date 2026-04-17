@@ -22,7 +22,7 @@ function fmtRelative(ts) {
   return new Date(ts * 1000).toLocaleDateString()
 }
 
-export default function AdminPanel({ onClose, selfId }) {
+export default function AdminPanel({ onClose, selfId, onImpersonate }) {
   const [data, setData] = useState(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -122,6 +122,21 @@ export default function AdminPanel({ onClose, selfId }) {
   const updateModels = (id, models) => patchUser(id, { allowed_models: models.length ? models : null })
   const updateLabel  = (id, label)  => patchUser(id, { label: label || '' })
 
+  const impersonate = async (id) => {
+    if (!confirm(`Switch to user #${id}'s session? You will be logged in as them.`)) return
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/admin/impersonate/${id}`, {
+        method: 'POST', credentials: 'same-origin',
+      })
+      if (!r.ok) { const d = await r.json().catch(() => ({})); setErr(d.detail || 'Failed'); setBusy(false); return }
+      // Reload the page to pick up the new session
+      if (onImpersonate) onImpersonate()
+      else window.location.reload()
+    } catch { setErr('Network error') }
+    setBusy(false)
+  }
+
   return (
     <div className="admin-overlay" onClick={onClose}>
       <div className="admin-modal" onClick={e => e.stopPropagation()}>
@@ -204,6 +219,7 @@ export default function AdminPanel({ onClose, selfId }) {
                 expanded={expandedId === u.id}
                 onToggle={() => setExpandedId(expandedId === u.id ? null : u.id)}
                 onDelete={() => deleteUser(u.id)}
+                onImpersonate={() => impersonate(u.id)}
                 onSaveModels={(models) => updateModels(u.id, models)}
                 onSaveLabel={(label) => updateLabel(u.id, label)}
                 busy={busy}
@@ -216,7 +232,7 @@ export default function AdminPanel({ onClose, selfId }) {
   )
 }
 
-function UserRow({ user, selfId, allModels, expanded, onToggle, onDelete, onSaveModels, onSaveLabel, busy }) {
+function UserRow({ user, selfId, allModels, expanded, onToggle, onDelete, onImpersonate, onSaveModels, onSaveLabel, busy }) {
   const [models, setModels] = useState(user.allowed_models || [])
   const [labelDraft, setLabelDraft] = useState(user.label || '')
   useEffect(() => { setModels(user.allowed_models || []) }, [user.allowed_models])
@@ -328,6 +344,15 @@ function UserRow({ user, selfId, allModels, expanded, onToggle, onDelete, onSave
               )}
             </div>
           </div>
+
+          {/* Impersonate */}
+          {user.id !== selfId && (
+            <div className="admin-subsection">
+              <button className="auth-btn" disabled={busy} onClick={onImpersonate}>
+                Log in as this user
+              </button>
+            </div>
+          )}
 
           {/* Delete */}
           {user.id !== selfId && !user.is_admin && (

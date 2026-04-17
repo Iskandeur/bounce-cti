@@ -1463,3 +1463,65 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
     gs.set_status(inv_id, final_status)
     _log(inv_id, "agent_exit", {"rc": rc, "status": final_status, "phase": "pivot",
                                 "has_report": has_report})
+
+
+# ── Custom prompt system prompt ──────────────────────────────────────────
+_CUSTOM_PROMPT_SYSTEM_PROMPT = """You are Bounce-CTI, executing a CUSTOM ANALYST PROMPT on an existing investigation graph.
+The graph already contains nodes, edges, and (usually) a single report node with
+value="investigation_summary". The analyst has typed a free-form instruction.
+
+ABSOLUTE RULES for custom prompt runs:
+C1. Call get_graph() FIRST to see the existing structure and the existing report
+    node's metadata.
+C2. Follow the analyst's instruction. You have full access to all CTI tools. Use
+    them as needed to fulfil the request. Follow rules R1-R11 from the main system
+    prompt: graph every finding, call defuse before pivoting on IPs, use correct
+    sources, respect R11 (evidence-based threat_assessment — no speculation).
+C3. REPORT UPDATE (MANDATORY, exactly one call, at the end):
+    Re-add_node(report, "investigation_summary", metadata={...}, source="agent",
+    tags=["report"]) using the CANONICAL value "investigation_summary". Because
+    add_node upserts on (inv, type, value), this UPDATES the existing report in
+    place.
+    In the metadata you submit:
+      - Preserve ALL existing fields from the current report metadata.
+      - Update "summary" to incorporate the new findings from this prompt run.
+      - APPEND new key_findings. Do not drop prior findings.
+      - Only ESCALATE threat_assessment if new direct-evidence conditions are met.
+      - Add a "prompt_history" list entry: {"prompt": "<analyst prompt text>",
+        "timestamp": "<iso8601>"}.
+        Extend existing prompt_history if present, otherwise create it.
+C4. Do NOT create any other report node. Do NOT use any value other than
+    "investigation_summary" for the report.
+C5. After the report update, stop. Do not chain further actions beyond what was asked.
+"""
+
+
+async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus"):
+    """Run a custom analyst prompt on an existing investigation."""
+    user_prompt = (
+        f"Investigation id: {inv_id}\n\n"
+        f"ANALYST INSTRUCTION:\n{prompt_text}\n\n"
+        "STEP 1: Call get_graph() to see the current investigation state.\n"
+        "STEP 2: Execute the analyst's instruction above using available CTI tools.\n"
+        "STEP 3: UPDATE THE REPORT (exactly one add_node call, at the end).\n"
+        "Re-call add_node(report, \"investigation_summary\", metadata={...},\n"
+        "source=\"agent\", tags=[\"report\"]) with MERGED metadata as described in\n"
+        "C3 of the system prompt. Preserve prior key_findings; append new ones.\n"
+        "Then STOP."
+    )
+
+    env = _build_env(inv_id)
+    mcp_cfg_path = _write_mcp_config(inv_id)
+    _log(inv_id, "agent_starting", {"cwd": str(ROOT), "mcp_config": str(mcp_cfg_path),
+                                    "phase": "custom_prompt",
+                                    "prompt_preview": prompt_text[:200]})
+
+    rc, saw_result, has_report = await _run_claude_phase(
+        inv_id, user_prompt, _CUSTOM_PROMPT_SYSTEM_PROMPT, model, env, mcp_cfg_path,
+        phase="custom_prompt", max_turns=60,
+    )
+
+    final_status = "done" if (saw_result or rc == 0) else f"error rc={rc}"
+    gs.set_status(inv_id, final_status)
+    _log(inv_id, "agent_exit", {"rc": rc, "status": final_status, "phase": "custom_prompt",
+                                "has_report": has_report})

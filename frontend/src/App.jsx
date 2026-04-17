@@ -76,6 +76,26 @@ function refang(s) {
   return out.trim()
 }
 
+// Auto-detect IOC type from a (refanged) value
+function detectIOCType(raw) {
+  const v = refang(raw).trim()
+  if (!v) return 'domain'
+  if (/^(https?|ftp):\/\//i.test(v)) return 'url'
+  if (/^(as|asn)\s*\d{1,10}$/i.test(v)) return 'asn'
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(v)) return 'ip'
+  if (/^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(v)) return 'ip'
+  if (/^[0-9a-fA-F]{62}$/.test(v)) return 'jarm'
+  if (/^[0-9a-fA-F]{64}$/.test(v)) return 'hash'
+  if (/^[0-9a-fA-F]{40}$/.test(v)) return 'hash'
+  if (/^[0-9a-fA-F]{32}$/.test(v)) return 'hash'
+  if (/^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(v)) return 'domain'
+  return 'domain'
+}
+
+const IOC_TYPE_LABEL = {
+  domain: 'Domain', ip: 'IP', hash: 'Hash', url: 'URL', jarm: 'JARM', asn: 'ASN'
+}
+
 // ── HighlightedText ──────────────────────────────────────────────────────────
 function HighlightedText({ text, nodeValues, onNodeClick }) {
   const str = typeof text === 'string' ? text : iocString(text)
@@ -104,7 +124,7 @@ function HighlightedText({ text, nodeValues, onNodeClick }) {
 }
 
 function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
-  const [seedType, setSeedType] = useState('domain')
+  const [seedType, setSeedType] = useState('auto')
   const [seedValue, setSeedValue] = useState('')
   const [batchMode, setBatchMode] = useState(false)
   const [batchText, setBatchText] = useState('')
@@ -125,6 +145,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [filterTypes, setFilterTypes] = useState(new Set())
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
   const [rightTab, setRightTab] = useState('report')
+  const [customPrompt, setCustomPrompt] = useState('')
+  const [promptBusy, setPromptBusy] = useState(false)
   const [existingTypes, setExistingTypes] = useState(new Set())
   // Multi-selection for "copy / export" scope. Ctrl/Cmd/Shift + click toggles
   // a node into this set without touching the single-click details panel.
@@ -135,7 +157,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [searchMatches, setSearchMatches] = useState(0)
   const [batchCombined, setBatchCombined] = useState(false)
   // Add-seed form: attach a new PEER IOC to the currently open investigation.
-  const [addSeedType, setAddSeedType] = useState('domain')
+  const [addSeedType, setAddSeedType] = useState('auto')
   const [addSeedValue, setAddSeedValue] = useState('')
   // Service-restart banner + reconnect state. `serverDown=true` means the
   // backend sent us a `server_shutdown` frame (e.g. `systemctl restart`); we
@@ -589,9 +611,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const start = async () => {
     const cleaned = refang(seedValue)
     if (!cleaned) return
+    const effectiveType = seedType === 'auto' ? detectIOCType(cleaned) : seedType
     const r = await fetch('/api/investigations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed_type: seedType, seed_value: cleaned, model })
+      body: JSON.stringify({ seed_type: effectiveType, seed_value: cleaned, model })
     })
     const { id } = await r.json()
     await refreshInvs()
@@ -606,7 +629,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       .split(/[\n,]+/)
       .map(s => refang(s))
       .filter(Boolean)
-      .map(v => ({ seed_type: seedType, seed_value: v }))
+      .map(v => ({ seed_type: detectIOCType(v), seed_value: v }))
     if (items.length === 0) return
     const r = await fetch('/api/investigations/batch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -650,11 +673,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (!activeInv) return
     const v = refang(addSeedValue)
     if (!v) return
+    const effectiveType = addSeedType === 'auto' ? detectIOCType(v) : addSeedType
     await fetch(`/api/investigations/${activeInv}/add_seed`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed_type: addSeedType, seed_value: v, model })
+      body: JSON.stringify({ seed_type: effectiveType, seed_value: v, model })
     })
-    setEvents(e => [`▶ add seed: ${addSeedType} ${v}`, ...e])
+    setEvents(e => [`▶ add seed: ${effectiveType} ${v}`, ...e])
     setAddSeedValue('')
     refreshInvs()
   }
@@ -739,6 +763,19 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   }
 
   // ── pivot ─────────────────────────────────────────────────────────────────
+  const submitCustomPrompt = async () => {
+    if (!activeInv || !customPrompt.trim()) return
+    setPromptBusy(true)
+    await fetch(`/api/investigations/${activeInv}/prompt`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: customPrompt.trim(), model })
+    })
+    setEvents(e => [`▶ custom prompt: ${customPrompt.trim().slice(0, 60)}…`, ...e])
+    setCustomPrompt('')
+    setPromptBusy(false)
+    refreshInvs()
+  }
+
   const PIVOTABLE = ['domain', 'ip', 'hash', 'url', 'jarm', 'asn']
   const pivot = (n) => {
     if (!PIVOTABLE.includes(n.type)) return
@@ -924,7 +961,21 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         </div>
         {!batchMode && (
           <>
-            <select value={seedType} onChange={e => setSeedType(e.target.value)}>
+            <div className="auto-detect-row">
+              <input
+                value={seedValue}
+                onChange={e => { setSeedValue(e.target.value); if (seedType === 'auto') { /* auto stays */ } }}
+                onKeyDown={e => e.key === 'Enter' && start()}
+                placeholder="Paste any IOC: domain, IP, hash, URL, JARM, ASN (defanged ok)"
+              />
+              <span className="detected-type" title="Auto-detected type (click to override)">
+                {seedType === 'auto'
+                  ? (seedValue.trim() ? detectIOCType(seedValue) : '—').toUpperCase()
+                  : seedType.toUpperCase()}
+              </span>
+            </div>
+            <select value={seedType} onChange={e => setSeedType(e.target.value)} className="seed-type-override">
+              <option value="auto">Auto-detect</option>
               <option value="domain">Domain</option>
               <option value="ip">IP address</option>
               <option value="hash">File hash</option>
@@ -932,36 +983,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               <option value="jarm">JARM</option>
               <option value="asn">ASN</option>
             </select>
-            <input
-              value={seedValue}
-              onChange={e => setSeedValue(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && start()}
-              placeholder={
-                seedType === 'domain' ? 'example.com  (evil[.]com ok)' :
-                seedType === 'ip'     ? '1.2.3.4' :
-                seedType === 'url'    ? 'https://example.com  (hxxps:// ok)' :
-                seedType === 'jarm'   ? '2ad2ad0002ad2ad00041d2ad…' :
-                seedType === 'asn'    ? 'AS13335' :
-                                         'sha256...'
-              }
-            />
           </>
         )}
         {batchMode && (
           <>
-            <select value={seedType} onChange={e => setSeedType(e.target.value)}>
-              <option value="domain">Domain (one per line)</option>
-              <option value="ip">IP address (one per line)</option>
-              <option value="hash">File hash (one per line)</option>
-              <option value="url">URL (one per line)</option>
-              <option value="jarm">JARM (one per line)</option>
-              <option value="asn">ASN (one per line)</option>
-            </select>
             <textarea
               className="batch-textarea"
               value={batchText}
               onChange={e => setBatchText(e.target.value)}
-              placeholder={`Paste one IOC per line:\nexample.com\nbad.example.net\n…`}
+              placeholder={`Paste any IOCs, one per line (type auto-detected):\nexample.com\n1.2.3.4\nhxxps://evil[.]com/path\ne3b0c44298fc1c149afbf4c8996fb924…`}
               rows={6}
             />
             <div className="batch-switch" title="Separate: one investigation per IOC. Combined: all IOCs on one graph to find cross-links.">
@@ -1048,26 +1078,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                 </div>
               )}
               <div className="add-seed-form">
-                <select value={addSeedType} onChange={e => setAddSeedType(e.target.value)}>
-                  <option value="domain">Domain</option>
-                  <option value="ip">IP</option>
-                  <option value="hash">Hash</option>
-                  <option value="url">URL</option>
-                  <option value="jarm">JARM</option>
-                  <option value="asn">ASN</option>
-                </select>
                 <input
                   value={addSeedValue}
                   onChange={e => setAddSeedValue(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && !isRunning && submitAddSeed()}
-                  placeholder={
-                    addSeedType === 'domain' ? 'other.example.com  (evil[.]com ok)' :
-                    addSeedType === 'ip'     ? '1.2.3.4' :
-                    addSeedType === 'url'    ? 'hxxps://… also ok' :
-                    addSeedType === 'jarm'   ? '2ad2ad0002ad2ad00041d2ad…' :
-                    addSeedType === 'asn'    ? 'AS13335' :
-                                                'sha256…'
-                  }
+                  placeholder="Paste any IOC (auto-detected)"
                 />
                 <button
                   className="btn-sm"
@@ -1430,6 +1445,29 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                   )}
                 </>
               )}
+
+              {/* Custom prompt — ask the agent to do more */}
+              {activeInv && (
+                <div className="custom-prompt-section">
+                  <div className="section-label" style={{ margin: '12px 0 6px' }}>Prompt the agent</div>
+                  <textarea
+                    className="custom-prompt-input"
+                    value={customPrompt}
+                    onChange={e => setCustomPrompt(e.target.value)}
+                    placeholder="Ask the agent to dig deeper, check specific IOCs, re-analyze with different criteria…"
+                    rows={3}
+                    onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitCustomPrompt() }}
+                  />
+                  <button
+                    className="auth-btn"
+                    disabled={promptBusy || !customPrompt.trim()}
+                    onClick={submitCustomPrompt}
+                    style={{ marginTop: 4, width: '100%' }}
+                  >
+                    {promptBusy ? 'Sending…' : 'Run prompt →'}
+                  </button>
+                </div>
+              )}
             </>
           )}
 
@@ -1547,7 +1585,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             </>
           )}
         </div>
-      {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} selfId={userId} />}
+      {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} selfId={userId} onImpersonate={() => window.location.reload()} />}
     </div>
     </div>
   )
