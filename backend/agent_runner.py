@@ -87,6 +87,17 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
             ("urlscan_search", f'urlscan_search("page.url:{seed_value}")'),
             ("threatfox_search", f'threatfox_search("{seed_value}")'),
         ]
+    elif seed_type == "jarm":
+        mandatory = [
+            ("shodan_search", f'shodan_search("ssl.jarm:{seed_value}")'),
+            ("urlscan_search", f'urlscan_search("hash:{seed_value}")'),
+        ]
+    elif seed_type == "asn":
+        # Accept seed_value like "AS13335" — pass the stripped form to shodan.
+        asn_num = seed_value.upper().removeprefix("AS") or seed_value
+        mandatory = [
+            ("shodan_search", f'shodan_search("asn:AS{asn_num}")'),
+        ]
     else:  # hash
         mandatory = [
             ("virustotal_file", f'virustotal_file("{seed_value}")'),
@@ -605,6 +616,70 @@ STEP 4: For top 3 domains/IPs: run STEP 4 of domain/IP workflow
 STEP 5: report node (same schema as domain/IP STEP 8 — remember R11 and use value="investigation_summary")
 
 ══════════════════════════════════════════════
+WORKFLOW — JARM seed (fingerprint pivot)
+══════════════════════════════════════════════
+A JARM is a TLS fingerprint (e.g. "2ad2ad0002ad2ad0000000000000002ad...").
+The investigation's purpose is to surface the CLUSTER of hosts sharing this
+fingerprint and flag it if that cluster is threat-associated.
+
+STEP 1: add_node(jarm, <seed>, tags=["seed"])
+STEP 2: shodan_search("ssl.jarm:<seed>") — MANDATORY
+  → For each result (max 20 hosts): add_node(ip, <ip>, metadata={port, org, asn})
+    and add_edge(ip→jarm, has_jarm). Do NOT defuse before adding the node, but DO
+    defuse(ip, <ip>) before running any further IP enrichment in STEP 4.
+  → If the result set is > 200 matches, note "common_jarm_likely_cdn" in seed
+    metadata and still keep 10 representative hosts.
+STEP 3: urlscan_search("hash:<seed>") — cross-source confirmation
+  → For each scan result: if a page_url is present, add_node(url), add_edge(url→jarm, has_jarm)
+STEP 4: Pick top 3 distinct IPs (by diversity of ASN/org) and run a LIGHT IP workflow:
+  defuse → rdap_ip → virustotal_ip → onyphe_ip → threatfox_search. For any IP flagged
+  malicious, link the jarm seed via add_edge(jarm→ip, same_jarm) and tag jarm "suspicious".
+STEP 5: threatfox_search(<seed>) — occasionally ThreatFox indexes JARMs directly
+  → If any hit: tag jarm "c2"/"malicious" and add_node(report), add_edge(jarm→report, known_ioc)
+STEP 6: Final report (value="investigation_summary"). In key_findings include the
+  cluster size, dominant ASN(s), and whether any cluster member is directly flagged.
+  Follow R11 — the JARM is only malicious if at least one concrete detection hit exists.
+  Before writing the report verify:
+    □ shodan_search("ssl.jarm:<seed>")
+    □ threatfox_search(<seed>)
+  add_edge(jarm→report, known_ioc)
+
+══════════════════════════════════════════════
+WORKFLOW — ASN seed (autonomous-system pivot)
+══════════════════════════════════════════════
+ASN seed values look like "AS13335" (case-insensitive); treat the bare number as
+equivalent. The goal is to characterize the AS and surface any abuse cluster
+within it WITHOUT trying to enumerate every host (ASes can hold millions of IPs).
+
+STEP 1: add_node(asn, <seed>, tags=["seed"])  (normalized form "AS<digits>")
+STEP 2: shodan_search("asn:<seed>") — MANDATORY, with a narrowing filter.
+  Prefer "asn:<seed> port:443" to keep the result set manageable. For each hit
+  (max 20): add_node(ip), add_edge(ip→asn, hosted_on_asn), add_edge(asn→ip, announces).
+  Store open_ports, http_title, jarm in ip metadata.
+STEP 3: For the top 5 IPs with the most interesting fingerprints (non-generic
+  HTTP title, non-CDN JARM, unusual port set): run a LIGHT IP workflow
+  (defuse → virustotal_ip → threatfox_search → otx_ip). Any IP returning a
+  detection hit links the asn via add_edge(asn→ip, hosts_malicious) and tags
+  the asn "abused_asn".
+STEP 4: rdap on one representative IP to retrieve canonical ASN metadata
+  (netname, country, abuse_email, org). Store those in the asn node metadata.
+  If rdap returns an authoritative country, add_node(country, <ISO2>) and
+  add_edge(asn→country, located_in).
+STEP 5: threatfox_search("AS<digits>") — sometimes indexed under the ASN.
+  If any hits: add_node(report), add_edge(asn→report, known_ioc).
+STEP 6: Look for JARM/title/favicon CLUSTERS inside the AS — if multiple hosts
+  share the same non-generic JARM, add_node(jarm), add_edge(ip→jarm, has_jarm)
+  for each member, and add_edge(asn→jarm, has_cluster_jarm). This is a strong
+  signal of actor-controlled infrastructure on that ASN.
+STEP 7: Final report (value="investigation_summary"). key_findings should cover
+  AS size indicators (announced ranges if known), country, abuse_email, and
+  whether any cluster of malicious/suspicious hosts was observed. Obey R11 —
+  the ASN is not "malicious" unless concrete detection hits exist on hosts
+  within it; "abused_asn" (a tag, not a threat_assessment) is the correct
+  labelling when only a few hosts are flagged.
+  add_edge(asn→report, known_ioc)
+
+══════════════════════════════════════════════
 PARKING / SINKHOLE / NOISE HANDLING
 ══════════════════════════════════════════════
 - Fan-out rule: if virustotal_resolutions_ip returns >80 domains for an IP, it is shared hosting.
@@ -700,7 +775,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
 
     cmd = [
         claude_path, "-p", prompt,
-        "--model", model,
+        "--model", {"opus-4.7": "claude-opus-4-7"}.get(model, model),
         "--append-system-prompt", system_prompt,
         "--mcp-config", str(mcp_cfg_path),
         "--strict-mcp-config",
@@ -890,6 +965,36 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             "identify a specific malware family, call malwarebazaar_signature(<family>) "
             "and add each returned sample as a hash node with a communicates_with edge to the seed IP."
         )
+    elif seed_type == "jarm":
+        user_prompt = (
+            f"Seed indicator: type=jarm value={seed_value}\n"
+            "This is a TLS JARM fingerprint. Follow the JARM workflow from the system prompt.\n"
+            "You MUST call ALL of these tools before writing the report:\n"
+            f"1. add_node(jarm, {seed_value}, tags=[\"seed\"])\n"
+            f"2. shodan_search(\"ssl.jarm:{seed_value}\")\n"
+            f"3. urlscan_search(\"hash:{seed_value}\")\n"
+            f"4. For top 3 diverse IPs (different ASN/org): defuse + rdap_ip + virustotal_ip + threatfox_search\n"
+            f"5. threatfox_search({seed_value})\n"
+            "Every host with the same JARM must be graphed (ip node + has_jarm edge).\n"
+            "If the cluster has >200 members, note 'common_jarm_likely_cdn' and keep 10 representatives.\n"
+            "Write the report last with value=\"investigation_summary\"."
+        )
+    elif seed_type == "asn":
+        asn_num = seed_value.upper().removeprefix("AS") or seed_value
+        user_prompt = (
+            f"Seed indicator: type=asn value={seed_value}\n"
+            "This is an Autonomous System Number. Follow the ASN workflow from the system prompt.\n"
+            "You MUST call ALL of these tools before writing the report:\n"
+            f"1. add_node(asn, {seed_value}, tags=[\"seed\"])  (use the canonical AS<digits> form)\n"
+            f"2. shodan_search(\"asn:AS{asn_num} port:443\")  — narrows to the web-facing slice\n"
+            f"3. For top 5 most interesting IPs (unusual JARM / non-generic title / unusual ports):\n"
+            f"   defuse + virustotal_ip + threatfox_search + otx_ip\n"
+            f"4. rdap_ip on ONE representative IP from the ASN to capture netname/country/abuse_email\n"
+            f"5. threatfox_search(\"AS{asn_num}\")\n"
+            "If multiple hosts inside the AS share the same JARM, graph the JARM node and link\n"
+            "every matching IP to it. Tag the asn 'abused_asn' when ≥2 hosts return detection hits.\n"
+            "Write the report last with value=\"investigation_summary\"."
+        )
     else:
         user_prompt = (
             f"Seed indicator: type={seed_type} value={seed_value}\n"
@@ -1034,6 +1139,221 @@ P5. After the report update, stop. Do not chain further pivots.
 """
 
 
+# ── Add-seed (peer seed) prompt ───────────────────────────────────────────
+# Used when the analyst adds an independent IOC to an existing investigation.
+# Unlike a "pivot here" (which frames the new IOC as a descendant of an
+# existing graph node), add-seed treats the new IOC as a PEER — it is not
+# known to be linked to the existing graph, and we forbid the agent from
+# inventing an edge between the new seed and prior seeds without a concrete
+# shared attribute.
+_ADD_SEED_SYSTEM_PROMPT = """You are Bounce-CTI, adding a NEW PEER SEED to an existing multi-seed investigation.
+
+This is NOT a pivot from a graph node — it is a fresh IOC the analyst wants investigated
+alongside what is already on the graph. Treat it as a peer of the existing seed(s), not a
+descendant.
+
+ABSOLUTE RULES for add-seed runs:
+A1. Call get_graph() FIRST. Note every existing node (IPs, NS, JARMs, certs, ASNs,
+    registrars, hashes) and the existing seeds (nodes tagged "seed"). You will compare
+    the new seed's infrastructure against these.
+A2. add_node(<seed_type>, <seed_value>, tags=["seed"]) for the new seed. Then run the
+    FULL single-seed workflow for it (defuse, RDAP/DNS, VT, threatfox, OTX, urlhaus,
+    JARM pivot, …). Do NOT shortcut because "the graph already has stuff" — the new
+    seed needs its own full enrichment. Every shared IP/NS/JARM/cert/ASN/hash you add
+    is upserted on (inv, type, value) so it automatically becomes a cross-seed link
+    when it already exists.
+A3. FORBIDDEN: do NOT add any edge BETWEEN the new seed and any PRIOR seed unless a
+    concrete, specific shared attribute justifies a specific relation. Valid examples:
+      • Both use the exact same NS set → add_edge(seed_new → seed_old, same_ns_set)
+      • Both share a cert fingerprint → add_edge(seed_new → seed_old, same_cert)
+      • Both share an authoritative RDAP registrant email/org → same_registrant
+      • Both resolve to the same IP → the ip node connects them; you MAY also add
+        add_edge(seed_new → seed_old, co_resolves, evidence="shared IP <x>")
+    DO NOT invent relations like "pivot_from", "part_of_batch", "co_investigated",
+    "analyst_link", "related_to". If no concrete shared attribute exists, the two
+    seeds stay unconnected — the graph then correctly shows independent clusters.
+A4. REPORT UPDATE (exactly one add_node call, at the end). Re-call
+    add_node(report, "investigation_summary", metadata={...}, source="agent",
+    tags=["report"]) using the MULTI-SEED schema below. add_node upserts on
+    (inv,type,value), so this UPDATES the existing report in place.
+A5. Respect R1-R11 from the main system prompt (graph every finding, defuse before
+    pivoting IPs, evidence-based threat_assessment only). Do NOT chain further
+    pivots. Stop after the report update.
+
+MULTI-SEED REPORT METADATA SCHEMA:
+  {
+    "seeds": [{"type": "...", "value": "..."}, ...],    # ALL current seeds
+    "threat_assessment": "<worst of the per-seed values, always evidence-based>",
+    "summary": "<3-5 sentence overview of the WHOLE investigation: list the seeds,
+                 state whether they share infrastructure, overall conclusion>",
+    "per_seed_summaries": {
+      "<seed_value_1>": {
+        "type": "<domain|ip|hash|url>",
+        "summary": "<2-3 sentence overview for THIS seed, factual only>",
+        "threat_assessment": "<benign|suspicious|likely_malicious|malicious>",
+        "key_findings": [{"text": "...", "sources": [...]}, ...],
+        "sources_used": ["dns", "rdap", ...]
+      },
+      "<seed_value_2>": {...}
+    },
+    "cross_seed_findings": [
+      {"text": "<concrete shared attribute + which seeds>",
+       "seeds": ["a.com", "b.com"],
+       "sources": ["rdap", "dns", ...]}
+    ],  # empty list [] IS a valid finding — means no shared infrastructure was found
+    "key_findings": [...],             # union of per-seed findings (kept for compat)
+    "discriminating_markers": [...],   # union, strings
+    "pivot_suggestions": [...],        # strings
+    "ioc_list": ["<exact node value>", ...],   # PLAIN STRINGS, NEVER objects
+    "sources_used": [...],
+    "pivot_history": [...]             # append an entry for this add-seed
+  }
+
+MIGRATION: If the existing report does NOT yet have `per_seed_summaries`, migrate it:
+  - Move the existing top-level `summary`, `threat_assessment`, `key_findings`,
+    `sources_used` under per_seed_summaries[<existing_primary_seed_value>] (use the
+    first seed you see in the graph, tagged "seed", whose value equals the
+    investigation's original seed).
+  - Then add per_seed_summaries[<new_seed_value>] for the IOC you just investigated.
+  - Compute the top-level summary / threat_assessment / unions from the per-seed
+    entries PLUS cross_seed_findings.
+
+Append this entry to pivot_history:
+  {"kind": "add_seed", "seed_type": "<t>", "seed_value": "<v>", "timestamp": "<iso8601>"}
+
+IMPORTANT:
+- `ioc_list` items MUST be plain strings (e.g. "1.2.3.4"), NEVER objects.
+- If no shared attribute is found, cross_seed_findings is [] and the overall summary
+  explicitly states "the seeds do not share any observed infrastructure".
+- Top-level threat_assessment = the most severe of the per-seed values. Never
+  escalate from domain-name semantics, age, hosting, or absence of hits. Obey R11.
+"""
+
+
+async def run_add_seed(inv_id: str, seed_type: str, seed_value: str, model: str = "opus"):
+    """Add a new PEER seed to an existing investigation.
+
+    Runs the full single-seed workflow for the new IOC on the existing graph.
+    Because add_node upserts on (inv, type, value), any shared infrastructure
+    (IPs, NS, certs, JARMs, ASNs, registrars, hashes) automatically becomes a
+    cross-seed link without the agent inventing edges. The agent then updates
+    the report in place with per-seed summaries and explicit cross-seed
+    findings (or an empty list, if nothing is shared).
+    """
+    user_prompt = (
+        f"Add new PEER seed: type={seed_type} value={seed_value}\n"
+        f"Investigation id: {inv_id}\n\n"
+        "STEP 1: Call get_graph(). Note the existing seeds (nodes tagged 'seed'), the\n"
+        "        existing infrastructure (IPs, NS, certs, JARMs, ASNs, registrars, hashes),\n"
+        "        and the existing report metadata. You will merge into that report.\n\n"
+        f"STEP 2: add_node({seed_type}, {seed_value}, tags=[\"seed\"]) for the new seed.\n"
+        "        Then run the full single-seed workflow — do NOT skip tools because some\n"
+        "        infra seems to overlap. Each shared attribute you add is upserted, so\n"
+        "        overlap automatically becomes a cross-seed link.\n\n"
+    )
+    if seed_type == "ip":
+        user_prompt += (
+            "Required tools for the new seed (each called on THIS seed value):\n"
+            f"  - defuse(ip, {seed_value})\n"
+            f"  - rdap_ip({seed_value})\n"
+            f"  - virustotal_ip({seed_value})\n"
+            f"  - shodan_host({seed_value})  (passive — JARM, banners)\n"
+            f"  - onyphe_ip({seed_value})  (passive — banners, technologies)\n"
+            f"  - reverse_dns({seed_value})\n"
+            f"  - virustotal_resolutions_ip({seed_value})\n"
+            f"  - virustotal_communicating_files(\"ip\", {seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - otx_ip({seed_value})\n"
+            "  - If a non-CDN JARM is found: shodan_search(\"ssl.jarm:<jarm>\")\n"
+        )
+    elif seed_type == "domain":
+        user_prompt += (
+            "Required tools for the new seed (each called on THIS seed value):\n"
+            f"  - rdap_domain({seed_value}) / dns_resolve({seed_value})\n"
+            f"  - crtsh_subdomains({seed_value})\n"
+            f"  - virustotal_domain({seed_value})\n"
+            f"  - virustotal_resolutions_domain({seed_value})\n"
+            f"  - virustotal_communicating_files(\"domain\", {seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - otx_domain({seed_value})\n"
+            f"  - urlhaus_host({seed_value})\n"
+            f"  - onyphe_domain({seed_value})  (passive fingerprinting)\n"
+        )
+    elif seed_type == "hash":
+        user_prompt += (
+            "Required tools for the new seed (each called on THIS seed value):\n"
+            f"  - malwarebazaar_hash({seed_value})\n"
+            f"  - virustotal_file({seed_value})\n"
+            f"  - otx_file({seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            "For the hash node set metadata.file_name (required for UI labels).\n"
+        )
+    elif seed_type == "url":
+        user_prompt += (
+            "This is a URL add-seed. Graph the URL as a url node with tags=['seed'],\n"
+            "derive the host, graph it as domain/ip, then run the full host workflow\n"
+            "(rdap, dns, VT, threatfox, otx, urlhaus, urlscan, JARM).\n"
+        )
+    elif seed_type == "jarm":
+        user_prompt += (
+            "This is a JARM fingerprint add-seed. Required tools:\n"
+            f"  - shodan_search(\"ssl.jarm:{seed_value}\")  — enumerate cluster\n"
+            f"  - urlscan_search(\"hash:{seed_value}\")  — cross-source confirmation\n"
+            f"  - threatfox_search({seed_value})\n"
+            "  - For top 3 diverse IPs: defuse + rdap_ip + virustotal_ip + threatfox_search\n"
+            "For every host with this JARM: add_node(ip) + add_edge(ip→jarm, has_jarm).\n"
+            "If a cluster IP ALREADY exists on the graph (same id as a prior seed's infra),\n"
+            "that's a concrete cross-seed link — record it in cross_seed_findings.\n"
+        )
+    elif seed_type == "asn":
+        asn_num = seed_value.upper().removeprefix("AS") or seed_value
+        user_prompt += (
+            "This is an ASN add-seed. Required tools:\n"
+            f"  - shodan_search(\"asn:AS{asn_num} port:443\")\n"
+            f"  - For top 5 interesting IPs: defuse + virustotal_ip + threatfox_search + otx_ip\n"
+            f"  - rdap_ip on ONE representative IP (netname/country/abuse_email)\n"
+            f"  - threatfox_search(\"AS{asn_num}\")\n"
+            "If multiple hosts in the AS share a JARM, graph that JARM and link all hits.\n"
+            "If any cluster IP is ALREADY on the graph, record it in cross_seed_findings.\n"
+        )
+
+    user_prompt += (
+        "\nSTEP 3: CROSS-SEED CHECK. For each infrastructure node you added during STEP 2,\n"
+        "check whether it was ALREADY in the graph before this run (same id → same value\n"
+        "as a prior seed's infra). When that happens, this seed concretely shares that\n"
+        "attribute with a prior seed. Collect those into cross_seed_findings, citing the\n"
+        "attribute + which seeds share it + which source reported it.\n"
+        "If nothing is shared, cross_seed_findings stays [] (which is itself a valid\n"
+        "finding and must be stated in the top-level summary).\n"
+        "\nSTEP 4: UPDATE THE REPORT (exactly one add_node call, at the end).\n"
+        "add_node(report, \"investigation_summary\", metadata={MULTI_SEED_SCHEMA},\n"
+        "        source=\"agent\", tags=[\"report\"]).\n"
+        "Remember to migrate flat fields from the existing report into\n"
+        "per_seed_summaries[<primary_seed_value>] if that structure is not yet there.\n"
+        f"Then add per_seed_summaries[\"{seed_value}\"] for this new seed.\n"
+        "Append to pivot_history: {\"kind\": \"add_seed\", \"seed_type\":\"" + seed_type +
+        f"\", \"seed_value\":\"{seed_value}\", \"timestamp\":\"<iso8601>\"}}.\n"
+        "Then STOP."
+    )
+
+    env = _build_env(inv_id)
+    mcp_cfg_path = _write_mcp_config(inv_id)
+    _log(inv_id, "agent_starting", {"cwd": str(ROOT), "mcp_config": str(mcp_cfg_path),
+                                    "phase": "add_seed",
+                                    "seed_type": seed_type, "seed_value": seed_value})
+
+    rc, saw_result, has_report = await _run_claude_phase(
+        inv_id, user_prompt, _ADD_SEED_SYSTEM_PROMPT, model, env, mcp_cfg_path,
+        phase="add_seed", max_turns=80,
+    )
+
+    final_status = "done" if (saw_result or rc == 0) else f"error rc={rc}"
+    gs.set_status(inv_id, final_status)
+    _log(inv_id, "agent_exit", {"rc": rc, "status": final_status, "phase": "add_seed",
+                                "has_report": has_report,
+                                "seed_type": seed_type, "seed_value": seed_value})
+
+
 async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "opus"):
     """Extend an existing investigation graph with a new pivot seed.
 
@@ -1096,6 +1416,25 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
             f"  - urlhaus_host(<host>)\n"
             "  - rdap + DNS + VT (domain or ip flavor, depending on host)\n"
             "  - threatfox_search on both the URL and the host\n"
+        )
+    elif seed_type == "jarm":
+        user_prompt += (
+            "This is a JARM pivot. Call these tools (skip any already in graph):\n"
+            f"  - shodan_search(\"ssl.jarm:{seed_value}\")  — find cluster hosts\n"
+            f"  - urlscan_search(\"hash:{seed_value}\")\n"
+            f"  - threatfox_search({seed_value})\n"
+            "For each new IP with this JARM: add_node(ip) + add_edge(ip→jarm, has_jarm).\n"
+            "For top 3 IPs: defuse + virustotal_ip + threatfox_search.\n"
+        )
+    elif seed_type == "asn":
+        asn_num = seed_value.upper().removeprefix("AS") or seed_value
+        user_prompt += (
+            "This is an ASN pivot. Call these tools (skip any already in graph):\n"
+            f"  - shodan_search(\"asn:AS{asn_num} port:443\")\n"
+            f"  - rdap_ip on one representative IP for netname/country/abuse_email\n"
+            f"  - threatfox_search(\"AS{asn_num}\")\n"
+            "For top 5 interesting IPs in the AS: defuse + virustotal_ip + threatfox_search.\n"
+            "Tag the asn 'abused_asn' when ≥2 of those hosts return detection hits.\n"
         )
     user_prompt += (
         "\nSTEP 3: UPDATE THE REPORT (do this exactly once, at the end).\n"

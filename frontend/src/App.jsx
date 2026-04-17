@@ -40,10 +40,47 @@ const MALTEGO_TYPES = {
 
 const wsMap = {}
 
+// Agent-provided fields can occasionally be objects (e.g. {type, value}) instead
+// of strings. Coerce to a display string so rendering never throws React #31.
+function iocString(v) {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'object' && typeof v.value === 'string') return v.value
+  return String(v)
+}
+
+// Refang defanged IOC notation — accepts `evil[.]com`, `hxxps://bad(.)site`,
+// `user[at]evil[dot]com`, etc. Safe on already-live strings (no-op).
+function refang(s) {
+  if (!s || typeof s !== 'string') return s
+  let out = s.trim()
+  // Strip surrounding angle brackets analysts sometimes add: `<evil[.]com>`.
+  while (out.length > 1 && out.startsWith('<') && out.endsWith('>')) {
+    out = out.slice(1, -1).trim()
+  }
+  out = out
+    .replace(/\[\.\]/g, '.')
+    .replace(/\(\.\)/g, '.')
+    .replace(/\{\.\}/g, '.')
+    .replace(/\[:\]/g, ':')
+    .replace(/\[\/\]/g, '/')
+    .replace(/\[@\]/g, '@')
+    .replace(/\[\s*dot\s*\]/gi, '.')
+    .replace(/\(\s*dot\s*\)/gi, '.')
+    .replace(/\{\s*dot\s*\}/gi, '.')
+    .replace(/\[\s*at\s*\]/gi, '@')
+    .replace(/\(\s*at\s*\)/gi, '@')
+    .replace(/\bhxxps\b/gi, 'https')
+    .replace(/\bhxxp\b/gi, 'http')
+    .replace(/\bfxp\b/gi, 'ftp')
+  return out.trim()
+}
+
 // ── HighlightedText ──────────────────────────────────────────────────────────
 function HighlightedText({ text, nodeValues, onNodeClick }) {
-  if (!text) return null
-  const tokens = text.split(/(\s+)/)
+  const str = typeof text === 'string' ? text : iocString(text)
+  if (!str) return null
+  const tokens = str.split(/(\s+)/)
   return (
     <span>
       {tokens.map((token, i) => {
@@ -97,6 +134,14 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [graphSearch, setGraphSearch] = useState('')
   const [searchMatches, setSearchMatches] = useState(0)
   const [batchCombined, setBatchCombined] = useState(false)
+  // Add-seed form: attach a new PEER IOC to the currently open investigation.
+  const [addSeedType, setAddSeedType] = useState('domain')
+  const [addSeedValue, setAddSeedValue] = useState('')
+  // Service-restart banner + reconnect state. `serverDown=true` means the
+  // backend sent us a `server_shutdown` frame (e.g. `systemctl restart`); we
+  // display a banner and poll /api/auth/me until the service is back, then
+  // reload so all stale state (WS, timers, in-flight fetches) is replaced.
+  const [serverDown, setServerDown] = useState(false)
 
   const cyRef = useRef(null)
   const containerRef = useRef(null)
@@ -315,6 +360,25 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     return () => cy.off('add remove', 'node', update)
   }, [])
 
+  // Reconnect loop on server shutdown (fires once `serverDown` turns true).
+  // Poll /api/auth/me every 2s; when the backend answers OK, reload the page
+  // so every side-effect (WS, timers, fetches) gets a clean slate.
+  useEffect(() => {
+    if (!serverDown) return
+    let cancelled = false
+    const tick = async () => {
+      if (cancelled) return
+      try {
+        const r = await fetch('/api/auth/me', { credentials: 'same-origin' })
+        if (r.ok) { window.location.reload(); return }
+      } catch (_) {}
+      setTimeout(tick, 2000)
+    }
+    // Give the service ~3s to finish its shutdown before the first probe.
+    const t = setTimeout(tick, 3000)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [serverDown])
+
   // ── focusNode ────────────────────────────────────────────────────────────
   const focusNode = useCallback((id) => {
     const cy = cyRef.current
@@ -480,6 +544,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     wsMap[id] = ws
     ws.onmessage = (m) => {
       const evt = JSON.parse(m.data)
+      if (evt.kind === 'server_shutdown') {
+        setServerDown(true)
+        setEvents(e => [`⚠ ${evt.message || 'Service is restarting…'}`, ...e])
+        return
+      }
       handleEvent(evt)
       const label = (() => {
         if (!evt.kind.startsWith('agent_') && !['snapshot','node_added','node_updated','edge_added','node_tagged'].includes(evt.kind)) {
@@ -518,10 +587,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = async () => {
-    if (!seedValue.trim()) return
+    const cleaned = refang(seedValue)
+    if (!cleaned) return
     const r = await fetch('/api/investigations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed_type: seedType, seed_value: seedValue.trim(), model })
+      body: JSON.stringify({ seed_type: seedType, seed_value: cleaned, model })
     })
     const { id } = await r.json()
     await refreshInvs()
@@ -534,7 +604,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const startBatch = async () => {
     const items = batchText
       .split(/[\n,]+/)
-      .map(s => s.trim())
+      .map(s => refang(s))
       .filter(Boolean)
       .map(v => ({ seed_type: seedType, seed_value: v }))
     if (items.length === 0) return
@@ -571,6 +641,22 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     await fetch(`/api/investigations/${id}/rerun`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ model }) })
     await refreshInvs()
     openInv(id)
+  }
+
+  // Attach a new PEER seed to the currently open investigation. The agent runs
+  // the full single-seed workflow for the new IOC on the existing graph and
+  // updates the report with per-seed summaries + cross-seed findings.
+  const submitAddSeed = async () => {
+    if (!activeInv) return
+    const v = refang(addSeedValue)
+    if (!v) return
+    await fetch(`/api/investigations/${activeInv}/add_seed`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seed_type: addSeedType, seed_value: v, model })
+    })
+    setEvents(e => [`▶ add seed: ${addSeedType} ${v}`, ...e])
+    setAddSeedValue('')
+    refreshInvs()
   }
 
   // ── copy helpers ─────────────────────────────────────────────────────────
@@ -653,7 +739,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   }
 
   // ── pivot ─────────────────────────────────────────────────────────────────
-  const PIVOTABLE = ['domain', 'ip', 'hash', 'url']
+  const PIVOTABLE = ['domain', 'ip', 'hash', 'url', 'jarm', 'asn']
   const pivot = (n) => {
     if (!PIVOTABLE.includes(n.type)) return
     setBatchMode(false)
@@ -684,29 +770,60 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     lines.push('')
     if (r.threat_assessment) lines.push(`**Threat assessment:** \`${r.threat_assessment}\``)
     if (r.summary) { lines.push(''); lines.push(r.summary) }
+    if (r.per_seed_summaries && Object.keys(r.per_seed_summaries).length) {
+      lines.push(''); lines.push('## Per-seed summaries')
+      Object.entries(r.per_seed_summaries).forEach(([sv, s]) => {
+        lines.push(''); lines.push(`### \`${iocString(sv)}\` (${s?.type || '?'})`)
+        if (s?.threat_assessment) lines.push(`**Threat assessment:** \`${s.threat_assessment}\``)
+        if (s?.summary) { lines.push(''); lines.push(s.summary) }
+        if (Array.isArray(s?.key_findings) && s.key_findings.length) {
+          lines.push(''); lines.push('**Key findings:**')
+          s.key_findings.forEach(f => {
+            const text = typeof f === 'string' ? f : iocString(f.text)
+            const srcs = (typeof f === 'object' && Array.isArray(f.sources)) ? f.sources : []
+            const srcStr = srcs.length ? `  *(${srcs.map(iocString).join(', ')})*` : ''
+            lines.push(`- ${text}${srcStr}`)
+          })
+        }
+        if (Array.isArray(s?.sources_used) && s.sources_used.length) {
+          lines.push(`**Sources used:** ${s.sources_used.map(x => `\`${iocString(x)}\``).join(', ')}`)
+        }
+      })
+    }
+    if (Array.isArray(r.cross_seed_findings) && r.cross_seed_findings.length) {
+      lines.push(''); lines.push('## Cross-seed links')
+      r.cross_seed_findings.forEach(c => {
+        const text = typeof c === 'string' ? c : iocString(c.text)
+        const seeds = (typeof c === 'object' && Array.isArray(c.seeds)) ? c.seeds : []
+        const srcs = (typeof c === 'object' && Array.isArray(c.sources)) ? c.sources : []
+        const seedStr = seeds.length ? `  _[seeds: ${seeds.map(iocString).join(', ')}]_` : ''
+        const srcStr = srcs.length ? `  *(${srcs.map(iocString).join(', ')})*` : ''
+        lines.push(`- ${text}${seedStr}${srcStr}`)
+      })
+    }
     if (r.key_findings?.length) {
       lines.push(''); lines.push('## Key findings')
       r.key_findings.forEach(f => {
-        const text = typeof f === 'string' ? f : (f.text || '')
+        const text = typeof f === 'string' ? f : iocString(f.text)
         const srcs = (typeof f === 'object' && Array.isArray(f.sources)) ? f.sources : []
-        const srcStr = srcs.length ? `  *(${srcs.join(', ')})*` : ''
+        const srcStr = srcs.length ? `  *(${srcs.map(iocString).join(', ')})*` : ''
         lines.push(`- ${text}${srcStr}`)
       })
     }
     if (r.discriminating_markers?.length) {
       lines.push(''); lines.push('## Discriminating markers')
-      r.discriminating_markers.forEach(m => lines.push(`- \`${m}\``))
+      r.discriminating_markers.forEach(m => lines.push(`- \`${iocString(m)}\``))
     }
     if (r.pivot_suggestions?.length) {
       lines.push(''); lines.push('## Pivot suggestions')
-      r.pivot_suggestions.forEach(p => lines.push(`- ${p}`))
+      r.pivot_suggestions.forEach(p => lines.push(`- ${iocString(p)}`))
     }
     if (r.ioc_list?.length) {
       lines.push(''); lines.push('## IOC list')
-      r.ioc_list.forEach(i => lines.push(`- \`${i}\``))
+      r.ioc_list.forEach(i => lines.push(`- \`${iocString(i)}\``))
     }
     if (r.sources_used?.length) {
-      lines.push(''); lines.push(`**Sources used:** ${r.sources_used.map(s => `\`${s}\``).join(', ')}`)
+      lines.push(''); lines.push(`**Sources used:** ${r.sources_used.map(s => `\`${iocString(s)}\``).join(', ')}`)
     }
     return lines.join('\n')
   }
@@ -782,6 +899,14 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
 
   return (
     <div className="app">
+      {serverDown && (
+        <div className="server-down-banner" role="status" aria-live="polite">
+          <span className="server-down-spinner" />
+          <span className="server-down-text">
+            Service is restarting — reconnecting automatically…
+          </span>
+        </div>
+      )}
       {/* ── LEFT SIDEBAR ── */}
       <div className="sidebar">
         <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
@@ -804,15 +929,19 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               <option value="ip">IP address</option>
               <option value="hash">File hash</option>
               <option value="url">URL</option>
+              <option value="jarm">JARM</option>
+              <option value="asn">ASN</option>
             </select>
             <input
               value={seedValue}
               onChange={e => setSeedValue(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && start()}
               placeholder={
-                seedType === 'domain' ? 'example.com' :
+                seedType === 'domain' ? 'example.com  (evil[.]com ok)' :
                 seedType === 'ip'     ? '1.2.3.4' :
-                seedType === 'url'    ? 'https://example.com/path' :
+                seedType === 'url'    ? 'https://example.com  (hxxps:// ok)' :
+                seedType === 'jarm'   ? '2ad2ad0002ad2ad00041d2ad…' :
+                seedType === 'asn'    ? 'AS13335' :
                                          'sha256...'
               }
             />
@@ -825,6 +954,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               <option value="ip">IP address (one per line)</option>
               <option value="hash">File hash (one per line)</option>
               <option value="url">URL (one per line)</option>
+              <option value="jarm">JARM (one per line)</option>
+              <option value="asn">ASN (one per line)</option>
             </select>
             <textarea
               className="batch-textarea"
@@ -851,6 +982,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         <select value={model} onChange={e => setModel(e.target.value)}>
           {(!allowedModels || allowedModels.includes('sonnet')) && <option value="sonnet">Sonnet 4.6 (recommended)</option>}
           {(!allowedModels || allowedModels.includes('opus')) && <option value="opus">Opus 4.6 (smarter, slower)</option>}
+          {(!allowedModels || allowedModels.includes('opus-4.7')) && <option value="opus-4.7">Opus 4.7 (latest, smartest)</option>}
           {(!allowedModels || allowedModels.includes('haiku')) && <option value="haiku">Haiku 4.5 (faster, lighter)</option>}
         </select>
         <button onClick={batchMode ? startBatch : start}>
@@ -859,28 +991,98 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
 
         <div className="section-label">History</div>
         <div className="inv-list">
-          {invs.map(i => (
-            <div
-              key={i.id}
-              className={`inv-item${activeInv === i.id ? ' active' : ''}`}
-              onClick={() => openInv(i.id)}
-            >
-              <div className="inv-item-main">
-                <span className="inv-seed">{i.seed_value}</span>
-                <span className="inv-type">{i.seed_type}</span>
+          {invs.map(i => {
+            const seedCount = (i.seeds || []).length
+            const extraSeeds = seedCount > 1 ? seedCount - 1 : 0
+            return (
+              <div
+                key={i.id}
+                className={`inv-item${activeInv === i.id ? ' active' : ''}`}
+                onClick={() => openInv(i.id)}
+                title={seedCount > 1
+                  ? `Multi-seed: ${(i.seeds || []).map(s => s.value).join(', ')}`
+                  : undefined}
+              >
+                <div className="inv-item-main">
+                  <span className="inv-seed">{i.seed_value}</span>
+                  {extraSeeds > 0 && (
+                    <span className="inv-seed-count" title={`${seedCount} seeds in this investigation`}>
+                      +{extraSeeds}
+                    </span>
+                  )}
+                  <span className="inv-type">{i.seed_type}</span>
+                </div>
+                <div className="inv-item-meta">
+                  <span className="inv-status-dot" style={{ background: STATUS_COLOR[i.status] || '#8b949e' }} />
+                  <span className="inv-status-text" style={{ color: STATUS_COLOR[i.status] || '#8b949e' }}>{i.status}</span>
+                  {i.model && <span className="inv-model-badge">{i.model}</span>}
+                  <span className="inv-actions">
+                    <button className="icon-btn" title="Rerun" onClick={e => rerunInv(i.id, e)}>↺</button>
+                    <button className="icon-btn danger" title="Delete" onClick={e => deleteInv(i.id, e)}>✕</button>
+                  </span>
+                </div>
               </div>
-              <div className="inv-item-meta">
-                <span className="inv-status-dot" style={{ background: STATUS_COLOR[i.status] || '#8b949e' }} />
-                <span className="inv-status-text" style={{ color: STATUS_COLOR[i.status] || '#8b949e' }}>{i.status}</span>
-                {i.model && <span className="inv-model-badge">{i.model}</span>}
-                <span className="inv-actions">
-                  <button className="icon-btn" title="Rerun" onClick={e => rerunInv(i.id, e)}>↺</button>
-                  <button className="icon-btn danger" title="Delete" onClick={e => deleteInv(i.id, e)}>✕</button>
-                </span>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
+
+        {/* Add-IOC panel: appears only when an investigation is open. Lets the
+            analyst attach a new peer seed (independent IOC) to the same graph.
+            The agent compares its infrastructure against existing nodes and
+            cross-links when concrete overlap is found. */}
+        {activeInv && (() => {
+          const activeInvData = invs.find(i => i.id === activeInv)
+          const activeSeeds = activeInvData?.seeds || []
+          const isRunning = activeInvData?.status === 'running'
+          return (
+            <>
+              <div className="section-label">Add IOC to this investigation</div>
+              {activeSeeds.length > 0 && (
+                <div className="seed-chips" title="All seeds on this graph">
+                  {activeSeeds.map((s, i) => (
+                    <span key={i} className="seed-chip">
+                      <span className="seed-chip-type">{s.type}</span>
+                      <span className="seed-chip-value">{s.value}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="add-seed-form">
+                <select value={addSeedType} onChange={e => setAddSeedType(e.target.value)}>
+                  <option value="domain">Domain</option>
+                  <option value="ip">IP</option>
+                  <option value="hash">Hash</option>
+                  <option value="url">URL</option>
+                  <option value="jarm">JARM</option>
+                  <option value="asn">ASN</option>
+                </select>
+                <input
+                  value={addSeedValue}
+                  onChange={e => setAddSeedValue(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !isRunning && submitAddSeed()}
+                  placeholder={
+                    addSeedType === 'domain' ? 'other.example.com  (evil[.]com ok)' :
+                    addSeedType === 'ip'     ? '1.2.3.4' :
+                    addSeedType === 'url'    ? 'hxxps://… also ok' :
+                    addSeedType === 'jarm'   ? '2ad2ad0002ad2ad00041d2ad…' :
+                    addSeedType === 'asn'    ? 'AS13335' :
+                                                'sha256…'
+                  }
+                />
+                <button
+                  className="btn-sm"
+                  disabled={isRunning || !addSeedValue.trim()}
+                  onClick={submitAddSeed}
+                  title={isRunning
+                    ? 'Agent is running — wait for it to finish before adding another seed'
+                    : 'Add this IOC as a peer seed on the current graph'}
+                >
+                  + Add
+                </button>
+              </div>
+            </>
+          )
+        })()}
 
         <div className="section-label">Agent log</div>
         <div className="event-log">
@@ -1047,13 +1249,121 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     </div>
                   )}
 
+                  {/* Per-seed summaries (multi-seed investigations). Each seed
+                      gets its own collapsible block with its own threat badge
+                      and findings. Falls back gracefully: when the report is
+                      single-seed flat, the block below doesn't render. */}
+                  {report.per_seed_summaries && Object.keys(report.per_seed_summaries).length > 0 && (
+                    <div>
+                      <div className="section-label" style={{ margin: '8px 0 6px' }}>Per-seed</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {Object.entries(report.per_seed_summaries).map(([seedVal, s], i) => {
+                          const nodeId = nodeValues.get(seedVal)
+                          const ta = (s?.threat_assessment || 'unknown').toString()
+                          return (
+                            <details key={i} className="per-seed-card" open>
+                              <summary className="per-seed-header">
+                                <span className={`threat-badge threat-${ta.replace(/\s+/g, '_')}`}>
+                                  {ta.toUpperCase()}
+                                </span>
+                                <span
+                                  className={`per-seed-value${nodeId ? ' clickable' : ''}`}
+                                  onClick={nodeId ? (e) => { e.preventDefault(); focusNode(nodeId) } : undefined}
+                                  title={nodeId ? 'Focus this seed on the graph' : undefined}
+                                >
+                                  {iocString(seedVal)}
+                                </span>
+                                {s?.type && <span className="per-seed-type">{s.type}</span>}
+                              </summary>
+                              {s?.summary && (
+                                <div className="per-seed-summary">
+                                  <HighlightedText text={s.summary} nodeValues={nodeValues} onNodeClick={focusNode} />
+                                </div>
+                              )}
+                              {Array.isArray(s?.key_findings) && s.key_findings.length > 0 && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                                  {s.key_findings.map((f, j) => {
+                                    const text = typeof f === 'string' ? f : iocString(f.text)
+                                    const srcs = typeof f === 'object' && f !== null ? (f.sources || []) : []
+                                    return (
+                                      <div key={j} className="finding-card">
+                                        <div className="finding-text">
+                                          <HighlightedText text={text} nodeValues={nodeValues} onNodeClick={focusNode} />
+                                        </div>
+                                        {srcs.length > 0 && (
+                                          <div className="finding-sources">
+                                            {srcs.map((src, k) => (
+                                              <span key={k} className="source-chip">{iocString(src)}</span>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </details>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cross-seed findings: explicit attributes shared across seeds
+                      (IP, NS, cert, JARM, ASN, registrant, hash). Empty array
+                      also means "no shared infrastructure observed" — still
+                      useful, but we omit the section when missing/empty to
+                      keep single-seed reports clean. */}
+                  {Array.isArray(report.cross_seed_findings) && report.cross_seed_findings.length > 0 && (
+                    <div>
+                      <div className="section-label" style={{ margin: '8px 0 6px' }}>Cross-seed links</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {report.cross_seed_findings.map((c, i) => {
+                          const text = typeof c === 'string' ? c : iocString(c.text)
+                          const seeds = (typeof c === 'object' && Array.isArray(c.seeds)) ? c.seeds : []
+                          const sources = (typeof c === 'object' && Array.isArray(c.sources)) ? c.sources : []
+                          return (
+                            <div key={i} className="finding-card cross-seed-card">
+                              <div className="finding-text">
+                                <HighlightedText text={text} nodeValues={nodeValues} onNodeClick={focusNode} />
+                              </div>
+                              {seeds.length > 0 && (
+                                <div className="cross-seed-seeds">
+                                  {seeds.map((sv, j) => {
+                                    const nodeId = nodeValues.get(iocString(sv))
+                                    return (
+                                      <span
+                                        key={j}
+                                        className={`ioc-chip${nodeId ? ' clickable' : ''}`}
+                                        onClick={nodeId ? () => focusNode(nodeId) : undefined}
+                                      >
+                                        {iocString(sv)}
+                                      </span>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                              {sources.length > 0 && (
+                                <div className="finding-sources">
+                                  {sources.map((src, j) => (
+                                    <span key={j} className="source-chip">{iocString(src)}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {report.key_findings?.length > 0 && (
                     <div>
                       <div className="section-label" style={{ margin: '8px 0 6px' }}>Key findings</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         {report.key_findings.map((f, i) => {
-                          const text = typeof f === 'string' ? f : f.text
-                          const sources = typeof f === 'object' ? (f.sources || []) : []
+                          const text = typeof f === 'string' ? f : iocString(f.text)
+                          const sources = typeof f === 'object' && f !== null ? (f.sources || []) : []
                           return (
                             <div key={i} className="finding-card">
                               <div className="finding-text">
@@ -1062,7 +1372,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                               {sources.length > 0 && (
                                 <div className="finding-sources">
                                   {sources.map((s, j) => (
-                                    <span key={j} className="source-chip">{s}</span>
+                                    <span key={j} className="source-chip">{iocString(s)}</span>
                                   ))}
                                 </div>
                               )}
@@ -1080,7 +1390,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                         {report.pivot_suggestions.map((p, i) => (
                           <div key={i} className="pivot-item">
                             <span style={{ color: 'var(--primary)', flexShrink: 0 }}>›</span>
-                            <span>{p}</span>
+                            <span>{iocString(p)}</span>
                           </div>
                         ))}
                       </div>
@@ -1092,14 +1402,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                       <div className="section-label" style={{ margin: '8px 0 6px' }}>IOC list</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {report.ioc_list.map((ioc, i) => {
-                          const nodeId = nodeValues.get(ioc)
+                          const label = iocString(ioc)
+                          const nodeId = nodeValues.get(label)
                           return (
                             <span
                               key={i}
                               className={`ioc-chip${nodeId ? ' clickable' : ''}`}
                               onClick={nodeId ? () => focusNode(nodeId) : undefined}
                             >
-                              {ioc}
+                              {label}
                             </span>
                           )
                         })}
@@ -1112,7 +1423,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                       <div className="section-label" style={{ margin: '8px 0 6px' }}>Sources used</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {report.sources_used.map((s, i) => (
-                          <span key={i} className="source-chip">{s}</span>
+                          <span key={i} className="source-chip">{iocString(s)}</span>
                         ))}
                       </div>
                     </div>
