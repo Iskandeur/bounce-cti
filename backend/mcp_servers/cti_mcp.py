@@ -36,6 +36,25 @@ async def crtsh_subdomains(domain: str) -> list[dict]:
 
 
 @mcp.tool()
+async def crtsh_serial(serial: str) -> dict:
+    """crt.sh lookup by cert serial number (hex). Free-tier equivalent of
+    shodan_search(\"ssl.cert.serial:<serial>\") — surfaces other hosts that
+    presented the same serial (common for reused self-signed Cobalt Strike
+    staging certs). Returns {digest:{hosts,issuers,serial_count,...}, rows}.
+    """
+    return await _src("crtsh").by_serial(serial)
+
+
+@mcp.tool()
+async def crtsh_query(q: str, match: str = "ILIKE") -> dict:
+    """crt.sh generic search. Use for pivots on a distinctive issuer/subject
+    organisation (e.g. O='1314520.com'), or any free-form CT log query.
+    `match` accepts ILIKE/LIKE/=. Returns the same digest shape as crtsh_serial.
+    """
+    return await _src("crtsh").by_query(q, match=match)
+
+
+@mcp.tool()
 async def rdap_domain(domain: str) -> dict:
     """RDAP lookup for a domain (registrar, registrant, dates, nameservers)."""
     return await _src("rdap").rdap_domain(domain)

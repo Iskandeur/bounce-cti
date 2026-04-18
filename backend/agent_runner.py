@@ -631,16 +631,25 @@ STEP 5 — Certificate SAN pivot (IMPORTANT — this is often the strongest IP�
 
 STEP 6 — SIMILAR ATTACK PATTERN HUNTING (go as far as budget allows)
   a. JARM fingerprint pivot — if you found a JARM that is NOT a well-known CDN JARM:
-     → shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>")
+     → shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") AND
+       urlscan_search("hash:<jarm>")  ← urlscan is FREE-TIER, always attempt it
      → MANDATORY GRAPHING: for each distinct IP in the union of results (top 10 by ASN diversity),
-       add_node(ip, <ip>) + add_edge(seed_ip→new_ip, same_jarm, source=<shodan|onyphe>, evidence="JARM match").
-       Do not leave the cluster as a prose description.
+       add_node(ip, <ip>) + add_edge(seed_ip→new_ip, same_jarm, source=<shodan|onyphe|urlscan>,
+       evidence="JARM match"). Do not leave the cluster as a prose description.
+     → If Shodan AND Onyphe both report tier_restricted=true, urlscan is your only free
+       JARM path; take every hit there and graph it.
      → virustotal_ip on top 2 new IPs → extract their certs/domains for further clustering
-  b. Certificate serial/thumbprint pivot:
+  b. Certificate serial / issuer-CN pivot — essential free-tier fallback:
      → shodan_search("ssl.cert.serial:<serial>") AND onyphe_datascan("tls.cert.serial:<serial>")
-     → For matches: add_node, add_edge(same_cert)
+     → crtsh_serial(<serial>) — ALWAYS call this (free, no tier). For each host in digest.hosts
+       not already in graph (max 10): add_node(domain, <host>) or add_node(ip, <host>) if the
+       value parses as an IP; add_edge(seed→<host>, same_cert, source="crtsh",
+       evidence="crt.sh serial=<serial>").
+     → If the cert has a rare/actor-distinctive issuer organisation (e.g. O='1314520.com'),
+       crtsh_query("<issuer_org>", match="ILIKE") — graph any additional CNs found.
   c. Favicon hash pivot — if onyphe/VT exposed favicon hash:
      → shodan_search("http.favicon.hash:<hash>") AND onyphe_datascan("favicon:<hash>")
+     → urlscan_search("hash:<hash>") as a free-tier complement; graph matches.
      → For matches: add_node(ip), add_edge(same_favicon)
   d. Onyphe pastries pivot — if the ip has been leaked in paste dumps:
      → onyphe_pastries("<seed_ip>") — each hit reveals context (botnet config, actor handle).
@@ -791,6 +800,7 @@ _ALLOWED_TOOLS = (
     "mcp__graph__add_node,mcp__graph__add_edge,mcp__graph__tag_node,"
     "mcp__graph__get_graph,mcp__graph__defuse,"
     "mcp__cti__dns_resolve,mcp__cti__reverse_dns,mcp__cti__crtsh_subdomains,"
+    "mcp__cti__crtsh_serial,mcp__cti__crtsh_query,"
     "mcp__cti__rdap_domain,mcp__cti__rdap_ip,"
     "mcp__cti__virustotal_domain,mcp__cti__virustotal_ip,mcp__cti__virustotal_file,"
     "mcp__cti__virustotal_resolutions_domain,mcp__cti__virustotal_resolutions_ip,"
@@ -1022,9 +1032,9 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             f"Seed indicator: type={seed_type} value={seed_value}\n"
             "Investigate now. You MUST call ALL of these MANDATORY tools before writing the report:\n"
             f"1. rdap_ip({seed_value})\n"
-            f"2. virustotal_ip({seed_value})  — extract JARM, cert SHA256/serial, malicious stats\n"
+            f"2. virustotal_ip({seed_value})  — extract JARM, cert SHA256/serial, issuer O=, malicious stats\n"
             f"3. shodan_host({seed_value})  — extract JARM, open ports, banners, http_title\n"
-            f"4. onyphe_ip({seed_value})  — second-source (community-tier ok). Iterate digest:\n"
+            f"4. onyphe_ip({seed_value})  — community-tier ok. Iterate the `digest` field:\n"
             f"   for each ip in digest.ips / jarm in digest.jarms / sub in digest.subdomains /\n"
             f"   feed in digest.threat_feeds → add_node + add_edge with source=\"onyphe\".\n"
             f"5. urlscan_search(\"ip:{seed_value}\")\n"
@@ -1033,17 +1043,22 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             f"8. virustotal_communicating_files(\"ip\", {seed_value})\n"
             f"9. threatfox_search({seed_value})\n"
             f"10. otx_ip({seed_value})\n"
-            "BEST-EFFORT (call but skip cleanly if the response has tier_restricted=true):\n"
+            "BEST-EFFORT (call but skip cleanly if tier_restricted=true):\n"
             f"  - onyphe_threatlist({seed_value})\n"
             f"  - onyphe_resolver_reverse({seed_value})\n"
-            "JARM PIVOT (if a non-CDN JARM was extracted):\n"
-            f"  - shodan_search(\"ssl.jarm:<jarm>\")\n"
-            f"  - onyphe_datascan(\"jarm:<jarm>\")  (best-effort, Griffin-tier)\n"
-            "  CLUSTER GRAPHING RULE: for EACH distinct IP in the union of shodan/onyphe hits,\n"
-            "  add_node(ip, <ip>) + add_edge(seed→<ip>, same_jarm, source=<shodan|onyphe>). Graph\n"
-            "  the top 10 by ASN diversity. A prose summary without nodes is a graph failure.\n"
-            "  If BOTH Shodan and Onyphe report tier_restricted=true, state so in pivot_suggestions\n"
-            "  but still attempt crt.sh by cert serial/issuer as a free alternative.\n"
+            "JARM PIVOT (MANDATORY if a non-CDN JARM was extracted):\n"
+            f"  - shodan_search(\"ssl.jarm:<jarm>\")        (paid, may be tier_restricted)\n"
+            f"  - onyphe_datascan(\"jarm:<jarm>\")          (paid, may be tier_restricted)\n"
+            f"  - urlscan_search(\"hash:<jarm>\")           (FREE, ALWAYS call this)\n"
+            "  CLUSTER GRAPHING RULE: for EACH distinct IP in the union of shodan/onyphe/urlscan\n"
+            "  hits, add_node(ip, <ip>) + add_edge(seed→<ip>, same_jarm, source=<s|o|urlscan>).\n"
+            "  Graph the top 10 by ASN diversity. A prose summary without nodes is a graph failure.\n"
+            "CERT PIVOT (MANDATORY if virustotal_ip returned a cert serial or issuer.O):\n"
+            f"  - crtsh_serial(<cert_serial>)  (FREE, always call). For each host in digest.hosts\n"
+            "    not already in graph: add_node(domain|ip, <h>) + add_edge(seed→<h>, same_cert,\n"
+            "    source=\"crtsh\", evidence=\"crt.sh serial=<serial>\").\n"
+            "  - If issuer.O is distinctive and not a CA (e.g. not DigiCert/LetsEncrypt/Sectigo/GoDaddy):\n"
+            f"    crtsh_query(\"<issuer_O>\", match=\"ILIKE\")  → graph each new CN as above with same_cert.\n"
             "FALLBACK: If virustotal_communicating_files returns empty data[] and threatfox/otx "
             "identify a specific malware family, call malwarebazaar_signature(<family>) "
             "and add each returned sample as a hash node with a communicates_with edge to the seed IP."
