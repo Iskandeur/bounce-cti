@@ -35,14 +35,14 @@ if git diff --name-only "$BEFORE" "$AFTER" | grep -q "^frontend/"; then
 fi
 
 echo "==> Restarting service..."
-sudo /bin/systemctl restart bounce-cti
+sudo -n /bin/systemctl restart bounce-cti
 
 # Wait and verify
 sleep 2
-if sudo /bin/systemctl is-active --quiet bounce-cti; then
+if sudo -n /bin/systemctl is-active --quiet bounce-cti; then
     echo "==> Deploy OK! Running commit: $(git rev-parse --short HEAD)"
 else
     echo "==> ERROR: service failed to start!"
-    sudo /bin/systemctl status bounce-cti --no-pager
+    sudo -n /bin/systemctl status bounce-cti --no-pager
     exit 1
 fi
