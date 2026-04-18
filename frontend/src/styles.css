@@ -1470,6 +1470,64 @@ button.secondary:hover {
   font-style: italic;
   margin-top: 1px;
 }
+/* Selected node in timeline */
+.timeline-entry.selected {
+  background: var(--primary-dim);
+  outline: 1px solid var(--primary);
+}
+.timeline-entry.selected .timeline-dot {
+  box-shadow: 0 0 0 3px var(--primary);
+}
+/* Agent reasoning notes */
+.timeline-note {
+  cursor: default;
+}
+.timeline-note:hover {
+  background: transparent;
+}
+.timeline-dot-note {
+  width: 6px;
+  height: 6px;
+  margin-top: 5px;
+  background: var(--on-dim) !important;
+  opacity: 0.5;
+}
+.timeline-note-text {
+  font-size: 10px;
+  color: var(--on-dim);
+  font-style: italic;
+  line-height: 1.4;
+  padding: 2px 0;
+}
+/* Agent tool call groups */
+.timeline-tool-group {
+  cursor: default;
+}
+.timeline-tool-group:hover {
+  background: transparent;
+}
+.timeline-dot-tool {
+  width: 6px;
+  height: 6px;
+  margin-top: 5px;
+  background: var(--primary) !important;
+  opacity: 0.6;
+}
+.timeline-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 2px;
+}
+.timeline-tool-chip {
+  font-size: 9px;
+  font-family: monospace;
+  color: var(--primary);
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
 
 /* ── Evidence ── */
 .evidence-entry {

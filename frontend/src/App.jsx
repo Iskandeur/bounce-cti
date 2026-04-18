@@ -147,6 +147,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [rightTab, setRightTab] = useState('report')
   const [evidenceData, setEvidenceData] = useState(null)
   const [evidenceLoading, setEvidenceLoading] = useState(false)
+  const [agentNotes, setAgentNotes] = useState([])
   const [customPrompt, setCustomPrompt] = useState('')
   const [promptBusy, setPromptBusy] = useState(false)
   const [existingTypes, setExistingTypes] = useState(new Set())
@@ -566,6 +567,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setSelected(null)
     setReport(null)
     setEvents([])
+    setAgentNotes([])
     setNodeValues(new Map())
     setExistingTypes(new Set())
     setFilterTypes(new Set())
@@ -583,27 +585,40 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         return
       }
       handleEvent(evt)
+      // ── Collect agent notes for the investigation timeline ──
+      const evtTs = evt._ts || (Date.now() / 1000)
+      if (evt.kind === 'agent_assistant') {
+        const content = (evt.msg || evt.data || {})?.message?.content || []
+        const textBlocks = content.filter(b => b.type === 'text').map(b => b.text).filter(Boolean)
+        const toolBlocks = content.filter(b => b.type === 'tool_use')
+        const notes = []
+        if (textBlocks.length) {
+          // Agent reasoning — summarize to keep timeline compact
+          const full = textBlocks.join(' ')
+          if (full.trim().length > 5) notes.push({ ts: evtTs, noteKind: 'reasoning', text: full.slice(0, 300) })
+        }
+        for (const t of toolBlocks) {
+          notes.push({ ts: evtTs, noteKind: 'tool', text: t.name, detail: JSON.stringify(t.input || {}).slice(0, 120) })
+        }
+        if (notes.length) setAgentNotes(prev => [...prev, ...notes])
+      }
       const label = (() => {
         if (!evt.kind.startsWith('agent_') && !['snapshot','node_added','node_updated','edge_added','node_tagged'].includes(evt.kind)) {
           return evt.kind
         }
         const msg = evt.msg || evt.data || {}
         if (evt.kind === 'agent_starting') {
-          // Refresh sidebar so a pivot/rerun immediately shows "running"
           refreshInvs()
           return '▶ agent starting'
         }
         if (evt.kind === 'status_change') {
-          // Backend flipped status (typically to "running" on pivot start)
           refreshInvs()
           return `● status: ${evt.status || '?'}`
         }
         if (evt.kind === 'agent_exit') {
           const rc = msg.rc ?? msg?.msg?.rc ?? '?'
           const phase = msg.phase ?? msg?.msg?.phase ?? ''
-          // Refresh sidebar status when the agent finishes
           refreshInvs()
-          // After a custom prompt, switch to report tab so the user sees the result
           if (phase === 'custom_prompt') {
             setRightTab('report')
           }
@@ -1740,69 +1755,128 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               {(() => {
                 const cy = cyRef.current
                 if (!cy) return <p className="hint">No graph loaded.</p>
-                const timelineNodes = []
+                // Build unified timeline: nodes + agent notes
+                const entries = []
                 cy.nodes().forEach(n => {
                   const d = n.data()
                   if (d.type === 'report') return
                   const md = d.metadata || {}
-                  const firstSeen = md.first_seen || md.first_submission_date || md.creation_date || null
-                  timelineNodes.push({
+                  entries.push({
+                    _kind: 'node', ts: d.created_at || 0,
                     id: d.id, type: d.type, value: d.value,
-                    created_at: d.created_at || 0,
-                    first_seen: firstSeen,
+                    first_seen: md.first_seen || md.first_submission_date || md.creation_date || null,
                     sources_seen: md.sources_seen || [],
                     tags: d.tags || [],
                   })
                 })
-                // Sort by created_at from graph store (when the node was added during the investigation)
-                timelineNodes.sort((a, b) => (a.created_at || 0) - (b.created_at || 0))
-                if (timelineNodes.length === 0) return <p className="hint">No nodes yet.</p>
+                // Merge agent notes (reasoning + tool calls)
+                for (const note of agentNotes) {
+                  entries.push({
+                    _kind: note.noteKind, ts: note.ts,
+                    text: note.text, detail: note.detail || null,
+                  })
+                }
+                entries.sort((a, b) => (a.ts || 0) - (b.ts || 0))
+                // Collapse consecutive tool calls into groups
+                const merged = []
+                for (const e of entries) {
+                  if (e._kind === 'tool') {
+                    const prev = merged[merged.length - 1]
+                    if (prev && prev._kind === 'tools') {
+                      prev.tools.push(e)
+                    } else {
+                      merged.push({ _kind: 'tools', ts: e.ts, tools: [e] })
+                    }
+                  } else {
+                    merged.push(e)
+                  }
+                }
+                if (merged.length === 0) return <p className="hint">No nodes yet.</p>
+                const selectedId = selected?.id
                 return (
                   <div className="timeline-list">
-                    {timelineNodes.map((tn, i) => {
-                      const ts = tn.created_at
-                        ? new Date(tn.created_at * 1000).toLocaleTimeString()
-                        : '?'
-                      const color = NODE_COLORS[tn.type] || '#8b949e'
-                      return (
-                        <div
-                          key={tn.id}
-                          className="timeline-entry"
-                          onClick={() => focusNode(tn.id)}
-                          title="Click to focus this node on the graph"
-                        >
-                          <div className="timeline-line">
-                            <span className="timeline-dot" style={{ background: color }} />
-                            {i < timelineNodes.length - 1 && <span className="timeline-connector" />}
-                          </div>
-                          <div className="timeline-content">
-                            <div className="timeline-header">
-                              <span className="timeline-time">{ts}</span>
-                              <span className="timeline-type" style={{ color }}>{tn.type}</span>
-                              {tn.sources_seen.length >= 2 && (
-                                <span className="timeline-src-count" title={`Seen by: ${tn.sources_seen.join(', ')}`}>
-                                  {tn.sources_seen.length} sources
-                                </span>
+                    {merged.map((tn, i) => {
+                      const tsStr = tn.ts ? new Date(tn.ts * 1000).toLocaleTimeString() : '?'
+                      if (tn._kind === 'node') {
+                        const color = NODE_COLORS[tn.type] || '#8b949e'
+                        const isSel = tn.id === selectedId
+                        return (
+                          <div
+                            key={tn.id}
+                            ref={el => { if (el && isSel) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }}
+                            className={`timeline-entry${isSel ? ' selected' : ''}`}
+                            onClick={() => focusNode(tn.id)}
+                            title="Click to focus this node on the graph"
+                          >
+                            <div className="timeline-line">
+                              <span className="timeline-dot" style={{ background: color }} />
+                              {i < merged.length - 1 && <span className="timeline-connector" />}
+                            </div>
+                            <div className="timeline-content">
+                              <div className="timeline-header">
+                                <span className="timeline-time">{tsStr}</span>
+                                <span className="timeline-type" style={{ color }}>{tn.type}</span>
+                                {tn.sources_seen.length >= 2 && (
+                                  <span className="timeline-src-count" title={`Seen by: ${tn.sources_seen.join(', ')}`}>
+                                    {tn.sources_seen.length} sources
+                                  </span>
+                                )}
+                              </div>
+                              <div className="timeline-value">
+                                {tn.value.length > 50 ? tn.value.slice(0, 48) + '...' : tn.value}
+                              </div>
+                              {tn.first_seen && (
+                                <div className="timeline-first-seen">
+                                  ext. first seen: {String(tn.first_seen).slice(0, 19)}
+                                </div>
+                              )}
+                              {tn.tags.length > 0 && (
+                                <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 2 }}>
+                                  {tn.tags.slice(0, 4).map(t => (
+                                    <span key={t} className={`tag-chip tag-${t}`} style={{ fontSize: 9, padding: '0 4px' }}>{t}</span>
+                                  ))}
+                                </div>
                               )}
                             </div>
-                            <div className="timeline-value">
-                              {tn.value.length > 50 ? tn.value.slice(0, 48) + '...' : tn.value}
+                          </div>
+                        )
+                      }
+                      if (tn._kind === 'reasoning') {
+                        return (
+                          <div key={`note-${i}`} className="timeline-entry timeline-note">
+                            <div className="timeline-line">
+                              <span className="timeline-dot timeline-dot-note" />
+                              {i < merged.length - 1 && <span className="timeline-connector" />}
                             </div>
-                            {tn.first_seen && (
-                              <div className="timeline-first-seen">
-                                ext. first seen: {String(tn.first_seen).slice(0, 19)}
+                            <div className="timeline-content">
+                              <div className="timeline-note-text">{tn.text}</div>
+                            </div>
+                          </div>
+                        )
+                      }
+                      if (tn._kind === 'tools') {
+                        return (
+                          <div key={`tools-${i}`} className="timeline-entry timeline-tool-group">
+                            <div className="timeline-line">
+                              <span className="timeline-dot timeline-dot-tool" />
+                              {i < merged.length - 1 && <span className="timeline-connector" />}
+                            </div>
+                            <div className="timeline-content">
+                              <div className="timeline-header">
+                                <span className="timeline-time">{tsStr}</span>
                               </div>
-                            )}
-                            {tn.tags.length > 0 && (
-                              <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 2 }}>
-                                {tn.tags.slice(0, 4).map(t => (
-                                  <span key={t} className={`tag-chip tag-${t}`} style={{ fontSize: 9, padding: '0 4px' }}>{t}</span>
+                              <div className="timeline-tools">
+                                {tn.tools.map((t, j) => (
+                                  <span key={j} className="timeline-tool-chip" title={t.detail || ''}>
+                                    {t.text}
+                                  </span>
                                 ))}
                               </div>
-                            )}
+                            </div>
                           </div>
-                        </div>
-                      )
+                        )
+                      }
+                      return null
                     })}
                   </div>
                 )

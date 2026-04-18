@@ -229,6 +229,7 @@ def get_events_since(inv_id: str, since_id: int = 0) -> list[dict]:
     for r in rows:
         p = json.loads(r["payload"])
         p["_id"] = r["id"]
+        p["_ts"] = r["created_at"]
         out.append(p)
     return out
 
