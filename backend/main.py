@@ -535,7 +535,7 @@ async def custom_prompt(inv_id: str, req: CustomPromptReq, user_id: int = Depend
     return {"ok": True}
 
 
-@app.get("/api/investigations/{inv_id}/report.pdf")
+@app.get("/api/investigations/{inv_id}/pdf")
 def export_pdf(inv_id: str, user_id: int = Depends(current_user)):
     """Generate and return a PDF report for the investigation."""
     _require_owner(inv_id, user_id)

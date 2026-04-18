@@ -73,6 +73,14 @@ This repo has **automatic deployment via GitHub Actions**.
 - **SQLite is the only datastore**: No external database. The `data/` directory must persist across deploys.
 - **Environment variables**: API keys and config are in `.env` (not in git). See `.env.example` for the full list.
 
+## Testing
+
+**Always test features against the live app before considering them done.** Don't just check syntax and imports — actually use the feature:
+- For UI changes: open the app, navigate to the feature, verify it renders and behaves correctly.
+- For API endpoints: curl them or open them in a browser to verify the response.
+- For investigation features: use an existing investigation or start a lightweight one (e.g. a parked domain) to test end-to-end.
+- Avoid `.extension` in API route paths (e.g. `/report.pdf`) — Caddy or FastAPI static file mounts can interfere. Use clean paths (e.g. `/pdf`).
+
 ## Gotchas
 
 - The `claude` CLI must be installed and authenticated on any machine running investigations.

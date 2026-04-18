@@ -1308,7 +1308,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     {activeInv && (
                       <button
                         className="btn-sm secondary export-btn"
-                        onClick={() => window.open(`/api/investigations/${activeInv}/report.pdf`, '_blank')}
+                        onClick={() => window.open(`/api/investigations/${activeInv}/pdf`, '_blank')}
                         title="Download a structured PDF report for sharing"
                       >
                         PDF
@@ -1779,9 +1779,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                             <div className="timeline-header">
                               <span className="timeline-time">{ts}</span>
                               <span className="timeline-type" style={{ color }}>{tn.type}</span>
-                              {tn.sources_seen.length > 0 && (
+                              {tn.sources_seen.length >= 2 && (
                                 <span className="timeline-src-count" title={`Seen by: ${tn.sources_seen.join(', ')}`}>
-                                  {tn.sources_seen.length}src
+                                  {tn.sources_seen.length} sources
                                 </span>
                               )}
                             </div>

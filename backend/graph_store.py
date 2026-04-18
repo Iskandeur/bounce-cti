@@ -151,10 +151,12 @@ def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
             )
             event = {"kind": "node_added", "node": {"id": nid, "type": type_, "value": value,
                                                      "metadata": md, "tags": tags or [],
-                                                     "confidence": confidence, "source": source}}
+                                                     "confidence": confidence, "source": source,
+                                                     "created_at": now}}
         except sqlite3.IntegrityError:
-            row = c.execute("SELECT metadata, tags FROM nodes WHERE id=?", (nid,)).fetchone()
+            row = c.execute("SELECT metadata, tags, created_at FROM nodes WHERE id=?", (nid,)).fetchone()
             existing_md = json.loads(row["metadata"] or "{}")
+            original_created_at = row["created_at"]
             # Save old sources_seen before update() overwrites it
             old_sources = existing_md.get("sources_seen", [])
             existing_md.update(md)
@@ -165,7 +167,8 @@ def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
                       (json.dumps(existing_md), json.dumps(existing_tags), nid))
             event = {"kind": "node_updated", "node": {"id": nid, "type": type_, "value": value,
                                                        "metadata": existing_md, "tags": existing_tags,
-                                                       "confidence": confidence, "source": source}}
+                                                       "confidence": confidence, "source": source,
+                                                       "created_at": original_created_at}}
         c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
                   (inv_id, event["kind"], json.dumps(event), now))
     return {"id": nid, "type": type_, "value": value}
