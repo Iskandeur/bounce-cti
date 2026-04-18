@@ -158,6 +158,62 @@ npm run dev     # dev server with HMR on :5173, proxies API to :8000
 # OR: npm run build  # for production, served by FastAPI at :8000
 ```
 
+## Deployment (CI/CD)
+
+The project uses **GitHub Actions** for continuous deployment. Every push to `main` triggers an automatic deploy to the production VPS.
+
+### How it works
+
+```
+Push on main
+  │
+  ▼
+GitHub Actions (.github/workflows/deploy.yml)
+  │  SSH into VPS using secrets (VPS_HOST, VPS_USER, VPS_SSH_KEY)
+  ▼
+deploy.sh (on VPS)
+  ├─ git fetch + reset to origin/main
+  ├─ pip install (only if requirements.txt changed)
+  ├─ npm ci + npm run build (only if frontend/ changed)
+  ├─ sudo systemctl restart bounce-cti
+  └─ health check (verify service is running)
+```
+
+### Production stack
+
+- **Reverse proxy**: Caddy (automatic HTTPS via Let's Encrypt)
+- **App server**: uvicorn behind systemd (`bounce-cti.service`)
+- **Database**: SQLite in `data/bounce.db` (persistent, not in git)
+- **Auth secrets**: `data/secret.key` (generated on first run, not in git)
+
+### GitHub secrets required
+
+Three secrets must be configured in **Settings > Secrets > Actions**:
+
+| Secret | Description |
+|--------|-------------|
+| `VPS_HOST` | IP address of the production server |
+| `VPS_USER` | SSH username on the VPS |
+| `VPS_SSH_KEY` | Private SSH key (ed25519) authorized on the VPS |
+
+### Manual deploy
+
+To deploy manually on the VPS (e.g. to test before pushing):
+
+```bash
+/opt/bounce-cti/deploy.sh
+```
+
+### Rollback
+
+```bash
+# On the VPS
+cd /opt/bounce-cti
+git log --oneline -5          # find the good commit
+git reset --hard <commit-sha>
+sudo systemctl restart bounce-cti
+```
+
 ## Adding a new source
 
 1. Create `backend/sources/newsource.py` with an `async def` function
