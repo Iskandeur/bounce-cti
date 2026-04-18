@@ -49,10 +49,13 @@ This repo has **automatic deployment via GitHub Actions**.
 **Every push to `main` triggers a deploy to the production VPS:**
 
 1. GitHub Actions SSHes into the VPS (secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`)
-2. Runs `deploy.sh` which: git pull, install deps if changed, rebuild frontend if changed, restart systemd service
+2. Runs inline deploy commands (defined in `.github/workflows/deploy.yml`): git pull, install deps if changed, rebuild frontend if changed, restart systemd service
 3. The service runs behind Caddy (reverse proxy, automatic HTTPS)
 
-**This means: any commit you push to `main` goes live immediately.** Be sure code works before pushing. There is no staging environment.
+**WARNING: any commit pushed to `main` goes live immediately.** There is no staging environment, no review gate, no rollback automation. Before pushing:
+- Make sure the Python backend starts without errors
+- Make sure the frontend builds (`cd frontend && npm run build`)
+- Do not push commits that break imports, syntax, or database schema without migration
 
 ### If you need to change the deploy pipeline
 

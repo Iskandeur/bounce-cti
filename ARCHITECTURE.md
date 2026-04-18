@@ -171,7 +171,7 @@ Push on main
 GitHub Actions (.github/workflows/deploy.yml)
   │  SSH into VPS using secrets (VPS_HOST, VPS_USER, VPS_SSH_KEY)
   ▼
-deploy.sh (on VPS)
+Inline script (defined in deploy.yml, runs on VPS via SSH)
   ├─ git fetch + reset to origin/main
   ├─ pip install (only if requirements.txt changed)
   ├─ npm ci + npm run build (only if frontend/ changed)
