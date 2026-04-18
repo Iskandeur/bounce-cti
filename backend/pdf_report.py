@@ -282,4 +282,4 @@ def generate_pdf(inv_id: str) -> bytes:
             line += f"  (ext. first seen: {_safe(first_seen)})"
         pdf.cell(0, 4, line, new_x="LMARGIN", new_y="NEXT")
 
-    return pdf.output()
+    return bytes(pdf.output())
