@@ -18,6 +18,7 @@ from typing import Optional
 from . import graph_store as gs
 from . import auth
 from .agent_runner import run_investigation, run_pivot, run_add_seed, run_custom_prompt, stop_investigation
+from .pdf_report import generate_pdf
 from .refang import refang
 
 app = FastAPI(title="Bounce-CTI")
@@ -532,6 +533,36 @@ async def custom_prompt(inv_id: str, req: CustomPromptReq, user_id: int = Depend
     sel = [{"type": n.type, "value": n.value} for n in req.selected_nodes] if req.selected_nodes else None
     asyncio.create_task(run_custom_prompt(inv_id, prompt_text, model=model, selected_nodes=sel))
     return {"ok": True}
+
+
+@app.get("/api/investigations/{inv_id}/report.pdf")
+def export_pdf(inv_id: str, user_id: int = Depends(current_user)):
+    """Generate and return a PDF report for the investigation."""
+    _require_owner(inv_id, user_id)
+    try:
+        pdf_bytes = generate_pdf(inv_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="bounce-cti-{inv_id}.pdf"'},
+    )
+
+
+@app.get("/api/investigations/{inv_id}/nodes/{node_id}/evidence")
+def node_evidence(inv_id: str, node_id: str, user_id: int = Depends(current_user)):
+    """Return raw cached CTI source data relevant to a node.
+
+    Lets the analyst audit what each source actually returned, so they can
+    verify the LLM summary didn't omit anything.
+    """
+    _require_owner(inv_id, user_id)
+    node = gs.get_node_by_id(inv_id, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="node not found")
+    evidence = gs.get_evidence_for_value(node["value"])
+    return {"node_id": node_id, "value": node["value"], "evidence": evidence}
 
 
 @app.websocket("/ws/{inv_id}")

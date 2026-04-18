@@ -1393,3 +1393,102 @@ button.secondary:hover {
   font-size: 10px;
   padding: 0 4px;
 }
+
+/* ── Timeline ── */
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.timeline-entry {
+  display: flex;
+  gap: 10px;
+  cursor: pointer;
+  padding: 4px 4px 4px 0;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.timeline-entry:hover {
+  background: var(--surface-2);
+}
+.timeline-line {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  width: 16px;
+}
+.timeline-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.timeline-connector {
+  width: 2px;
+  flex: 1;
+  background: var(--border);
+  min-height: 16px;
+}
+.timeline-content {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 8px;
+}
+.timeline-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+}
+.timeline-time {
+  color: var(--on-dim);
+  font-family: monospace;
+}
+.timeline-type {
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 9px;
+}
+.timeline-src-count {
+  font-size: 9px;
+  color: var(--primary);
+  background: var(--primary-dim);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.timeline-value {
+  font-size: 12px;
+  color: var(--on-surface);
+  word-break: break-all;
+  line-height: 1.3;
+}
+.timeline-first-seen {
+  font-size: 10px;
+  color: var(--on-dim);
+  font-style: italic;
+  margin-top: 1px;
+}
+
+/* ── Evidence ── */
+.evidence-entry {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.evidence-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  background: var(--surface-2);
+}
+.evidence-summary:hover {
+  background: var(--surface-3, #21262d);
+}
+.evidence-entry[open] .evidence-summary {
+  border-bottom: 1px solid var(--border);
+}

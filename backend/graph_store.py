@@ -136,22 +136,30 @@ def get_investigation_owner(inv_id: str) -> Optional[int]:
 def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
              confidence: float = 0.8, source: str = "agent", tags: list[str] | None = None) -> dict:
     nid = _node_id(inv_id, type_, value)
-    md = json.dumps(metadata or {})
+    md = dict(metadata or {})
+    # Track which sources have contributed data to this node (for multi-source convergence).
+    sources_seen = list(set(md.get("sources_seen", []) + ([source] if source else [])))
+    md["sources_seen"] = sources_seen
+    md_json = json.dumps(md)
     tg = json.dumps(tags or [])
     now = time.time()
     with conn() as c:
         try:
             c.execute(
                 "INSERT INTO nodes(id, investigation_id, type, value, metadata, tags, confidence, source, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (nid, inv_id, type_, value, md, tg, confidence, source, now),
+                (nid, inv_id, type_, value, md_json, tg, confidence, source, now),
             )
             event = {"kind": "node_added", "node": {"id": nid, "type": type_, "value": value,
-                                                     "metadata": metadata or {}, "tags": tags or [],
+                                                     "metadata": md, "tags": tags or [],
                                                      "confidence": confidence, "source": source}}
         except sqlite3.IntegrityError:
             row = c.execute("SELECT metadata, tags FROM nodes WHERE id=?", (nid,)).fetchone()
             existing_md = json.loads(row["metadata"] or "{}")
-            existing_md.update(metadata or {})
+            # Save old sources_seen before update() overwrites it
+            old_sources = existing_md.get("sources_seen", [])
+            existing_md.update(md)
+            # Merge sources_seen from both old and new metadata
+            existing_md["sources_seen"] = list(set(old_sources + sources_seen))
             existing_tags = list(set(json.loads(row["tags"] or "[]") + (tags or [])))
             c.execute("UPDATE nodes SET metadata=?, tags=? WHERE id=?",
                       (json.dumps(existing_md), json.dumps(existing_tags), nid))
@@ -374,6 +382,46 @@ def delete_user(user_id: int):
         c.execute("DELETE FROM investigations WHERE user_id=?", (user_id,))
         c.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
         c.execute("DELETE FROM users WHERE id=?", (user_id,))
+
+
+def get_node_by_id(inv_id: str, node_id: str) -> Optional[dict]:
+    """Return a single node by its ID, or None if not found."""
+    with conn() as c:
+        row = c.execute(
+            "SELECT * FROM nodes WHERE id=? AND investigation_id=?",
+            (node_id, inv_id),
+        ).fetchone()
+    if not row:
+        return None
+    n = dict(row)
+    n["metadata"] = json.loads(n.get("metadata") or "{}")
+    n["tags"] = json.loads(n.get("tags") or "[]")
+    return n
+
+
+def get_evidence_for_value(value: str) -> list[dict]:
+    """Search the cache table for entries whose key contains the given value.
+
+    Returns a list of {key, value, created_at} dicts with the raw cached data.
+    This lets analysts audit what the CTI sources actually returned.
+    """
+    with conn() as c:
+        rows = c.execute(
+            "SELECT key, value, created_at FROM cache WHERE key LIKE ?",
+            (f"%{value}%",),
+        ).fetchall()
+    out = []
+    for r in rows:
+        try:
+            parsed = json.loads(r["value"])
+        except (json.JSONDecodeError, TypeError):
+            parsed = r["value"]
+        out.append({
+            "cache_key": r["key"],
+            "data": parsed,
+            "cached_at": r["created_at"],
+        })
+    return out
 
 
 def cache_get(key: str, ttl: float = 86400) -> Optional[Any]:

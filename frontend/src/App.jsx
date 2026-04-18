@@ -145,6 +145,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [filterTypes, setFilterTypes] = useState(new Set())
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
   const [rightTab, setRightTab] = useState('report')
+  const [evidenceData, setEvidenceData] = useState(null)
+  const [evidenceLoading, setEvidenceLoading] = useState(false)
   const [customPrompt, setCustomPrompt] = useState('')
   const [promptBusy, setPromptBusy] = useState(false)
   const [existingTypes, setExistingTypes] = useState(new Set())
@@ -337,6 +339,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         return
       }
       setSelected(d)
+      setEvidenceData(null)
       if (d.type === 'report') {
         setReport(d.metadata)
         setRightTab('report')
@@ -503,7 +506,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     const label = displayValue.length > 30 ? displayValue.slice(0, 28) + '…' : displayValue
     const d = {
       id: n.id, type: n.type, label, value: n.value,
-      metadata: n.metadata, tags: n.tags, source: n.source, confidence: n.confidence
+      metadata: n.metadata, tags: n.tags, source: n.source, confidence: n.confidence,
+      created_at: n.created_at
     }
     ;(n.tags || []).forEach(t => { d[t] = true })
     if (cy.$id(n.id).length) {
@@ -1272,6 +1276,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           >
             Node
           </button>
+          <button
+            className={`panel-tab${rightTab === 'timeline' ? ' active' : ''}`}
+            onClick={() => setRightTab('timeline')}
+          >
+            Timeline
+          </button>
         </div>
 
         <div className="panel-content">
@@ -1295,6 +1305,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     >
                       {copied ? '✓ copied' : '↓ Copy MD'}
                     </button>
+                    {activeInv && (
+                      <button
+                        className="btn-sm secondary export-btn"
+                        onClick={() => window.open(`/api/investigations/${activeInv}/report.pdf`, '_blank')}
+                        title="Download a structured PDF report for sharing"
+                      >
+                        PDF
+                      </button>
+                    )}
                   </div>
 
                   {report.summary && (
@@ -1554,12 +1573,35 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--on-dim)' }}>
-                    {selected.source && <span>src: <b style={{ color: 'var(--on-surface)' }}>{selected.source}</b></span>}
-                    {selected.confidence != null && (
-                      <span>conf: <b style={{ color: 'var(--on-surface)' }}>{((selected.confidence || 0) * 100).toFixed(0)}%</b></span>
-                    )}
-                  </div>
+                  {/* Sources seen — multi-source convergence indicator */}
+                  {(() => {
+                    const ss = (selected.metadata || {}).sources_seen || []
+                    const count = ss.length
+                    const convergenceColor = count >= 3 ? '#56d364' : count === 2 ? '#e3b341' : '#8b949e'
+                    return ss.length > 0 ? (
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginBottom: 4 }}>
+                          <span style={{ color: 'var(--on-dim)' }}>Seen by:</span>
+                          <span style={{
+                            fontSize: 10, fontWeight: 'bold', padding: '1px 6px',
+                            borderRadius: 8, background: convergenceColor + '22',
+                            color: convergenceColor, border: `1px solid ${convergenceColor}44`
+                          }}>
+                            {count} source{count !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {ss.map(s => (
+                            <span key={s} className="source-chip">{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--on-dim)' }}>
+                        {selected.source && <span>src: <b style={{ color: 'var(--on-surface)' }}>{selected.source}</b></span>}
+                      </div>
+                    )
+                  })()}
 
                   <div style={{ display: 'flex', gap: 6 }}>
                     {PIVOTABLE.includes(selected.type) && (
@@ -1633,8 +1675,138 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     <div className="section-label" style={{ margin: '8px 0 6px' }}>Metadata</div>
                     <pre className="meta-pre">{JSON.stringify(selected.metadata, null, 2)}</pre>
                   </div>
+
+                  {/* Evidence — raw source data audit */}
+                  {activeInv && selected.type !== 'report' && (
+                    <div>
+                      <div className="section-label" style={{ margin: '8px 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        Evidence (raw data)
+                        <button
+                          className="btn-sm secondary"
+                          style={{ fontSize: 10, padding: '1px 8px' }}
+                          onClick={async () => {
+                            setEvidenceLoading(true)
+                            setEvidenceData(null)
+                            try {
+                              const r = await fetch(`/api/investigations/${activeInv}/nodes/${selected.id}/evidence`)
+                              if (r.ok) {
+                                const d = await r.json()
+                                setEvidenceData(d.evidence || [])
+                              }
+                            } catch (_) {}
+                            setEvidenceLoading(false)
+                          }}
+                        >
+                          {evidenceLoading ? 'Loading...' : 'Load'}
+                        </button>
+                      </div>
+                      {evidenceData && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {evidenceData.length === 0 && (
+                            <div style={{ fontSize: 11, color: 'var(--on-dim)' }}>No cached source data found for this value.</div>
+                          )}
+                          {evidenceData.map((ev, i) => {
+                            const keyParts = ev.cache_key.split('|')
+                            const sourceLabel = keyParts.length > 1
+                              ? keyParts[1].replace(/https?:\/\/[^/]+\//, '').split('/').slice(0, 2).join('/')
+                              : ev.cache_key
+                            return (
+                              <details key={i} className="evidence-entry">
+                                <summary className="evidence-summary">
+                                  <span className="source-chip">{sourceLabel.length > 40 ? sourceLabel.slice(0, 38) + '...' : sourceLabel}</span>
+                                  <span style={{ fontSize: 10, color: 'var(--on-dim)' }}>
+                                    {ev.cached_at ? new Date(ev.cached_at * 1000).toLocaleString() : ''}
+                                  </span>
+                                </summary>
+                                <pre className="meta-pre" style={{ maxHeight: 300, overflow: 'auto' }}>
+                                  {JSON.stringify(ev.data, null, 2)}
+                                </pre>
+                              </details>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
+            </>
+          )}
+
+          {/* ── Timeline tab ── */}
+          {rightTab === 'timeline' && (
+            <>
+              <div className="section-label" style={{ margin: '0 0 8px' }}>Investigation Timeline</div>
+              {(() => {
+                const cy = cyRef.current
+                if (!cy) return <p className="hint">No graph loaded.</p>
+                const timelineNodes = []
+                cy.nodes().forEach(n => {
+                  const d = n.data()
+                  if (d.type === 'report') return
+                  const md = d.metadata || {}
+                  const firstSeen = md.first_seen || md.first_submission_date || md.creation_date || null
+                  timelineNodes.push({
+                    id: d.id, type: d.type, value: d.value,
+                    created_at: d.created_at || 0,
+                    first_seen: firstSeen,
+                    sources_seen: md.sources_seen || [],
+                    tags: d.tags || [],
+                  })
+                })
+                // Sort by created_at from graph store (when the node was added during the investigation)
+                timelineNodes.sort((a, b) => (a.created_at || 0) - (b.created_at || 0))
+                if (timelineNodes.length === 0) return <p className="hint">No nodes yet.</p>
+                return (
+                  <div className="timeline-list">
+                    {timelineNodes.map((tn, i) => {
+                      const ts = tn.created_at
+                        ? new Date(tn.created_at * 1000).toLocaleTimeString()
+                        : '?'
+                      const color = NODE_COLORS[tn.type] || '#8b949e'
+                      return (
+                        <div
+                          key={tn.id}
+                          className="timeline-entry"
+                          onClick={() => focusNode(tn.id)}
+                          title="Click to focus this node on the graph"
+                        >
+                          <div className="timeline-line">
+                            <span className="timeline-dot" style={{ background: color }} />
+                            {i < timelineNodes.length - 1 && <span className="timeline-connector" />}
+                          </div>
+                          <div className="timeline-content">
+                            <div className="timeline-header">
+                              <span className="timeline-time">{ts}</span>
+                              <span className="timeline-type" style={{ color }}>{tn.type}</span>
+                              {tn.sources_seen.length > 0 && (
+                                <span className="timeline-src-count" title={`Seen by: ${tn.sources_seen.join(', ')}`}>
+                                  {tn.sources_seen.length}src
+                                </span>
+                              )}
+                            </div>
+                            <div className="timeline-value">
+                              {tn.value.length > 50 ? tn.value.slice(0, 48) + '...' : tn.value}
+                            </div>
+                            {tn.first_seen && (
+                              <div className="timeline-first-seen">
+                                ext. first seen: {String(tn.first_seen).slice(0, 19)}
+                              </div>
+                            )}
+                            {tn.tags.length > 0 && (
+                              <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 2 }}>
+                                {tn.tags.slice(0, 4).map(t => (
+                                  <span key={t} className={`tag-chip tag-${t}`} style={{ fontSize: 9, padding: '0 4px' }}>{t}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </>
           )}
         </div>
