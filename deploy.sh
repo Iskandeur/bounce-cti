@@ -44,11 +44,10 @@ main() {
 
     # Wait and verify
     sleep 2
-    if sudo -n /bin/systemctl is-active --quiet bounce-cti; then
+    if sudo -n /bin/systemctl status bounce-cti > /dev/null 2>&1; then
         echo "==> Deploy OK! Running commit: $(git rev-parse --short HEAD)"
     else
         echo "==> ERROR: service failed to start!"
-        sudo -n /bin/systemctl status bounce-cti --no-pager
         return 1
     fi
 }
