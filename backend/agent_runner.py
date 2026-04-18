@@ -89,8 +89,6 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
             ("virustotal_resolutions_ip", f'virustotal_resolutions_ip("{seed_value}")'),
             ("shodan_host", f'shodan_host("{seed_value}")'),
             ("onyphe_ip", f'onyphe_ip("{seed_value}")'),
-            ("onyphe_threatlist", f'onyphe_threatlist("{seed_value}")'),
-            ("onyphe_resolver_reverse", f'onyphe_resolver_reverse("{seed_value}")'),
             ("urlscan_search", f'urlscan_search("ip:{seed_value}")'),
             ("otx_ip", f'otx_ip("{seed_value}")'),
         ]
@@ -102,7 +100,6 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
             ("otx_domain", f'otx_domain("{seed_value}")'),
             ("crtsh_subdomains", f'crtsh_subdomains("{seed_value}")'),
             ("onyphe_domain", f'onyphe_domain("{seed_value}")'),
-            ("onyphe_ctl", f'onyphe_ctl("{seed_value}")'),
         ]
     elif seed_type == "url":
         # For URL seeds we can't reliably rebuild the host from seed_value here,
@@ -401,18 +398,23 @@ STEP 3 — VirusTotal enrichment (call ALL tools a-d in this step)
      → For each historical IP (max 20):
          add_node(ip, <ip>, metadata={date}, source="virustotal")
          add_edge(domain→ip, historical_ip, evidence="VT passive DNS date=<date>")
-  e. onyphe_domain(<seed>) — MANDATORY, second-source passive fingerprinting
-     → Extract open ports, service banners, technologies, favicon_hash, jarm from the
-       summary results → store in seed metadata and, when present:
-         add_node(jarm, <jarm>), add_edge(seed→jarm, has_jarm, source="onyphe")
-         add_node(favicon, <hash>), add_edge(seed→favicon, has_favicon, source="onyphe")
-     → For each resolved IP present in the summary (if new): add_node(ip), add_edge(seed→ip, historical_ip, source="onyphe")
-  f. onyphe_ctl(<seed>) — MANDATORY, CT log SAN pivots (often finds sibling domains)
-     → For each SAN host not yet in graph (max 10): add_node(domain, <san>, source="onyphe"),
-       add_edge(seed→<san>, same_cert, source="onyphe")
-     → Note cert issuer/serials in metadata — they feed the STEP 7 cert pivot.
-  g. onyphe_resolver_forward(<seed>) — second-source pDNS
-     → For each historical IP not yet in graph (max 10): add_node(ip), add_edge(seed→ip, historical_ip, source="onyphe")
+  e. onyphe_domain(<seed>) — MANDATORY, second-source fingerprinting
+     → The response has `digest` with pivot-ready fields (ips, jarms, subdomains, ports,
+       asns, tls_issuers, favicon_hashes, http_titles, products, threat_feeds). You MUST
+       graph each distinct value directly:
+         • digest.ips[] not already in graph → add_node(ip, <ip>), add_edge(seed→ip, historical_ip, source="onyphe")
+         • digest.jarms[] → add_node(jarm, <jarm>), add_edge(seed→jarm, has_jarm, source="onyphe")
+         • digest.favicon_hashes[] → add_node(favicon, <hash>), add_edge(seed→favicon, has_favicon, source="onyphe")
+         • digest.subdomains[] not already in graph (max 10) → add_node(domain), add_edge(seed→sub, has_subdomain, source="onyphe")
+         • digest.threat_feeds[] → tag seed "suspicious" and note feed names in metadata.onyphe_threat_feeds
+     → Store http_titles, products, tls_issuers in seed metadata for STEP 7 pivots.
+     → If `tier_restricted=true` in the response, skip the Griffin-tier follow-ups
+       (onyphe_ctl/datascan/pastries/resolver) — they will also be restricted.
+  f. Griffin-tier Onyphe (best-effort, skip silently if `tier_restricted`):
+       • onyphe_ctl(<seed>) — CT-log SANs. For each new SAN (max 10): add_node(domain),
+         add_edge(seed→<san>, same_cert, source="onyphe")
+       • onyphe_resolver_forward(<seed>) — alt-pDNS IPs. Graph new IPs as historical_ip.
+     Call each ONCE. If tier_restricted → move on, do not retry.
 
 STEP 4 — IP pivots (for each unique IP found in steps 1-3, max 5 IPs)
   For each IP:
@@ -560,14 +562,19 @@ STEP 2 — Core enrichment (call ALL tools a-j in this step — do not proceed t
      → add_edge(ip→cert, has_cert)
      → Extract JARM fingerprint → add_node(jarm, <jarm>), add_edge(ip→jarm, has_jarm)
      → Note any tags, categories, reputation in metadata
-  c. onyphe_ip(<seed>) — MANDATORY, second-source fingerprinting
-     → Extract open ports, service banners, OS, product, http_title → store in ip metadata
-     → If JARM present (may differ from VT's): add_node(jarm, <jarm>) if new, add_edge(ip→jarm, has_jarm, source="onyphe")
-     → If HTTP title / favicon_hash / http_server are present: store in metadata (needed for STEP 6)
-  d. onyphe_threatlist(<seed>) — MANDATORY, curated malicious-IP feed hits
-     → If hits: tag ip "malicious" and list the feed names in metadata.threatlist_feeds
-     → add_node(report, "<feed_name>", metadata={feed, category}, source="onyphe"), add_edge(ip→report, known_ioc, source="onyphe")
-  e. onyphe_resolver_reverse(<seed>) — MANDATORY, second-source pDNS
+  c. onyphe_ip(<seed>) — MANDATORY, second-source fingerprinting (community-tier ok)
+     → The response has `digest` with (ips, jarms, subdomains, ports, asns, tls_issuers,
+       favicon_hashes, http_titles, products, threat_feeds, categories). You MUST graph:
+         • digest.jarms[] not already in graph → add_node(jarm, <jarm>), add_edge(ip→jarm, has_jarm, source="onyphe")
+         • digest.subdomains[] (max 10) → add_node(domain, <d>, source="onyphe"), add_edge(ip→<d>, co_resolves, source="onyphe")
+         • digest.favicon_hashes[] → add_node(favicon, <hash>), add_edge(ip→favicon, has_favicon, source="onyphe")
+         • digest.threat_feeds[] not empty → tag ip "malicious" and list in metadata.onyphe_threat_feeds
+     → Store digest.ports, digest.products, digest.tls_issuers, digest.http_titles in ip metadata
+       (these seed the STEP 6 JARM/favicon/product pivots).
+     → If tier_restricted=true, note it and skip Griffin follow-ups.
+  d. onyphe_threatlist(<seed>) — best-effort, Griffin-tier (skip if restricted)
+     → If hits: tag ip "malicious", add_node(report, "<feed_name>", source="onyphe"), add_edge(ip→report, known_ioc)
+  e. onyphe_resolver_reverse(<seed>) — best-effort, Griffin-tier (skip if restricted)
      → For each co-resident domain not yet in graph (max 10): add_node(domain, <d>, source="onyphe"),
        add_edge(ip→<d>, co_resolves, source="onyphe")
   f. urlscan_search("ip:<seed>")
@@ -1013,25 +1020,30 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
     elif seed_type == "ip":
         user_prompt = (
             f"Seed indicator: type={seed_type} value={seed_value}\n"
-            "Investigate now. You MUST call ALL of these tools before writing the report:\n"
+            "Investigate now. You MUST call ALL of these MANDATORY tools before writing the report:\n"
             f"1. rdap_ip({seed_value})\n"
-            f"2. virustotal_ip({seed_value})\n"
-            f"3. shodan_host({seed_value})  — extract JARM fingerprint from the response\n"
-            f"4. onyphe_ip({seed_value})  — second-source banners/JARM/title/product\n"
-            f"5. onyphe_threatlist({seed_value})  — curated malicious-IP feed hit-check\n"
-            f"6. onyphe_resolver_reverse({seed_value})  — second-source pDNS (co-resident domains)\n"
-            f"7. shodan_search(\"ssl.jarm:<jarm_from_step_3_or_4>\")  AND\n"
-            f"   onyphe_datascan(\"jarm:<jarm_from_step_3_or_4>\")  — JARM pivot; GRAPH every new IP as a node with a same_jarm edge\n"
-            f"8. urlscan_search(\"ip:{seed_value}\")\n"
-            f"9. reverse_dns({seed_value})\n"
-            f"10. virustotal_resolutions_ip({seed_value})\n"
-            f"11. virustotal_communicating_files(\"ip\", {seed_value})\n"
-            f"12. threatfox_search({seed_value})\n"
-            f"13. otx_ip({seed_value})\n"
-            "Do NOT write the report until all 13 are done.\n"
-            "CLUSTER GRAPHING RULE: when shodan_search or onyphe_datascan returns JARM/cert siblings,\n"
-            "you MUST add_node(ip, <ip>) + add_edge(seed→ip, same_jarm) for the top 10 distinct hits.\n"
-            "A prose summary like 'found N matches' without nodes/edges is a graph failure.\n"
+            f"2. virustotal_ip({seed_value})  — extract JARM, cert SHA256/serial, malicious stats\n"
+            f"3. shodan_host({seed_value})  — extract JARM, open ports, banners, http_title\n"
+            f"4. onyphe_ip({seed_value})  — second-source (community-tier ok). Iterate digest:\n"
+            f"   for each ip in digest.ips / jarm in digest.jarms / sub in digest.subdomains /\n"
+            f"   feed in digest.threat_feeds → add_node + add_edge with source=\"onyphe\".\n"
+            f"5. urlscan_search(\"ip:{seed_value}\")\n"
+            f"6. reverse_dns({seed_value})\n"
+            f"7. virustotal_resolutions_ip({seed_value})\n"
+            f"8. virustotal_communicating_files(\"ip\", {seed_value})\n"
+            f"9. threatfox_search({seed_value})\n"
+            f"10. otx_ip({seed_value})\n"
+            "BEST-EFFORT (call but skip cleanly if the response has tier_restricted=true):\n"
+            f"  - onyphe_threatlist({seed_value})\n"
+            f"  - onyphe_resolver_reverse({seed_value})\n"
+            "JARM PIVOT (if a non-CDN JARM was extracted):\n"
+            f"  - shodan_search(\"ssl.jarm:<jarm>\")\n"
+            f"  - onyphe_datascan(\"jarm:<jarm>\")  (best-effort, Griffin-tier)\n"
+            "  CLUSTER GRAPHING RULE: for EACH distinct IP in the union of shodan/onyphe hits,\n"
+            "  add_node(ip, <ip>) + add_edge(seed→<ip>, same_jarm, source=<shodan|onyphe>). Graph\n"
+            "  the top 10 by ASN diversity. A prose summary without nodes is a graph failure.\n"
+            "  If BOTH Shodan and Onyphe report tier_restricted=true, state so in pivot_suggestions\n"
+            "  but still attempt crt.sh by cert serial/issuer as a free alternative.\n"
             "FALLBACK: If virustotal_communicating_files returns empty data[] and threatfox/otx "
             "identify a specific malware family, call malwarebazaar_signature(<family>) "
             "and add each returned sample as a hash node with a communicates_with edge to the seed IP."
@@ -1070,23 +1082,27 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
     else:
         user_prompt = (
             f"Seed indicator: type={seed_type} value={seed_value}\n"
-            "Investigate now. You MUST call ALL of these tools before writing the report:\n"
+            "Investigate now. MANDATORY tools (must all run before the report):\n"
             f"1. rdap_domain/dns_resolve({seed_value})\n"
             f"2. crtsh_subdomains({seed_value})\n"
-            f"3. virustotal_domain({seed_value})\n"
-            f"4. virustotal_resolutions_domain({seed_value})\n"
+            f"3. virustotal_domain({seed_value})  — extract JARM, last_analysis_stats, categories\n"
+            f"4. virustotal_resolutions_domain({seed_value})  — historical IPs\n"
             f"5. virustotal_communicating_files(\"domain\", {seed_value})\n"
-            f"6. onyphe_domain({seed_value})  — second-source fingerprint (JARM, banners, technologies)\n"
-            f"7. onyphe_ctl({seed_value})  — CT-log SAN pivots (graph every new SAN as a domain node with same_cert edge)\n"
-            f"8. onyphe_resolver_forward({seed_value})  — second-source pDNS historical IPs\n"
-            f"9. threatfox_search({seed_value})\n"
-            f"10. otx_domain({seed_value})\n"
-            "Do NOT write the report until all 10 are done.\n"
-            "PIVOT RULE: if a JARM is found (from VT or Onyphe), call both\n"
-            f"  shodan_search(\"ssl.jarm:<jarm>\") AND onyphe_datascan(\"jarm:<jarm>\")\n"
-            "and graph every cluster IP with a same_jarm edge. Same for favicon_hash.\n"
-            "EXCEPTION: If after step 1 the domain is clearly parked (parking NS + broker registrant), "
-            "skip steps 2-10 and write a minimal report.\n"
+            f"6. onyphe_domain({seed_value})  — community-tier ok. Iterate digest:\n"
+            f"   for each ip in digest.ips / jarm in digest.jarms / sub in digest.subdomains /\n"
+            f"   feed in digest.threat_feeds → add_node + add_edge with source=\"onyphe\".\n"
+            f"7. threatfox_search({seed_value})\n"
+            f"8. otx_domain({seed_value})\n"
+            "BEST-EFFORT (call but skip cleanly if tier_restricted=true):\n"
+            f"  - onyphe_ctl({seed_value})  — CT log SANs (each new → add_node(domain)+same_cert edge)\n"
+            f"  - onyphe_resolver_forward({seed_value})  — alt-pDNS\n"
+            "JARM / FAVICON pivots (if extracted and not a CDN value):\n"
+            "  - shodan_search(\"ssl.jarm:<jarm>\") and onyphe_datascan(\"jarm:<jarm>\")\n"
+            "  - shodan_search(\"http.favicon.hash:<hash>\") and onyphe_datascan(\"favicon:<hash>\")\n"
+            "  Graph every cluster IP with a same_jarm/same_favicon edge. If BOTH sources return\n"
+            "  tier_restricted=true, note it in pivot_suggestions and keep going.\n"
+            "EXCEPTION: If step 1 shows the domain is clearly parked (parking NS + broker registrant), "
+            "skip steps 2-8 and write a minimal report.\n"
             "FALLBACK: If communicating_files returns empty data[] and OTX/threatfox identifies a malware family, "
             "call malwarebazaar_signature(<family>) to find known samples and add them as hash nodes."
         )
