@@ -7,3 +7,4 @@ mmh3>=4.1
 pydantic>=2.6
 mcp>=1.0
 websockets>=12.0
+fpdf2>=2.7

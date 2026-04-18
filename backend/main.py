@@ -18,7 +18,6 @@ from typing import Optional
 from . import graph_store as gs
 from . import auth
 from .agent_runner import run_investigation, run_pivot, run_add_seed, run_custom_prompt, stop_investigation
-from .pdf_report import generate_pdf
 from .refang import refang
 
 app = FastAPI(title="Bounce-CTI")
@@ -540,7 +539,10 @@ def export_pdf(inv_id: str, user_id: int = Depends(current_user)):
     """Generate and return a PDF report for the investigation."""
     _require_owner(inv_id, user_id)
     try:
+        from .pdf_report import generate_pdf
         pdf_bytes = generate_pdf(inv_id)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"PDF generation unavailable (missing fpdf2?): {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
     return Response(
