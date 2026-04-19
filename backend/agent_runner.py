@@ -252,6 +252,37 @@ R11. EVIDENCE-BASED CONCLUSIONS ONLY. The `threat_assessment` field MUST default
     If NO direct-evidence condition is met, `threat_assessment` MUST be "benign".
     You may still note observations (recent registration, small VPS, etc.) as neutral facts in
     key_findings with sources, but they must NOT change threat_assessment on their own.
+R12. NO CO-TENANCY CLUSTERING ON SHARED HOSTING. When you extract a historical
+    IP from VT / mnemonic_pdns / onyphe that also hosts unrelated co-resolvers
+    (M247, OVH, Hetzner, Cloudflare, shared VPS ranges), you may graph the IP
+    and its ASN, but you MUST NOT create sibling / phishing_lookalike / cluster
+    tags on the co-resolving domains unless you have ≥ 2 corroborating markers
+    beyond the shared IP: same cert SHA1, same JARM, same registrant email,
+    same favicon hash, or an explicit threatfox / otx / urlhaus record naming
+    both. Shared-IP co-residency on its own is NEVER evidence of a cluster.
+R13. NO CROSS-CAMPAIGN ATTRIBUTION MERGE. If an OTX pulse or threatfox record
+    attributes an IP or hash to a DIFFERENT threat actor / malware family than
+    the one your current pivot chain has evidence for, you MUST NOT relabel
+    the seed or its siblings with that other attribution. Record the other
+    pulse as context in the ip/hash node metadata (field:
+    `co_hosted_iocs_note`) and keep the seed's attribution on its own evidence.
+    A report node title / summary must name only the actor(s) supported by
+    direct evidence on the seed itself.
+R14. CLOUDFLARE-FRONTED DOMAIN — ORIGIN-UNMASK IS MANDATORY. If the seed's
+    dns_resolve returns ONLY IPs in 104.16.0.0/12, 172.64.0.0/13, or the
+    Cloudflare ranges 104.21.0.0/16 / 172.67.0.0/16, tag those IP nodes `cdn`
+    AND DO NOT STOP. You MUST:
+      (a) crtsh_subdomains(<seed>) + crtsh_query(<seed>) — extract cert serial
+          and cert subject CN
+      (b) shodan_search('ssl.cert.subject.CN:"<seed_fqdn>"') — the canonical
+          origin-unmask query. Every returned IP is a candidate origin; add it
+          as an ip node with source="shodan" and an edge cert→ip (same_cert).
+      (c) onyphe_datascan('tls.cert.subject.commonname:"<seed_fqdn>"') as a
+          second source.
+      (d) virustotal_resolutions_domain(<seed>) — non-Cloudflare historical A
+          records are also origin candidates.
+    Only after (a)–(d) may you write the report. Terminating at the Cloudflare
+    edge is a critical failure.
 
 ══════════════════════════════════════════════
 PASSIVE FINGERPRINTING — ALWAYS SAFE, ALWAYS USEFUL
@@ -1166,14 +1197,39 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 steps_block = "\n\nThen, as additional REQUIRED follow-up steps:\n" + "\n".join(
                     f"  {i + len(missing) + 1}. {s}" for i, s in enumerate(extra_steps)
                 )
+            # Check if an investigation_summary already exists before phase 2.
+            # If not, the followup MAY write one; if it exists, the followup
+            # must update it in place (add_node upserts on (inv,type,value)).
+            try:
+                g_pre2 = gs.get_graph(inv_id)
+                has_summary_pre2 = any(
+                    (n.get("type") or "").lower() == "report"
+                    and (n.get("value") or "").lower() == "investigation_summary"
+                    for n in g_pre2.get("nodes", [])
+                )
+            except Exception:
+                has_summary_pre2 = False
+
+            report_instr = (
+                "A final investigation_summary report node already exists — "
+                "do NOT create a second one. If you have new findings, update "
+                "it in place by calling add_node with the canonical value "
+                "\"investigation_summary\" (upsert)."
+                if has_summary_pre2 else
+                "No investigation_summary report node exists yet. After "
+                "running the missed tools above, you MUST write one: "
+                "add_node(report, \"investigation_summary\", metadata={...}, "
+                "source=\"agent\", tags=[\"report\"]) per STEP 8 of the main "
+                "workflow, then add_edge(seed→report, known_ioc)."
+            )
             followup_prompt = (
                 f"Continue the investigation on {seed_value} (type={seed_type}). "
                 f"The graph already has nodes from the main investigation.\n\n"
                 f"STEP 1: Call get_graph() to see what already exists.\n"
                 f"STEP 2-{len(missing)+1}: Call these CTI tools that were missed in phase 1:\n"
                 + "\n".join(f"  {i+2}. {m}" for i, m in enumerate(missing))
-                + "\nFor each result, add new nodes and edges to the graph. "
-                "Do NOT create a new report node."
+                + "\nFor each result, add new nodes and edges to the graph.\n"
+                + report_instr
                 + steps_block
             )
             rc2, saw2, _ = await _run_claude_phase(
@@ -1187,6 +1243,55 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             still_missing = _missing_mandatory_tools(seed_type, seed_value, called_after)
             if still_missing:
                 _log(inv_id, "phase2_incomplete", {"still_missing": still_missing})
+
+    # ── Phase 3: Report-write fallback ──
+    # If after main (+ optional followup) no investigation_summary report node
+    # exists, run a dedicated single-purpose phase that writes ONE report node
+    # and nothing else. This catches the case where the main agent terminated
+    # before STEP 8 and the followup was told "do not create a new report".
+    def _has_investigation_summary() -> bool:
+        try:
+            g = gs.get_graph(inv_id)
+            return any(
+                (n.get("type") or "").lower() == "report"
+                and (n.get("value") or "").lower() == "investigation_summary"
+                for n in g.get("nodes", [])
+            )
+        except Exception:
+            return False
+
+    if not _is_parked(inv_id) and not _has_investigation_summary():
+        _log(inv_id, "phase3_report_write_needed", {})
+        report_prompt = (
+            f"Write the final investigation_summary report node for seed "
+            f"{seed_type}={seed_value}. The graph already has nodes and edges; "
+            f"no CTI tools are required.\n\n"
+            f"STEP 1: Call get_graph() to see every existing node and edge.\n"
+            f"STEP 2: Call add_node(report, \"investigation_summary\", metadata={{...}}, "
+            f"source=\"agent\", tags=[\"report\"]) exactly ONCE. Use the canonical "
+            f"value \"investigation_summary\" so the node is a singleton.\n"
+            f"  - metadata.summary: 2-3 sentences naming the seed and the strongest "
+            f"direct-evidence findings.\n"
+            f"  - metadata.threat_assessment: benign|suspicious|likely_malicious|"
+            f"malicious (R11 evidence rules apply).\n"
+            f"  - metadata.key_findings: list of {{text, sources[]}}.\n"
+            f"  - metadata.ioc_list: exact node values from the graph.\n"
+            f"  - metadata.discriminating_markers, pivot_suggestions, sources_used.\n"
+            f"STEP 3: add_edge(<seed_node_id>, <report_node_id>, known_ioc).\n"
+            f"Do NOT call any CTI tool. Do NOT create a second report node. "
+            f"Do NOT re-run enrichment."
+        )
+        try:
+            rc3, saw3, _ = await _run_claude_phase(
+                inv_id, report_prompt, _FOLLOWUP_SYSTEM_PROMPT, model, env,
+                mcp_cfg_path, phase="report_write", max_turns=6,
+            )
+            _log(inv_id, "phase3_report_write_done", {
+                "rc": rc3, "saw_result": saw3,
+                "report_written": _has_investigation_summary(),
+            })
+        except Exception as e:
+            _log(inv_id, "phase3_report_write_error", {"error": str(e)[:300]})
 
     # ── Final status ──
     try:
