@@ -1,0 +1,1122 @@
+[
+  {
+    "case": 1,
+    "inv_id": "b342e52198d2",
+    "status": "done",
+    "n_cti_calls": 12,
+    "depth": 2,
+    "graph_nodes": 30,
+    "graph_edges": 33,
+    "report_present": true,
+    "nr": {
+      "score": 11.1,
+      "found": 2,
+      "denom": 18,
+      "missing": [
+        [
+          "domain",
+          "colourtinctem.com"
+        ],
+        [
+          "domain",
+          "solveblemten.com"
+        ],
+        [
+          "domain",
+          "dateupdata.com"
+        ],
+        [
+          "domain",
+          "infraredsen.com"
+        ],
+        [
+          "domain",
+          "pulseathermakf.com"
+        ],
+        [
+          "email",
+          "sdsdvxcdcbsgfe@protonmail.com"
+        ],
+        [
+          "email",
+          "oklmdsfhjnfdsifh@protonmail.com"
+        ],
+        [
+          "malware",
+          "Demodex"
+        ],
+        [
+          "malware",
+          "SnappyBee"
+        ],
+        [
+          "malware",
+          "GhostSpider"
+        ]
+      ],
+      "hits": [
+        [
+          "domain",
+          "materialplies.com"
+        ],
+        [
+          "actor",
+          "Salt Typhoon"
+        ]
+      ]
+    },
+    "er": {
+      "score": 0.0,
+      "found": 0,
+      "denom": 10,
+      "missing": [
+        [
+          "materialplies.com",
+          "sdsdvxcdcbsgfe@protonmail.com"
+        ],
+        [
+          "colourtinctem.com",
+          "sdsdvxcdcbsgfe@protonmail.com"
+        ],
+        [
+          "solveblemten.com",
+          "sdsdvxcdcbsgfe@protonmail.com"
+        ]
+      ],
+      "hits": []
+    },
+    "pc": {
+      "score": 50.0,
+      "executed": 2,
+      "denom": 4,
+      "missed": [
+        "Reverse-WHOIS on registrant email",
+        "Reverse-IP on hosting"
+      ],
+      "hits": [
+        "RDAP/WHOIS seed",
+        "pDNS on cluster siblings"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 12,
+      "depth": 2
+    },
+    "rq": {
+      "score": 40,
+      "mentions_actor": true,
+      "frac_nodes": 0.42,
+      "marker_hit": false,
+      "blob_len": 6332
+    },
+    "overall": 50.2
+  },
+  {
+    "case": 2,
+    "inv_id": "a7019f654707",
+    "status": "done",
+    "n_cti_calls": 4,
+    "depth": 3,
+    "graph_nodes": 21,
+    "graph_edges": 31,
+    "report_present": true,
+    "nr": {
+      "score": 33.3,
+      "found": 3,
+      "denom": 9,
+      "missing": [
+        [
+          "ip",
+          "91.235.234.202"
+        ],
+        [
+          "ip",
+          "146.19.143.14"
+        ]
+      ],
+      "hits": [
+        [
+          "hash",
+          "94278fa01900fdbfb58d2e373895c045c69c01915edc5349cd6f3e5b7130c472"
+        ],
+        [
+          "actor",
+          "MuddyWater"
+        ],
+        [
+          "malware",
+          "MuddyRot"
+        ]
+      ]
+    },
+    "er": {
+      "score": 0.0,
+      "found": 0,
+      "denom": 6,
+      "missing": [
+        [
+          "94278fa01900fdbfb58d2e373895c045c69c01915edc5349cd6f3e5b7130c472",
+          "91.235.234.202"
+        ]
+      ],
+      "hits": []
+    },
+    "pc": {
+      "score": 25.0,
+      "executed": 1,
+      "denom": 4,
+      "missed": [
+        "Shodan/Onyphe banner on C2",
+        "JARM/banner sibling search",
+        "ThreatFox muddywater tag"
+      ],
+      "hits": [
+        "VT file on seed"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 4,
+      "depth": 3
+    },
+    "rq": {
+      "score": 70,
+      "mentions_actor": true,
+      "frac_nodes": 0.6,
+      "marker_hit": true,
+      "blob_len": 5401
+    },
+    "overall": 54.7
+  },
+  {
+    "case": 3,
+    "inv_id": "1629ea3e269c",
+    "status": "done",
+    "n_cti_calls": 6,
+    "depth": 1,
+    "graph_nodes": 10,
+    "graph_edges": 14,
+    "report_present": true,
+    "nr": {
+      "score": 26.7,
+      "found": 4,
+      "denom": 15,
+      "missing": [
+        [
+          "hash",
+          "a6df0b49a5ef9ffd6513bfe061fb60f6d2941a440038e2de8a7aeb1914945331"
+        ],
+        [
+          "domain",
+          "opmanager.pro"
+        ],
+        [
+          "domain",
+          "angryipscanner.org"
+        ],
+        [
+          "domain",
+          "axiscamerastation.org"
+        ],
+        [
+          "domain",
+          "ip-scanner.org"
+        ],
+        [
+          "ip",
+          "109.205.195.211"
+        ],
+        [
+          "ip",
+          "188.40.187.145"
+        ],
+        [
+          "ip",
+          "172.96.137.160"
+        ],
+        [
+          "ip",
+          "193.242.184.150"
+        ],
+        [
+          "ip",
+          "185.174.100.203"
+        ]
+      ],
+      "hits": [
+        [
+          "hash",
+          "186b26df63df3b7334043b47659cba4185c948629d857d47452cc1936f0aa5da"
+        ],
+        [
+          "malware",
+          "Bumblebee"
+        ],
+        [
+          "malware",
+          "AdaptixC2"
+        ],
+        [
+          "malware",
+          "Akira"
+        ]
+      ]
+    },
+    "er": {
+      "score": 0.0,
+      "found": 0,
+      "denom": 11,
+      "missing": [
+        [
+          "186b26df63df3b7334043b47659cba4185c948629d857d47452cc1936f0aa5da",
+          "opmanager.pro"
+        ],
+        [
+          "186b26df63df3b7334043b47659cba4185c948629d857d47452cc1936f0aa5da",
+          "a6df0b49a5ef9ffd6513bfe061fb60f6d2941a440038e2de8a7aeb1914945331"
+        ]
+      ],
+      "hits": []
+    },
+    "pc": {
+      "score": 50.0,
+      "executed": 2,
+      "denom": 4,
+      "missed": [
+        "pDNS on contacted domain",
+        "Reverse-IP on C2"
+      ],
+      "hits": [
+        "VT file on seed",
+        "ThreatFox family tag"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 6,
+      "depth": 1
+    },
+    "rq": {
+      "score": 70,
+      "mentions_actor": true,
+      "frac_nodes": 0.29,
+      "marker_hit": true,
+      "blob_len": 5481
+    },
+    "overall": 57.8
+  },
+  {
+    "case": 4,
+    "inv_id": "f9bede690ae1",
+    "status": "done",
+    "n_cti_calls": 7,
+    "depth": 0,
+    "graph_nodes": 6,
+    "graph_edges": 5,
+    "report_present": false,
+    "nr": {
+      "score": 13.3,
+      "found": 2,
+      "denom": 15,
+      "missing": [
+        [
+          "ip",
+          "49.12.69.80"
+        ],
+        [
+          "ip",
+          "96.62.214.11"
+        ],
+        [
+          "ip",
+          "188.34.195.44"
+        ],
+        [
+          "ip",
+          "45.61.136.202"
+        ],
+        [
+          "domain",
+          "microsoft-msteams.com"
+        ],
+        [
+          "domain",
+          "microstteams.com"
+        ],
+        [
+          "domain",
+          "advanceipscaner.com"
+        ],
+        [
+          "domain",
+          "ecologilives.com"
+        ]
+      ],
+      "hits": [
+        [
+          "ip",
+          "64.94.84.85"
+        ],
+        [
+          "malware",
+          "Interlock"
+        ]
+      ]
+    },
+    "er": {
+      "score": 0.0,
+      "found": 0,
+      "denom": 8,
+      "missing": [],
+      "hits": []
+    },
+    "pc": {
+      "score": 20.0,
+      "executed": 1,
+      "denom": 5,
+      "missed": [
+        "RDAP seed",
+        "ThreatFox interlock tag",
+        "URLScan ClickFix path",
+        "Recover PS lure"
+      ],
+      "hits": [
+        "pDNS on seed"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 7,
+      "depth": 0
+    },
+    "rq": {
+      "score": 0,
+      "no_report": true
+    },
+    "overall": 38.9
+  },
+  {
+    "case": 5,
+    "inv_id": "9cf336353911",
+    "status": "done",
+    "n_cti_calls": 7,
+    "depth": 0,
+    "graph_nodes": 8,
+    "graph_edges": 7,
+    "report_present": false,
+    "nr": {
+      "score": 4.5,
+      "found": 1,
+      "denom": 22,
+      "missing": [
+        [
+          "asn",
+          "AS214943"
+        ],
+        [
+          "asn",
+          "AS215540"
+        ],
+        [
+          "asn",
+          "AS215439"
+        ],
+        [
+          "framework",
+          "Eye Pyramid"
+        ],
+        [
+          "ransomware",
+          "Rhysida"
+        ],
+        [
+          "ransomware",
+          "Vice Society"
+        ],
+        [
+          "ransomware",
+          "BlackCat"
+        ],
+        [
+          "ransomware",
+          "RansomHub"
+        ],
+        [
+          "ransomware",
+          "Fog"
+        ],
+        [
+          "malware",
+          "Cobalt Strike"
+        ],
+        [
+          "malware",
+          "Sliver"
+        ],
+        [
+          "malware",
+          "Rhadamanthys"
+        ]
+      ],
+      "hits": [
+        [
+          "ip",
+          "195.177.95.163"
+        ]
+      ]
+    },
+    "er": {
+      "score": 0.0,
+      "found": 0,
+      "denom": 12,
+      "missing": [],
+      "hits": []
+    },
+    "pc": {
+      "score": 25.0,
+      "executed": 1,
+      "denom": 4,
+      "missed": [
+        "RDAP/ASN",
+        "Banner-hash sibling search",
+        "ThreatFox cross-brand"
+      ],
+      "hits": [
+        "Eye Pyramid banner"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 7,
+      "depth": 0
+    },
+    "rq": {
+      "score": 0,
+      "no_report": true
+    },
+    "overall": 38.3
+  },
+  {
+    "case": 6,
+    "inv_id": "f176a93b5420",
+    "status": "done",
+    "n_cti_calls": 7,
+    "depth": 1,
+    "graph_nodes": 14,
+    "graph_edges": 13,
+    "report_present": false,
+    "nr": {
+      "score": 3.4,
+      "found": 2,
+      "denom": 58,
+      "missing": [
+        [
+          "cert",
+          "80b9e0f6a81ab78ee4e01152958e1322e6d7b6fa"
+        ],
+        [
+          "domain",
+          "pinkipinevazzey.pw"
+        ],
+        [
+          "domain",
+          "fanlumpactiras.pw"
+        ]
+      ],
+      "hits": [
+        [
+          "domain",
+          "rugtou.shop"
+        ],
+        [
+          "malware",
+          "LummaC2"
+        ]
+      ]
+    },
+    "er": {
+      "score": 0.0,
+      "found": 0,
+      "denom": 15,
+      "missing": [],
+      "hits": []
+    },
+    "pc": {
+      "score": 50.0,
+      "executed": 2,
+      "denom": 4,
+      "missed": [
+        "RDAP Namecheap/inbox.eu",
+        "About Cats content fingerprint"
+      ],
+      "hits": [
+        "crt.sh cert cluster",
+        "pDNS / mail NS"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 7,
+      "depth": 1
+    },
+    "rq": {
+      "score": 0,
+      "no_report": true
+    },
+    "overall": 42.2
+  },
+  {
+    "case": 7,
+    "inv_id": "74565ddd4f4b",
+    "status": "done",
+    "n_cti_calls": 6,
+    "depth": 1,
+    "graph_nodes": 51,
+    "graph_edges": 50,
+    "report_present": false,
+    "nr": {
+      "score": 15.4,
+      "found": 2,
+      "denom": 13,
+      "missing": [
+        [
+          "domain",
+          "rednosehorse.com"
+        ],
+        [
+          "domain",
+          "blacksaltys.com"
+        ],
+        [
+          "domain",
+          "packedbrick.com"
+        ],
+        [
+          "domain",
+          "newgoodfoodmarket.com"
+        ],
+        [
+          "domain",
+          "virtual.urban-orthodontics.com"
+        ],
+        [
+          "domain",
+          "msbdz.crm.bestintownpro.com"
+        ],
+        [
+          "ip",
+          "185.76.79.50"
+        ],
+        [
+          "ip",
+          "166.88.182.126"
+        ],
+        [
+          "malware",
+          "SocGholish"
+        ],
+        [
+          "tool",
+          "Keitaro"
+        ]
+      ],
+      "hits": [
+        [
+          "domain",
+          "blackshelter.org"
+        ],
+        [
+          "ip",
+          "176.53.147.97"
+        ]
+      ]
+    },
+    "er": {
+      "score": 12.5,
+      "found": 1,
+      "denom": 8,
+      "missing": [],
+      "hits": [
+        [
+          "blackshelter.org",
+          "176.53.147.97"
+        ]
+      ]
+    },
+    "pc": {
+      "score": 0.0,
+      "executed": 0,
+      "denom": 5,
+      "missed": [
+        "DNS A seed",
+        "Reverse DNS / pDNS on Keitaro",
+        "URLScan sibling TDS",
+        "Stage-2 DNS",
+        "ThreatFox SocGholish"
+      ],
+      "hits": []
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 6,
+      "depth": 1
+    },
+    "rq": {
+      "score": 0,
+      "no_report": true
+    },
+    "overall": 38.0
+  },
+  {
+    "case": 8,
+    "inv_id": "fb6ef805c410",
+    "status": "done",
+    "n_cti_calls": 4,
+    "depth": 0,
+    "graph_nodes": 6,
+    "graph_edges": 5,
+    "report_present": false,
+    "nr": {
+      "score": 33.3,
+      "found": 4,
+      "denom": 12,
+      "missing": [
+        [
+          "asn",
+          "AS51381"
+        ],
+        [
+          "domain",
+          "gitlab.bzctoons.net"
+        ],
+        [
+          "domain",
+          "bzctoons.net"
+        ]
+      ],
+      "hits": [
+        [
+          "hash",
+          "aad0a60cb86e3a56bcd356c6559b92c4dc4a1a960f409fb499cf76c9b5409fdb"
+        ],
+        [
+          "ip",
+          "62.60.226.159"
+        ],
+        [
+          "malware",
+          "Amadey"
+        ],
+        [
+          "malware",
+          "StealC"
+        ]
+      ]
+    },
+    "er": {
+      "score": 14.3,
+      "found": 1,
+      "denom": 7,
+      "missing": [
+        [
+          "bzctoons.net",
+          "gitlab.bzctoons.net"
+        ]
+      ],
+      "hits": [
+        [
+          "aad0a60cb86e3a56bcd356c6559b92c4dc4a1a960f409fb499cf76c9b5409fdb",
+          "62.60.226.159"
+        ]
+      ]
+    },
+    "pc": {
+      "score": 25.0,
+      "executed": 1,
+      "denom": 4,
+      "missed": [
+        "RDAP/ASN",
+        "ThreatFox Amadey family",
+        "Cert SAN apex check"
+      ],
+      "hits": [
+        "VT file seed"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 4,
+      "depth": 0
+    },
+    "rq": {
+      "score": 0,
+      "no_report": true
+    },
+    "overall": 45.4
+  },
+  {
+    "case": 9,
+    "inv_id": "5dfbf10de870",
+    "status": "done",
+    "n_cti_calls": 7,
+    "depth": 1,
+    "graph_nodes": 3,
+    "graph_edges": 2,
+    "report_present": false,
+    "nr": {
+      "score": 4.0,
+      "found": 1,
+      "denom": 25,
+      "missing": [
+        [
+          "actor",
+          "Storm-1747"
+        ],
+        [
+          "phishing_kit",
+          "Tycoon 2FA"
+        ]
+      ],
+      "hits": [
+        [
+          "domain",
+          "rlcozx.es"
+        ]
+      ]
+    },
+    "er": {
+      "score": 0.0,
+      "found": 0,
+      "denom": 12,
+      "missing": [],
+      "hits": []
+    },
+    "pc": {
+      "score": 50.0,
+      "executed": 2,
+      "denom": 4,
+      "missed": [
+        "CT burst-window",
+        "URLScan kit fingerprint"
+      ],
+      "hits": [
+        "crt.sh seed + ifelse",
+        "pDNS sibling roots"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 7,
+      "depth": 1
+    },
+    "rq": {
+      "score": 0,
+      "no_report": true
+    },
+    "overall": 42.3
+  },
+  {
+    "case": 10,
+    "inv_id": "af9493dbf878",
+    "status": "done",
+    "n_cti_calls": 7,
+    "depth": 2,
+    "graph_nodes": 8,
+    "graph_edges": 8,
+    "report_present": true,
+    "nr": {
+      "score": 7.7,
+      "found": 1,
+      "denom": 13,
+      "missing": [
+        [
+          "domain",
+          "lianxinxiao.com"
+        ],
+        [
+          "domain",
+          "blocknovas.com"
+        ],
+        [
+          "domain",
+          "angeloper.com"
+        ],
+        [
+          "domain",
+          "softglide.co"
+        ],
+        [
+          "domain",
+          "attisscmo.com"
+        ],
+        [
+          "domain",
+          "gitlab.blocknovas.com"
+        ],
+        [
+          "domain",
+          "status.blocknovas.com"
+        ],
+        [
+          "domain",
+          "mail.blocknovas.com"
+        ],
+        [
+          "malware",
+          "BeaverTail"
+        ],
+        [
+          "malware",
+          "InvisibleFerret"
+        ],
+        [
+          "malware",
+          "OtterCookie"
+        ],
+        [
+          "actor",
+          "Famous Chollima"
+        ]
+      ],
+      "hits": [
+        [
+          "ip",
+          "37.211.126.117"
+        ]
+      ]
+    },
+    "er": {
+      "score": 0.0,
+      "found": 0,
+      "denom": 9,
+      "missing": [
+        [
+          "37.211.126.117",
+          "lianxinxiao.com"
+        ],
+        [
+          "lianxinxiao.com",
+          "blocknovas.com"
+        ]
+      ],
+      "hits": []
+    },
+    "pc": {
+      "score": 20.0,
+      "executed": 1,
+      "denom": 5,
+      "missed": [
+        "DNS A on C2 domain",
+        "DNS TXT/MX cross-ref",
+        "crt.sh blocknovas",
+        "Wayback seized"
+      ],
+      "hits": [
+        "Reverse DNS on seed"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 7,
+      "depth": 2
+    },
+    "rq": {
+      "score": 40,
+      "mentions_actor": false,
+      "frac_nodes": 0.08,
+      "marker_hit": true,
+      "blob_len": 3011
+    },
+    "overall": 44.6
+  },
+  {
+    "case": 11,
+    "inv_id": "f1e798d9eb3f",
+    "status": "done",
+    "n_cti_calls": 13,
+    "depth": 2,
+    "graph_nodes": 27,
+    "graph_edges": 34,
+    "report_present": true,
+    "nr": {
+      "score": 4.0,
+      "found": 2,
+      "denom": 50,
+      "missing": [
+        [
+          "actor",
+          "Smishing Triad"
+        ],
+        [
+          "kit",
+          "Lighthouse"
+        ]
+      ],
+      "hits": [
+        [
+          "domain",
+          "usps.com-posewxts.top"
+        ],
+        [
+          "registrar",
+          "NameSilo"
+        ]
+      ]
+    },
+    "er": {
+      "score": 0.0,
+      "found": 0,
+      "denom": 12,
+      "missing": [],
+      "hits": []
+    },
+    "pc": {
+      "score": 60.0,
+      "executed": 3,
+      "denom": 5,
+      "missed": [
+        "Origin banner (Tencent/Alibaba)",
+        "URLScan cross-brand DOM"
+      ],
+      "hits": [
+        "RDAP/NameSilo",
+        "crt.sh SAN cluster",
+        "pDNS historical"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 13,
+      "depth": 2
+    },
+    "rq": {
+      "score": 0,
+      "mentions_actor": false,
+      "frac_nodes": 0.5,
+      "marker_hit": false,
+      "blob_len": 5057
+    },
+    "overall": 44.0
+  },
+  {
+    "case": 12,
+    "inv_id": "94ce7beab313",
+    "status": "done",
+    "n_cti_calls": 23,
+    "depth": 3,
+    "graph_nodes": 24,
+    "graph_edges": 23,
+    "report_present": true,
+    "nr": {
+      "score": 25.0,
+      "found": 3,
+      "denom": 12,
+      "missing": [
+        [
+          "asn",
+          "AS203493"
+        ],
+        [
+          "tool",
+          "Keitaro"
+        ]
+      ],
+      "hits": [
+        [
+          "domain",
+          "921hapudyqwdvy.com"
+        ],
+        [
+          "cert_cn",
+          "921hapudyqwdvy.com"
+        ],
+        [
+          "asn",
+          "AS24940"
+        ]
+      ]
+    },
+    "er": {
+      "score": 0.0,
+      "found": 0,
+      "denom": 7,
+      "missing": [],
+      "hits": []
+    },
+    "pc": {
+      "score": 25.0,
+      "executed": 1,
+      "denom": 4,
+      "missed": [
+        "Shodan cert-CN unmask",
+        "RDAP origins",
+        "pDNS on origins"
+      ],
+      "hits": [
+        "crt.sh seed cert"
+      ]
+    },
+    "dc": {
+      "score": 100,
+      "over_inclusions": []
+    },
+    "bd": {
+      "score": 100,
+      "calls": 23,
+      "depth": 3
+    },
+    "rq": {
+      "score": 40,
+      "mentions_actor": false,
+      "frac_nodes": 0.6,
+      "marker_hit": true,
+      "blob_len": 4270
+    },
+    "overall": 48.3
+  }
+]
