@@ -382,6 +382,15 @@ STEP 1 — Seed + RDAP + DNS (always do this)
      → For each AAAA: same
      → For each MX: add_node(domain, <mx_host>), add_edge(seed→mx, uses_mx)
      → For each NS (if different from RDAP): add_node(ns, <ns>), add_edge, defuse
+     → For each TXT record: parse for cross-domain references — SPF `include:<domain>`,
+       DMARC `rua=mailto:<email>@<domain>` / `ruf=mailto:...`, DKIM selectors, SKI /
+       vendor verification strings (`google-site-verification=`, `ms=`,
+       `facebook-domain-verification=`, `apple-domain-verification=`, `atlassian-domain-verification=`).
+       For each referenced <domain> that is NOT the seed and NOT a generic big-provider
+       (gmail.com, outlook.com, aws.com, googleapis.com, etc.): add_node(domain, <ref>),
+       add_edge(seed→<ref>, spf_include | dmarc_rua | dkim_selector).
+       Cross-domain SPF includes and DMARC rua/ruf domains are HIGH-VALUE pivots:
+       they reveal operator-controlled infrastructure even when A records are CDN-fronted.
 
 *** CHECKPOINT — PARKING/SINKHOLE EARLY-EXIT DECISION (evaluate BEFORE continuing) ***
 After STEP 1, count how many of these signals are present:
@@ -409,6 +418,15 @@ STEP 2.5 — Subdomain + URL coverage from secondary sources
      → If query_status=="ok": tag seed "suspicious" or "malicious"
      → For each url entry (max 10): add_node(url, <url>), add_edge(seed→url, hosts_url, source="urlhaus")
      → Note threat type (malware_download, phishing) in seed metadata
+  c. wayback(<seed>) — archived URL history
+     → For each distinct pre-takedown timestamp: add as metadata.wayback_snapshots (max 5).
+     → Look in the archived HTML for: cross-linked operator domains, leaked panel
+       endpoints, phishing kit login paths, page titles used as pivot markers.
+     → Add any distinct linked domain not already in graph with source="wayback"
+       and an edge seed→<domain>, link_type=archive_linked (max 10).
+     → Wayback is the primary way to recover post-takedown context (seized, NDR'd,
+       or sinkholed domains still have archive value — Contagious Interview-style
+       DPRK cases need this).
 
 STEP 3 — VirusTotal enrichment (call ALL tools a-d in this step)
   a. virustotal_domain(<seed>)
@@ -542,6 +560,14 @@ STEP 8 — Final report (MANDATORY — always do this last)
     □ onyphe_ctl(<seed>)                              — CT-log SAN pivots
     □ shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") — if JARM found, not CDN
   If any are unchecked, do NOT write the report yet. Go call them first.
+
+  Before writing, SCAN graph nodes for: threatfox malware_family, otx pulse
+  names/adversary, urlhaus tags, virustotal threat_names, onyphe threat_feeds,
+  page titles, cert subject CNs, JARM values, favicon hashes, registrant
+  emails. The summary MUST name every such actor/family/campaign alias found,
+  and the strongest discriminating marker (exact JARM / cert-CN / favicon /
+  registrant / page title — not "a JARM", the actual value). Analysts pivot on
+  markers, not on adjectives.
 
   add_node(report, "investigation_summary", metadata={
     "summary": "<2-3 sentence overview mentioning key IOC values by name — stick to observed facts, no speculation>",
@@ -1222,11 +1248,17 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 "source=\"agent\", tags=[\"report\"]) per STEP 8 of the main "
                 "workflow, then add_edge(seed→report, known_ioc)."
             )
+            already_called_list = sorted(called)
             followup_prompt = (
                 f"Continue the investigation on {seed_value} (type={seed_type}). "
                 f"The graph already has nodes from the main investigation.\n\n"
-                f"STEP 1: Call get_graph() to see what already exists.\n"
-                f"STEP 2-{len(missing)+1}: Call these CTI tools that were missed in phase 1:\n"
+                f"ALREADY CALLED (DO NOT re-run any of these, their results are "
+                f"already in the graph):\n  "
+                + ", ".join(already_called_list or ["(none)"]) + "\n\n"
+                f"STEP 1: Call get_graph() ONCE to see what already exists.\n"
+                f"STEP 2-{len(missing)+1}: Call ONLY these CTI tools that were "
+                f"missed in phase 1 (do NOT substitute with any other tool, do "
+                f"NOT repeat already-called tools):\n"
                 + "\n".join(f"  {i+2}. {m}" for i, m in enumerate(missing))
                 + "\nFor each result, add new nodes and edges to the graph.\n"
                 + report_instr
@@ -1266,17 +1298,36 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             f"Write the final investigation_summary report node for seed "
             f"{seed_type}={seed_value}. The graph already has nodes and edges; "
             f"no CTI tools are required.\n\n"
-            f"STEP 1: Call get_graph() to see every existing node and edge.\n"
+            f"STEP 1: Call get_graph() to see every existing node and edge. Scan\n"
+            f"  the returned nodes' metadata for: malware family names, actor\n"
+            f"  aliases, campaign names, page titles, cert subject CNs, JARM\n"
+            f"  fingerprints, favicon hashes, registrant emails, TTPs, and any\n"
+            f"  text from threatfox/otx/urlhaus/virustotal threat_names fields.\n"
             f"STEP 2: Call add_node(report, \"investigation_summary\", metadata={{...}}, "
             f"source=\"agent\", tags=[\"report\"]) exactly ONCE. Use the canonical "
             f"value \"investigation_summary\" so the node is a singleton.\n"
-            f"  - metadata.summary: 2-3 sentences naming the seed and the strongest "
-            f"direct-evidence findings.\n"
+            f"  - metadata.summary: 2-3 sentences. The summary MUST:\n"
+            f"      • name the seed ({seed_value}) explicitly\n"
+            f"      • name EVERY actor alias, malware family, ransomware strain,\n"
+            f"        kit name, or campaign label that any graph node metadata\n"
+            f"        mentions (threatfox malware_family, otx pulse names,\n"
+            f"        urlhaus tags, virustotal threat_names, threat_feeds)\n"
+            f"      • name the STRONGEST discriminating marker observed — the\n"
+            f"        specific JARM fingerprint, cert subject CN, favicon hash,\n"
+            f"        registrant email, page title, TDS query string, panel\n"
+            f"        endpoint, or content signature that ties the seed to a\n"
+            f"        cluster. Use the exact value, not \"a JARM\" or \"a cert\".\n"
+            f"      • stay factual. R11 evidence rules apply to threat labels.\n"
             f"  - metadata.threat_assessment: benign|suspicious|likely_malicious|"
             f"malicious (R11 evidence rules apply).\n"
-            f"  - metadata.key_findings: list of {{text, sources[]}}.\n"
-            f"  - metadata.ioc_list: exact node values from the graph.\n"
-            f"  - metadata.discriminating_markers, pivot_suggestions, sources_used.\n"
+            f"  - metadata.key_findings: list of {{text, sources[]}}. Include one\n"
+            f"    finding per strong marker (JARM match, cert serial, cross-\n"
+            f"    brand page title, same NS set, registrant reuse, etc.).\n"
+            f"  - metadata.ioc_list: exact node values from the graph. MUST list\n"
+            f"    at least 70% of non-seed domain/ip/hash/email/url nodes.\n"
+            f"  - metadata.discriminating_markers: the exact JARM / cert-CN /\n"
+            f"    favicon / registrant values that would let a hunter re-pivot.\n"
+            f"  - metadata.pivot_suggestions, sources_used.\n"
             f"STEP 3: add_edge(<seed_node_id>, <report_node_id>, known_ioc).\n"
             f"Do NOT call any CTI tool. Do NOT create a second report node. "
             f"Do NOT re-run enrichment."

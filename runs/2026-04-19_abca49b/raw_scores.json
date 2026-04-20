@@ -1,0 +1,604 @@
+[
+  {
+    "case": 1,
+    "inv_id": "9e9a799019c4",
+    "label": "Salt Typhoon registrant-email tradecraft",
+    "diagnostic": "Reverse-WHOIS is the discriminator. If PC=0 on step 2, F-SRC-ABSENT.",
+    "status": "done",
+    "nodes_total": 25,
+    "edges_total": 28,
+    "cti_calls": 11,
+    "depth": 1,
+    "has_report": true,
+    "NR": 42.9,
+    "NR_found": 6,
+    "NR_total": 14,
+    "missing_nodes": [
+      "domain:colourtinctem.com",
+      "domain:solveblemten.com",
+      "domain:dateupdata.com",
+      "domain:infraredsen.com",
+      "domain:pulseathermakf.com",
+      "email:sdsdvxcdcbsgfe@protonmail.com",
+      "email:oklmdsfhjnfdsifh@protonmail.com",
+      "actor:unc2286"
+    ],
+    "ER": 0.0,
+    "ER_found": 0,
+    "ER_total": 3,
+    "missing_edges": [
+      [
+        "materialplies.com",
+        "sdsdvxcdcbsgfe@protonmail.com"
+      ],
+      [
+        "colourtinctem.com",
+        "sdsdvxcdcbsgfe@protonmail.com"
+      ],
+      [
+        "solveblemten.com",
+        "sdsdvxcdcbsgfe@protonmail.com"
+      ]
+    ],
+    "PC": 75.0,
+    "missed_pivots": [
+      "Reverse-WHOIS approximate via urlscan registrant/ pDNS"
+    ],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 40,
+    "RQ_detail": {
+      "score": 40,
+      "mentions_actor": true,
+      "frac_nodes": 0.12,
+      "marker_hit": false,
+      "blob_len": 9451
+    },
+    "overall": 59.6,
+    "failure_codes": [
+      "OK"
+    ]
+  },
+  {
+    "case": 2,
+    "inv_id": "4cfae4ebb16d",
+    "label": "MuddyRot JARM + banner fingerprint",
+    "diagnostic": "JARM/banner pivot is the discriminator.",
+    "status": "done",
+    "nodes_total": 5,
+    "edges_total": 4,
+    "cti_calls": 2,
+    "depth": 1,
+    "has_report": true,
+    "NR": 50.0,
+    "NR_found": 4,
+    "NR_total": 8,
+    "missing_nodes": [
+      "hash:b8703744",
+      "hash:73c677dd",
+      "ip:91.235.234.202",
+      "ip:146.19.143.14"
+    ],
+    "ER": 0.0,
+    "ER_found": 0,
+    "ER_total": 1,
+    "missing_edges": [
+      [
+        "94278fa01900fdbfb58d2e373895c045c69c01915edc5349cd6f3e5b7130c472",
+        "91.235.234.202"
+      ]
+    ],
+    "PC": 25.0,
+    "missed_pivots": [
+      "Shodan/Onyphe banner on C2",
+      "JARM/banner sibling search",
+      "ThreatFox muddywater tag"
+    ],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 40,
+    "RQ_detail": {
+      "score": 40,
+      "mentions_actor": true,
+      "frac_nodes": 0.2,
+      "marker_hit": false,
+      "blob_len": 2822
+    },
+    "overall": 52.5,
+    "failure_codes": [
+      "F-PIVOT-MISS"
+    ]
+  },
+  {
+    "case": 3,
+    "inv_id": "1f936fc677b4",
+    "label": "Bumblebee \u2192 AdaptixC2 \u2192 Akira",
+    "diagnostic": "Three-tier distinction: loader C2, AdaptixC2, exfil.",
+    "status": "done",
+    "nodes_total": 11,
+    "edges_total": 10,
+    "cti_calls": 8,
+    "depth": 1,
+    "has_report": true,
+    "NR": 28.6,
+    "NR_found": 4,
+    "NR_total": 14,
+    "missing_nodes": [
+      "hash:a6df0b49a5ef9ffd6513bfe061fb60f6d2941a440038e2de8a7aeb1914945331",
+      "domain:opmanager.pro",
+      "domain:angryipscanner.org",
+      "domain:axiscamerastation.org",
+      "domain:ip-scanner.org",
+      "ip:109.205.195.211",
+      "ip:188.40.187.145",
+      "ip:172.96.137.160",
+      "ip:193.242.184.150",
+      "ip:185.174.100.203"
+    ],
+    "ER": 0.0,
+    "ER_found": 0,
+    "ER_total": 2,
+    "missing_edges": [
+      [
+        "186b26df63df3b7334043b47659cba4185c948629d857d47452cc1936f0aa5da",
+        "opmanager.pro"
+      ],
+      [
+        "186b26df63df3b7334043b47659cba4185c948629d857d47452cc1936f0aa5da",
+        "a6df0b49a5ef9ffd6513bfe061fb60f6d2941a440038e2de8a7aeb1914945331"
+      ]
+    ],
+    "PC": 100.0,
+    "missed_pivots": [],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 70,
+    "RQ_detail": {
+      "score": 70,
+      "mentions_actor": true,
+      "frac_nodes": 0.09,
+      "marker_hit": true,
+      "blob_len": 7667
+    },
+    "overall": 66.4,
+    "failure_codes": [
+      "F-SRC-ABSENT|F-PIVOT-MISS"
+    ]
+  },
+  {
+    "case": 4,
+    "inv_id": "ba0d28f02afd",
+    "label": "Interlock ClickFix via Cloudflare Tunnel",
+    "diagnostic": "Cloudflare Tunnel defuse, distinct from fronting (11,12).",
+    "status": "done",
+    "nodes_total": 24,
+    "edges_total": 27,
+    "cti_calls": 6,
+    "depth": 1,
+    "has_report": true,
+    "NR": 25.0,
+    "NR_found": 3,
+    "NR_total": 12,
+    "missing_nodes": [
+      "ip:49.12.69.80",
+      "ip:96.62.214.11",
+      "ip:188.34.195.44",
+      "ip:45.61.136.202",
+      "domain:microsoft-msteams.com",
+      "domain:microstteams.com",
+      "domain:advanceipscaner.com",
+      "domain:ecologilives.com",
+      "domain:trycloudflare.com"
+    ],
+    "ER": 100.0,
+    "ER_found": 0,
+    "ER_total": 0,
+    "missing_edges": [],
+    "PC": 80.0,
+    "missed_pivots": [
+      "ThreatFox interlock tag"
+    ],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 70,
+    "RQ_detail": {
+      "score": 70,
+      "mentions_actor": true,
+      "frac_nodes": 0.1,
+      "marker_hit": true,
+      "blob_len": 8395
+    },
+    "overall": 79.2,
+    "failure_codes": [
+      "F-SRC-ABSENT|F-PIVOT-MISS"
+    ]
+  },
+  {
+    "case": 5,
+    "inv_id": "9aba2ef34597",
+    "label": "Eye Pyramid cross-brand affiliate infrastructure",
+    "diagnostic": "Multi-brand attribution on shared infra is the point.",
+    "status": "done",
+    "nodes_total": 14,
+    "edges_total": 16,
+    "cti_calls": 9,
+    "depth": 1,
+    "has_report": true,
+    "NR": 7.7,
+    "NR_found": 1,
+    "NR_total": 13,
+    "missing_nodes": [
+      "asn:AS214943",
+      "asn:AS215540",
+      "asn:AS215439",
+      "framework:eye pyramid",
+      "ransomware:rhysida",
+      "ransomware:vice society",
+      "ransomware:blackcat",
+      "ransomware:ransomhub",
+      "ransomware:fog",
+      "malware:cobalt strike",
+      "malware:sliver",
+      "malware:rhadamanthys"
+    ],
+    "ER": 100.0,
+    "ER_found": 0,
+    "ER_total": 0,
+    "missing_edges": [],
+    "PC": 75.0,
+    "missed_pivots": [
+      "Banner-hash sibling search"
+    ],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 0,
+    "RQ_detail": {
+      "score": 0,
+      "mentions_actor": false,
+      "frac_nodes": 0.25,
+      "marker_hit": false,
+      "blob_len": 6134
+    },
+    "overall": 63.8,
+    "failure_codes": [
+      "F-REPORT",
+      "F-SRC-ABSENT|F-PIVOT-MISS"
+    ]
+  },
+  {
+    "case": 6,
+    "inv_id": "46f167660a0f",
+    "label": "LummaC2 'About Cats' post-takedown cluster",
+    "diagnostic": "Content-fingerprint pivot + SSL SHA1 cluster.",
+    "status": "done",
+    "nodes_total": 19,
+    "edges_total": 21,
+    "cti_calls": 9,
+    "depth": 1,
+    "has_report": true,
+    "NR": 50.0,
+    "NR_found": 3,
+    "NR_total": 6,
+    "missing_nodes": [
+      "cert:80b9e0f6a81ab78ee4e01152958e1322e6d7b6fa",
+      "domain:pinkipinevazzey.pw",
+      "domain:fanlumpactiras.pw"
+    ],
+    "ER": 100.0,
+    "ER_found": 0,
+    "ER_total": 0,
+    "missing_edges": [],
+    "PC": 60.0,
+    "missed_pivots": [
+      "About Cats content fingerprint",
+      "SSL SHA1 pivot"
+    ],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 40,
+    "RQ_detail": {
+      "score": 40,
+      "mentions_actor": true,
+      "frac_nodes": 0.25,
+      "marker_hit": false,
+      "blob_len": 9065
+    },
+    "overall": 75.0,
+    "failure_codes": [
+      "OK"
+    ]
+  },
+  {
+    "case": 7,
+    "inv_id": "858f038dc5f7",
+    "label": "SocGholish via rogue Keitaro TDS",
+    "diagnostic": "Two-tier: Keitaro front vs stage-2 C2 must stay distinct.",
+    "status": "done",
+    "nodes_total": 66,
+    "edges_total": 71,
+    "cti_calls": 4,
+    "depth": 1,
+    "has_report": true,
+    "NR": 33.3,
+    "NR_found": 4,
+    "NR_total": 12,
+    "missing_nodes": [
+      "domain:packedbrick.com",
+      "domain:newgoodfoodmarket.com",
+      "domain:virtual.urban-orthodontics.com",
+      "domain:msbdz.crm.bestintownpro.com",
+      "ip:185.76.79.50",
+      "ip:166.88.182.126",
+      "malware:socgholish",
+      "tool:keitaro"
+    ],
+    "ER": 100.0,
+    "ER_found": 0,
+    "ER_total": 0,
+    "missing_edges": [],
+    "PC": 60.0,
+    "missed_pivots": [
+      "URLScan sibling TDS",
+      "ThreatFox SocGholish"
+    ],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 0,
+    "RQ_detail": {
+      "score": 0,
+      "mentions_actor": false,
+      "frac_nodes": 0.4,
+      "marker_hit": false,
+      "blob_len": 9412
+    },
+    "overall": 65.6,
+    "failure_codes": [
+      "F-REPORT"
+    ]
+  },
+  {
+    "case": 8,
+    "inv_id": "587800cb7cec",
+    "label": "Amadey \u2192 StealC via compromised GitLab",
+    "diagnostic": "Apex vs subdomain scoping is the trap.",
+    "status": "done",
+    "nodes_total": 30,
+    "edges_total": 36,
+    "cti_calls": 15,
+    "depth": 1,
+    "has_report": true,
+    "NR": 57.1,
+    "NR_found": 4,
+    "NR_total": 7,
+    "missing_nodes": [
+      "asn:AS51381",
+      "domain:gitlab.bzctoons.net",
+      "domain:bzctoons.net"
+    ],
+    "ER": 0.0,
+    "ER_found": 0,
+    "ER_total": 1,
+    "missing_edges": [
+      [
+        "bzctoons.net",
+        "gitlab.bzctoons.net"
+      ]
+    ],
+    "PC": 75.0,
+    "missed_pivots": [
+      "Cert SAN apex check"
+    ],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 40,
+    "RQ_detail": {
+      "score": 40,
+      "mentions_actor": true,
+      "frac_nodes": 0.4,
+      "marker_hit": false,
+      "blob_len": 8954
+    },
+    "overall": 62.0,
+    "failure_codes": [
+      "OK"
+    ]
+  },
+  {
+    "case": 9,
+    "inv_id": "63454f32f0f6",
+    "label": "Tycoon 2FA cert-SAN burst pivot",
+    "diagnostic": "CT issuance-date burst clustering.",
+    "status": "done",
+    "nodes_total": 34,
+    "edges_total": 36,
+    "cti_calls": 18,
+    "depth": 1,
+    "has_report": true,
+    "NR": 25.0,
+    "NR_found": 1,
+    "NR_total": 4,
+    "missing_nodes": [
+      "actor:storm-1747",
+      "phishing_kit:tycoon 2fa",
+      "kit_fingerprint:cloudflare turnstile"
+    ],
+    "ER": 100.0,
+    "ER_found": 0,
+    "ER_total": 0,
+    "missing_edges": [],
+    "PC": 100.0,
+    "missed_pivots": [],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 100,
+    "RQ_detail": {
+      "score": 100,
+      "mentions_actor": true,
+      "frac_nodes": 1.0,
+      "marker_hit": true,
+      "blob_len": 10329
+    },
+    "overall": 87.5,
+    "failure_codes": [
+      "F-SRC-ABSENT|F-PIVOT-MISS"
+    ]
+  },
+  {
+    "case": 10,
+    "inv_id": "855fbf75f98f",
+    "label": "Contagious Interview DPRK IPv4",
+    "diagnostic": "DNS TXT/MX cross-ref is the signature pivot.",
+    "status": "done",
+    "nodes_total": 6,
+    "edges_total": 6,
+    "cti_calls": 7,
+    "depth": 1,
+    "has_report": true,
+    "NR": 7.7,
+    "NR_found": 1,
+    "NR_total": 13,
+    "missing_nodes": [
+      "domain:lianxinxiao.com",
+      "domain:blocknovas.com",
+      "domain:angeloper.com",
+      "domain:softglide.co",
+      "domain:attisscmo.com",
+      "domain:gitlab.blocknovas.com",
+      "domain:status.blocknovas.com",
+      "domain:mail.blocknovas.com",
+      "malware:beavertail",
+      "malware:invisibleferret",
+      "malware:ottercookie",
+      "actor:famous chollima"
+    ],
+    "ER": 0.0,
+    "ER_found": 0,
+    "ER_total": 2,
+    "missing_edges": [
+      [
+        "37.211.126.117",
+        "lianxinxiao.com"
+      ],
+      [
+        "lianxinxiao.com",
+        "blocknovas.com"
+      ]
+    ],
+    "PC": 25.0,
+    "missed_pivots": [
+      "DNS TXT/MX cross-ref",
+      "crt.sh blocknovas",
+      "Wayback seized"
+    ],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 0,
+    "RQ_detail": {
+      "score": 0,
+      "mentions_actor": false,
+      "frac_nodes": 0.11,
+      "marker_hit": false,
+      "blob_len": 4988
+    },
+    "overall": 38.8,
+    "failure_codes": [
+      "F-REPORT",
+      "F-PIVOT-MISS",
+      "F-SRC-ABSENT|F-PIVOT-MISS"
+    ]
+  },
+  {
+    "case": 11,
+    "inv_id": "ffcd072c2c92",
+    "label": "Smishing Triad (Cloudflare origin-unmask)",
+    "diagnostic": "Primary Cloudflare origin-unmask test.",
+    "status": "done",
+    "nodes_total": 25,
+    "edges_total": 33,
+    "cti_calls": 11,
+    "depth": 1,
+    "has_report": true,
+    "NR": 66.7,
+    "NR_found": 2,
+    "NR_total": 3,
+    "missing_nodes": [
+      "kit:lighthouse"
+    ],
+    "ER": 100.0,
+    "ER_found": 0,
+    "ER_total": 0,
+    "missing_edges": [],
+    "PC": 60.0,
+    "missed_pivots": [
+      "Origin banner (Tencent/Alibaba)",
+      "URLScan cross-brand DOM"
+    ],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 70,
+    "RQ_detail": {
+      "score": 70,
+      "mentions_actor": true,
+      "frac_nodes": 1.0,
+      "marker_hit": false,
+      "blob_len": 6653
+    },
+    "overall": 82.8,
+    "failure_codes": [
+      "OK"
+    ]
+  },
+  {
+    "case": 12,
+    "inv_id": "6e1dca47fd45",
+    "label": "ClearFake cert-CN -> Shodan unmask",
+    "diagnostic": "Canonical cert-CN -> Shodan unmask.",
+    "status": "done",
+    "nodes_total": 29,
+    "edges_total": 30,
+    "cti_calls": 12,
+    "depth": 1,
+    "has_report": true,
+    "NR": 60.0,
+    "NR_found": 3,
+    "NR_total": 5,
+    "missing_nodes": [
+      "asn:AS203493",
+      "tool:keitaro"
+    ],
+    "ER": 100.0,
+    "ER_found": 0,
+    "ER_total": 0,
+    "missing_edges": [],
+    "PC": 75.0,
+    "missed_pivots": [
+      "Shodan cert-CN unmask"
+    ],
+    "DC": 100,
+    "DC_notes": [],
+    "BD": 100.0,
+    "RQ": 40,
+    "RQ_detail": {
+      "score": 40,
+      "mentions_actor": true,
+      "frac_nodes": 0.33,
+      "marker_hit": false,
+      "blob_len": 7785
+    },
+    "overall": 79.2,
+    "failure_codes": [
+      "OK"
+    ]
+  }
+]
