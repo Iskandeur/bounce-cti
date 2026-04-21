@@ -84,6 +84,8 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
     missing = []
     if seed_type == "ip":
         mandatory = [
+            ("rdap_ip", f'rdap_ip("{seed_value}")'),
+            ("reverse_dns", f'reverse_dns("{seed_value}")'),
             ("virustotal_communicating_files", f'virustotal_communicating_files("ip", "{seed_value}")'),
             ("threatfox_search", f'threatfox_search("{seed_value}")'),
             ("virustotal_resolutions_ip", f'virustotal_resolutions_ip("{seed_value}")'),
@@ -94,6 +96,7 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
         ]
     elif seed_type == "domain":
         mandatory = [
+            ("rdap_domain", f'rdap_domain("{seed_value}")'),
             ("virustotal_communicating_files", f'virustotal_communicating_files("domain", "{seed_value}")'),
             ("threatfox_search", f'threatfox_search("{seed_value}")'),
             ("virustotal_resolutions_domain", f'virustotal_resolutions_domain("{seed_value}")'),
@@ -1211,6 +1214,15 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                     "call malwarebazaar_signature(<family>, limit=5) and add each returned sample "
                     "as a hash node with a communicates_with edge from hash to the seed IP."
                 )
+                extra_steps.append(
+                    "If reverse_dns returned ≥ 1 domain, for EACH returned domain (top 3): "
+                    "(a) dns_resolve(<domain>, 'MX') and dns_resolve(<domain>, 'TXT') — add each "
+                    "discovered MX hostname and TXT record value to the seed/domain metadata; "
+                    "(b) crtsh_subdomains(<domain>) to enumerate sister hostnames; "
+                    "(c) wayback(<domain>) to check for historical takedown/seizure notices. "
+                    "Add every discovered hostname as a new domain node with edge "
+                    "(seed_ip → domain, resolves_to) and (domain → wayback_snapshot, has_archive)."
+                )
             elif seed_type == "domain":
                 extra_steps.append(
                     "If virustotal_communicating_files returned an empty data[] AND threatfox/otx "
@@ -1294,6 +1306,58 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
 
     if not _is_parked(inv_id) and not _has_investigation_summary():
         _log(inv_id, "phase3_report_write_needed", {})
+
+        # Mechanically harvest discriminating-marker candidates from existing
+        # graph metadata so the model is forced to copy them verbatim. Without
+        # this the agent paraphrases ("a SHA1 cert was found") instead of
+        # writing the actual hex string, costing RQ.
+        marker_lines = []
+        try:
+            g_for_markers = gs.get_graph(inv_id)
+            seen = set()
+            for n in g_for_markers.get("nodes", []) or []:
+                md = n.get("metadata") or {}
+                # Surface specific high-signal fields, then any tag that looks
+                # like a hex hash / cert serial.
+                for k in ("cert_serial", "cert_sha1", "cert_subject_cn",
+                          "subject_cn", "common_name", "jarm",
+                          "favicon_hash", "favicon_mmh3",
+                          "registrant_email", "registrant", "registrar",
+                          "http_title", "page_title", "title",
+                          "issuer_o", "asn", "as_org", "org",
+                          "file_name", "meaningful_name"):
+                    v = md.get(k)
+                    if isinstance(v, str) and 4 < len(v) < 200:
+                        item = f"{k}={v}"
+                        if item not in seen:
+                            seen.add(item)
+                            marker_lines.append(item)
+                for t in (n.get("tags") or []):
+                    if isinstance(t, str) and len(t) >= 32 and re.match(r"^[a-f0-9]+$", t):
+                        if t not in seen:
+                            seen.add(t)
+                            marker_lines.append(f"hex_marker={t}")
+                # Also surface non-seed node values (cert/email types) directly
+                nt = (n.get("type") or "").lower()
+                nv = (n.get("value") or "")
+                if nt in ("cert", "cert_cn", "email", "registrar") and nv:
+                    item = f"{nt}={nv}"
+                    if item not in seen:
+                        seen.add(item)
+                        marker_lines.append(item)
+            marker_lines = marker_lines[:12]
+        except Exception:
+            marker_lines = []
+        markers_block = ""
+        if marker_lines:
+            markers_block = (
+                "\n\nMARKERS YOU MUST INCLUDE VERBATIM IN metadata.discriminating_markers "
+                "AND MENTION THE STRONGEST ONE IN metadata.summary "
+                "(copy the EXACT strings — do NOT paraphrase, truncate, or summarize):\n"
+                + "\n".join(f"  • {m}" for m in marker_lines)
+                + "\n"
+            )
+
         report_prompt = (
             f"Write the final investigation_summary report node for seed "
             f"{seed_type}={seed_value}. The graph already has nodes and edges; "
@@ -1331,6 +1395,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             f"STEP 3: add_edge(<seed_node_id>, <report_node_id>, known_ioc).\n"
             f"Do NOT call any CTI tool. Do NOT create a second report node. "
             f"Do NOT re-run enrichment."
+            + markers_block
         )
         try:
             rc3, saw3, _ = await _run_claude_phase(
