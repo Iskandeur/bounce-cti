@@ -1410,6 +1410,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                         PDF
                       </button>
                     )}
+                    {activeInv && (
+                      <button
+                        className="btn-sm secondary export-btn"
+                        onClick={() => window.open(`/api/investigations/${activeInv}/stix`, '_blank')}
+                        title="Download STIX 2.1 bundle (JSON) for threat intel sharing"
+                      >
+                        STIX
+                      </button>
+                    )}
                   </div>
 
                   {report.summary && (

@@ -552,6 +552,26 @@ def export_pdf(inv_id: str, user_id: int = Depends(current_user)):
     )
 
 
+@app.get("/api/investigations/{inv_id}/stix")
+def export_stix(inv_id: str, user_id: int = Depends(current_user)):
+    """Generate and return a STIX 2.1 bundle for the investigation."""
+    _require_owner(inv_id, user_id)
+    try:
+        from .stix_export import generate_stix_bundle
+        bundle = generate_stix_bundle(inv_id)
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"STIX export unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"STIX export failed: {e}")
+    import json
+    content = json.dumps(bundle, indent=2, ensure_ascii=False)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="bounce-cti-{inv_id}.stix.json"'},
+    )
+
+
 @app.get("/api/investigations/{inv_id}/nodes/{node_id}/evidence")
 def node_evidence(inv_id: str, node_id: str, user_id: int = Depends(current_user)):
     """Return raw cached CTI source data relevant to a node.
