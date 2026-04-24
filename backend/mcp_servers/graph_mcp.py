@@ -60,9 +60,76 @@ def tag_node(type: str, value: str, tag: str | None = None,
 
 
 @mcp.tool()
-def get_graph() -> dict:
-    """Return the full current investigation graph (nodes + edges)."""
-    return gs.get_graph(INV_ID)
+def get_graph(compact: bool = False) -> dict:
+    """Return the current investigation graph (nodes + edges).
+
+    For large graphs (50+ nodes), use compact=True to get a summary that fits
+    within tool output limits. Compact mode returns:
+      - nodes: list of {id, type, value, tags, confidence} (no metadata)
+      - edges: list of {src, dst, relation} (no evidence/confidence)
+      - report_metadata: the full report node metadata (always included)
+      - stats: {node_count, edge_count, type_counts}
+
+    Full mode (compact=False) returns all nodes and edges with full metadata.
+    If the graph is very large, full mode may exceed output limits and fail;
+    in that case, retry with compact=True and use get_node() for specific nodes.
+    """
+    graph = gs.get_graph(INV_ID)
+    if not compact:
+        return graph
+    # Compact mode: strip metadata from non-report nodes, simplify edges
+    nodes_compact = []
+    report_meta = {}
+    for n in graph.get("nodes", []):
+        if n.get("type") == "report" and n.get("value") == "investigation_summary":
+            report_meta = n.get("metadata", {})
+            continue  # report data sent separately
+        nodes_compact.append({
+            "id": n.get("id"),
+            "type": n.get("type"),
+            "value": n.get("value"),
+            "tags": n.get("tags", []),
+            "confidence": n.get("confidence"),
+        })
+    edges_compact = [
+        {"src": e.get("src"), "dst": e.get("dst"), "relation": e.get("relation")}
+        for e in graph.get("edges", [])
+    ]
+    from collections import Counter
+    type_counts = dict(Counter(n["type"] for n in nodes_compact))
+    return {
+        "nodes": nodes_compact,
+        "edges": edges_compact,
+        "report_metadata": report_meta,
+        "stats": {
+            "node_count": len(nodes_compact),
+            "edge_count": len(edges_compact),
+            "type_counts": type_counts,
+        },
+    }
+
+
+@mcp.tool()
+def get_node(type: str, value: str) -> dict | None:
+    """Return a single node with full metadata. Use this to inspect specific
+    nodes when the full graph is too large to retrieve at once."""
+    graph = gs.get_graph(INV_ID)
+    for n in graph.get("nodes", []):
+        if n.get("type") == type and n.get("value") == value:
+            return n
+    return None
+
+
+@mcp.tool()
+def get_report() -> dict:
+    """Return just the report node metadata (summary, threat_assessment,
+    key_findings, prompt_history, etc.). Faster and smaller than get_graph
+    when you only need the report."""
+    graph = gs.get_graph(INV_ID)
+    for n in graph.get("nodes", []):
+        if n.get("type") == "report" and n.get("value") == "investigation_summary":
+            return n.get("metadata", {})
+    return {}
 
 
 @mcp.tool()

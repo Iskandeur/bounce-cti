@@ -1267,7 +1267,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 f"ALREADY CALLED (DO NOT re-run any of these, their results are "
                 f"already in the graph):\n  "
                 + ", ".join(already_called_list or ["(none)"]) + "\n\n"
-                f"STEP 1: Call get_graph() ONCE to see what already exists.\n"
+                f"STEP 1: Call get_graph(compact=True) to see what already exists.\n"
                 f"STEP 2-{len(missing)+1}: Call ONLY these CTI tools that were "
                 f"missed in phase 1 (do NOT substitute with any other tool, do "
                 f"NOT repeat already-called tools):\n"
@@ -1362,11 +1362,13 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             f"Write the final investigation_summary report node for seed "
             f"{seed_type}={seed_value}. The graph already has nodes and edges; "
             f"no CTI tools are required.\n\n"
-            f"STEP 1: Call get_graph() to see every existing node and edge. Scan\n"
-            f"  the returned nodes' metadata for: malware family names, actor\n"
-            f"  aliases, campaign names, page titles, cert subject CNs, JARM\n"
-            f"  fingerprints, favicon hashes, registrant emails, TTPs, and any\n"
-            f"  text from threatfox/otx/urlhaus/virustotal threat_names fields.\n"
+            f"STEP 1: Call get_graph(compact=True) to see every node and edge. Then\n"
+            f"  call get_report() for any existing report metadata. For nodes\n"
+            f"  with important metadata (malware, IPs with detections, etc.),\n"
+            f"  call get_node(type, value) to read their full metadata. Scan for:\n"
+            f"  malware family names, actor aliases, campaign names, page titles,\n"
+            f"  cert subject CNs, JARM fingerprints, favicon hashes, registrant\n"
+            f"  emails, TTPs, threatfox/otx/urlhaus/virustotal threat_names.\n"
             f"STEP 2: Call add_node(report, \"investigation_summary\", metadata={{...}}, "
             f"source=\"agent\", tags=[\"report\"]) exactly ONCE. Use the canonical "
             f"value \"investigation_summary\" so the node is a singleton.\n"
@@ -1437,8 +1439,10 @@ seed AND fold any new findings back into that existing report — NOT to create 
 second one.
 
 ABSOLUTE RULES for pivot runs:
-P1. Call get_graph() FIRST to see the existing structure and the existing report
-    node's metadata. You will MERGE into it, not replace it.
+P1. Call get_report() FIRST to get the existing report metadata. Then call
+    get_graph(compact=True) for the node inventory. Use get_node(type, value)
+    for full metadata of specific nodes. You will MERGE into the report, not
+    replace it.
 P2. Run the relevant enrichment tools for the pivot seed (the user prompt lists
     them). Follow the normal rules R1-R11 from the main system prompt: graph
     every finding, call defuse before pivoting on IPs, use correct sources,
@@ -1453,7 +1457,7 @@ P3. REPORT UPDATE (MANDATORY, exactly one call):
         Keep it factual, 2-4 sentences. No speculation. Obey R11.
       - "key_findings": APPEND new findings from the pivot. Do not drop prior
         findings — re-include them from the existing report.metadata.key_findings
-        (you just read it via get_graph()). Each finding stays {text, sources[]}.
+        (you just read it via get_report()). Each finding stays {text, sources[]}.
       - "threat_assessment": start from the existing value. Only ESCALATE if a
         new direct-evidence condition from R11 is now met (cite the source+value
         in key_findings). Never escalate from domain-name semantics, age, hosting,
@@ -1483,9 +1487,11 @@ alongside what is already on the graph. Treat it as a peer of the existing seed(
 descendant.
 
 ABSOLUTE RULES for add-seed runs:
-A1. Call get_graph() FIRST. Note every existing node (IPs, NS, JARMs, certs, ASNs,
-    registrars, hashes) and the existing seeds (nodes tagged "seed"). You will compare
-    the new seed's infrastructure against these.
+A1. Call get_report() FIRST for existing report metadata, then
+    get_graph(compact=True) for the node inventory. Note every existing node (IPs,
+    NS, JARMs, certs, ASNs, registrars, hashes) and the existing seeds (nodes
+    tagged "seed"). Use get_node(type, value) for full metadata on specific nodes.
+    You will compare the new seed's infrastructure against these.
 A2. add_node(<seed_type>, <seed_value>, tags=["seed"]) for the new seed. Then run the
     FULL single-seed workflow for it (defuse, RDAP/DNS, VT, threatfox, OTX, urlhaus,
     JARM pivot, …). Do NOT shortcut because "the graph already has stuff" — the new
@@ -1573,9 +1579,9 @@ async def run_add_seed(inv_id: str, seed_type: str, seed_value: str, model: str 
     user_prompt = (
         f"Add new PEER seed: type={seed_type} value={seed_value}\n"
         f"Investigation id: {inv_id}\n\n"
-        "STEP 1: Call get_graph(). Note the existing seeds (nodes tagged 'seed'), the\n"
-        "        existing infrastructure (IPs, NS, certs, JARMs, ASNs, registrars, hashes),\n"
-        "        and the existing report metadata. You will merge into that report.\n\n"
+        "STEP 1: Call get_report() for the current report metadata, then get_graph(compact=True)\n"
+        "        for the node inventory. Note existing seeds (tagged 'seed'), existing\n"
+        "        infrastructure, and the report metadata. You will merge into that report.\n\n"
         f"STEP 2: add_node({seed_type}, {seed_value}, tags=[\"seed\"]) for the new seed.\n"
         "        Then run the full single-seed workflow — do NOT skip tools because some\n"
         "        infra seems to overlap. Each shared attribute you add is upserted, so\n"
@@ -1696,9 +1702,9 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
     user_prompt = (
         f"Pivot seed: type={seed_type} value={seed_value}\n"
         f"Investigation id: {inv_id}\n\n"
-        "STEP 1: Call get_graph() and locate the existing report node\n"
-        "        (type=report, value=investigation_summary). Read its metadata —\n"
-        "        you will merge into it.\n\n"
+        "STEP 1: Call get_report() for the current report metadata, then\n"
+        "        get_graph(compact=True) for the node inventory.\n"
+        "        You will merge into the existing report.\n\n"
         "STEP 2: Run pivot enrichment for this seed. "
     )
     if seed_type == "ip":
@@ -1801,8 +1807,12 @@ The graph already contains nodes, edges, and (usually) a single report node with
 value="investigation_summary". The analyst has typed a free-form instruction.
 
 ABSOLUTE RULES for custom prompt runs:
-C1. Call get_graph() FIRST to see the existing structure and the existing report
-    node's metadata.
+C1. Read the existing graph and report. Use get_report() to get the current report
+    metadata (summary, threat_assessment, prompt_history, etc.). For the node
+    inventory, use get_graph(compact=True) which returns a lightweight summary
+    without metadata. Use get_node(type, value) if you need full metadata for
+    specific nodes. NEVER call get_graph() without compact=True on large
+    investigations — it will exceed output limits and fail.
 C2. Follow the analyst's instruction. You have full access to all CTI tools. Use
     them as needed to fulfil the request. Follow rules R1-R11 from the main system
     prompt: graph every finding, call defuse before pivoting on IPs, use correct
@@ -1923,8 +1933,9 @@ async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus",
 
     user_prompt += (
         f"ANALYST INSTRUCTION:\n{prompt_text}\n\n"
-        "STEP 1: Review the graph snapshot above, then call get_graph() for full details "
-        "including metadata and edge evidence.\n"
+        "STEP 1: Call get_report() to get the current report metadata (including prompt_history "
+        "you must preserve). Then call get_graph(compact=True) for the node inventory. "
+        "Use get_node(type, value) for specific nodes if you need full metadata.\n"
     )
 
     if selected_nodes:
