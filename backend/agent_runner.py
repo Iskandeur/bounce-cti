@@ -1845,22 +1845,56 @@ C5. After the report update, stop. Do not chain further actions beyond what was 
 async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus",
                             selected_nodes: list[dict] | None = None):
     """Run a custom analyst prompt on an existing investigation."""
-    # Fetch existing prompt history to give the agent conversation context.
+    # Fetch existing graph to build context snapshot and conversation history.
     past_prompts: list = []
+    graph_snapshot = ""
+    report_meta: dict = {}
     try:
         g = gs.get_graph(inv_id)
+        all_nodes = g.get("nodes", [])
+        all_edges = g.get("edges", [])
         report_node = next(
-            (n for n in g.get("nodes", [])
+            (n for n in all_nodes
              if n.get("type") == "report" and n.get("value") == "investigation_summary"),
             None
         )
         if report_node:
-            ph = (report_node.get("metadata") or {}).get("prompt_history") or []
+            report_meta = report_node.get("metadata") or {}
+            ph = report_meta.get("prompt_history") or []
             past_prompts = list(ph)
+
+        # Build compact graph snapshot so the agent understands the current state
+        # without needing to call get_graph() first.
+        non_report = [n for n in all_nodes if n.get("type") != "report"]
+        if non_report:
+            from collections import Counter
+            type_counts = Counter(n.get("type", "?") for n in non_report)
+            lines = [f"CURRENT GRAPH SNAPSHOT ({len(non_report)} nodes, {len(all_edges)} edges):"]
+            lines.append(f"  Types: {', '.join(f'{t}:{c}' for t, c in type_counts.most_common())}")
+            # List up to 60 nodes grouped by type for reference
+            by_type: dict[str, list[str]] = {}
+            for n in non_report:
+                by_type.setdefault(n.get("type", "?"), []).append(n.get("value", ""))
+            for t in sorted(by_type, key=lambda x: -type_counts[x]):
+                vals = by_type[t]
+                display = vals[:15]
+                extra = f" (+{len(vals)-15} more)" if len(vals) > 15 else ""
+                lines.append(f"  [{t}] {', '.join(display)}{extra}")
+            # Current threat assessment and summary from existing report
+            if report_meta.get("threat_assessment"):
+                lines.append(f"  Threat assessment: {report_meta['threat_assessment']}")
+            if report_meta.get("summary"):
+                s = report_meta["summary"]
+                lines.append(f"  Summary: {s[:300]}{'…' if len(s) > 300 else ''}")
+            graph_snapshot = "\n".join(lines) + "\n\n"
     except Exception:
         pass
 
     user_prompt = f"Investigation id: {inv_id}\n\n"
+
+    # Include the graph snapshot so the agent has immediate context
+    if graph_snapshot:
+        user_prompt += graph_snapshot
 
     # Include last 6 conversation turns as explicit context so the agent can
     # maintain a coherent multi-turn dialogue without having to re-derive it
@@ -1889,7 +1923,8 @@ async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus",
 
     user_prompt += (
         f"ANALYST INSTRUCTION:\n{prompt_text}\n\n"
-        "STEP 1: Call get_graph() to see the current investigation state.\n"
+        "STEP 1: Review the graph snapshot above, then call get_graph() for full details "
+        "including metadata and edge evidence.\n"
     )
 
     if selected_nodes:

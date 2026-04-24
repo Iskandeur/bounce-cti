@@ -150,6 +150,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [agentNotes, setAgentNotes] = useState([])
   const [customPrompt, setCustomPrompt] = useState('')
   const [promptBusy, setPromptBusy] = useState(false)
+  // Optimistic pending prompt: shows the user's message in the chat immediately
+  // while the agent is working. Cleared when prompt_history grows.
+  const [pendingPrompt, setPendingPrompt] = useState(null)
   const [existingTypes, setExistingTypes] = useState(new Set())
   // Multi-selection for "copy / export" scope. Ctrl/Cmd/Shift + click toggles
   // a node into this set without touching the single-click details panel.
@@ -223,11 +226,16 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     document.body.style.userSelect = 'none'
   }, [])
 
-  // ── Chat auto-scroll ─────────────────────────────────────────────────────
+  // ── Chat auto-scroll + clear pending prompt when history updates ─────────
   const promptHistoryLen = (report?.prompt_history || []).length
   useEffect(() => {
     if (chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+    // Agent finished and wrote a new prompt_history entry → clear optimistic state
+    if (pendingPrompt && promptHistoryLen > (pendingPrompt.prevLen ?? 0)) {
+      setPendingPrompt(null)
+      setPromptBusy(false)
     }
   }, [promptHistoryLen, rightTab])
 
@@ -688,6 +696,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           refreshInvs()
           if (phase === 'custom_prompt') {
             setRightTab('chat')
+            // Fallback: clear pending state in case prompt_history wasn't updated
+            setPendingPrompt(null)
+            setPromptBusy(false)
           }
           return phase === 'custom_prompt'
             ? `✓ prompt done`
@@ -871,6 +882,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // ── pivot ─────────────────────────────────────────────────────────────────
   const submitCustomPrompt = async () => {
     if (!activeInv || !customPrompt.trim()) return
+    const text = customPrompt.trim()
     setPromptBusy(true)
     // Collect selected nodes (pickedIds) so the agent knows what the analyst is pointing at
     const selectedNodes = []
@@ -883,18 +895,26 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         }
       })
     }
+    // Show the user's message optimistically in the chat right away
+    setPendingPrompt({
+      text,
+      selectedNodes: selectedNodes.length > 0 ? selectedNodes : null,
+      timestamp: new Date().toISOString(),
+      prevLen: (report?.prompt_history || []).length,
+    })
+    setCustomPrompt('')
+    setRightTab('chat')
     await fetch(`/api/investigations/${activeInv}/prompt`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        prompt: customPrompt.trim(),
+        prompt: text,
         model,
         selected_nodes: selectedNodes.length > 0 ? selectedNodes : null,
       })
     })
     const sel = selectedNodes.length > 0 ? ` [${selectedNodes.length} selected]` : ''
-    setEvents(e => [`▶ custom prompt${sel}: ${customPrompt.trim().slice(0, 60)}…`, ...e])
-    setCustomPrompt('')
-    setPromptBusy(false)
+    setEvents(e => [`▶ custom prompt${sel}: ${text.slice(0, 60)}…`, ...e])
+    // NOTE: promptBusy stays true — cleared when prompt_history grows or agent_exit fires
     refreshInvs()
   }
 
@@ -1990,6 +2010,19 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     )}
                   </React.Fragment>
                 ))}
+                {pendingPrompt && (
+                  <div className="chat-msg user">
+                    {pendingPrompt.selectedNodes && pendingPrompt.selectedNodes.length > 0 && (
+                      <div className="chat-selected-nodes">
+                        {pendingPrompt.selectedNodes.map((v, j) => (
+                          <span key={j} className="ioc-chip small">{v.type}: {v.value}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="chat-bubble">{pendingPrompt.text}</div>
+                    <div className="chat-meta">{new Date(pendingPrompt.timestamp).toLocaleTimeString()}</div>
+                  </div>
+                )}
                 {promptBusy && (
                   <div className="chat-thinking">
                     <div className="chat-dot" />
