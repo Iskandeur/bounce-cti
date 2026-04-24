@@ -239,6 +239,46 @@ def generate_pdf(inv_id: str) -> bytes:
         pdf.cell(0, 5, ", ".join(_safe(s) for s in su), new_x="LMARGIN", new_y="NEXT")
         pdf.ln(3)
 
+    # ── Analyst Chat History ──
+    ph = report.get("prompt_history", [])
+    if ph:
+        _section_title(pdf, "Analyst Chat History")
+        for i, entry in enumerate(ph, 1):
+            q = _safe(entry.get("prompt", ""))
+            a = _safe(entry.get("response", ""))
+            ts = _safe(entry.get("timestamp", ""))
+            nodes_added = entry.get("nodes_added", 0) or 0
+            nodes_updated = entry.get("nodes_updated", 0) or 0
+            if q:
+                pdf.set_font("DejaVu", "B", 9)
+                pdf.set_text_color(100, 150, 210)
+                label = f"Q{i}" + (f"  ({ts})" if ts else "") + ":"
+                pdf.cell(0, 5, label, new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_font("DejaVu", "", 9)
+                pdf.x = pdf.l_margin + 4
+                pdf.multi_cell(_EW - 4, 4.5, q)
+            if a:
+                pdf.set_font("DejaVu", "B", 9)
+                pdf.set_text_color(60, 160, 100)
+                pdf.cell(0, 5, f"A{i}:", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_font("DejaVu", "", 9)
+                pdf.x = pdf.l_margin + 4
+                pdf.multi_cell(_EW - 4, 4.5, a)
+            if nodes_added or nodes_updated:
+                stats = []
+                if nodes_added:
+                    stats.append(f"+{nodes_added} nodes added")
+                if nodes_updated:
+                    stats.append(f"~{nodes_updated} nodes updated")
+                pdf.set_font("DejaVu", "", 8)
+                pdf.set_text_color(130, 130, 130)
+                pdf.cell(0, 4, "  [" + ", ".join(stats) + "]", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(0, 0, 0)
+            pdf.ln(3)
+        pdf.ln(2)
+
     # ── Node inventory table ──
     _section_title(pdf, "Node Inventory")
     pdf.set_font("DejaVu", "B", 8)

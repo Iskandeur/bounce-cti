@@ -167,16 +167,69 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // display a banner and poll /api/auth/me until the service is back, then
   // reload so all stale state (WS, timers, in-flight fetches) is replaced.
   const [serverDown, setServerDown] = useState(false)
+  const [leftWidth, setLeftWidth] = useState(260)
+  const [rightWidth, setRightWidth] = useState(360)
 
   const cyRef = useRef(null)
   const containerRef = useRef(null)
   const activeInvRef = useRef(null)
   const showEdgeLabelsRef = useRef(showEdgeLabels)
   const filterTypesRef = useRef(filterTypes)
+  const leftWidthRef = useRef(260)
+  const rightWidthRef = useRef(360)
+  const dragStateRef = useRef(null)
+  const chatEndRef = useRef(null)
 
   useEffect(() => { activeInvRef.current = activeInv }, [activeInv])
   useEffect(() => { showEdgeLabelsRef.current = showEdgeLabels }, [showEdgeLabels])
   useEffect(() => { filterTypesRef.current = filterTypes }, [filterTypes])
+  useEffect(() => { leftWidthRef.current = leftWidth }, [leftWidth])
+  useEffect(() => { rightWidthRef.current = rightWidth }, [rightWidth])
+
+  // ── Panel resize drag handlers ───────────────────────────────────────────
+  useEffect(() => {
+    const onMouseMove = (e) => {
+      if (!dragStateRef.current) return
+      const { side, startX, startWidth } = dragStateRef.current
+      const dx = e.clientX - startX
+      if (side === 'left') {
+        setLeftWidth(Math.max(180, Math.min(520, startWidth + dx)))
+      } else {
+        setRightWidth(Math.max(220, Math.min(620, startWidth - dx)))
+      }
+    }
+    const onMouseUp = () => {
+      if (!dragStateRef.current) return
+      dragStateRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
+
+  const startDrag = useCallback((side) => (e) => {
+    e.preventDefault()
+    dragStateRef.current = {
+      side,
+      startX: e.clientX,
+      startWidth: side === 'left' ? leftWidthRef.current : rightWidthRef.current,
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [])
+
+  // ── Chat auto-scroll ─────────────────────────────────────────────────────
+  const promptHistoryLen = (report?.prompt_history || []).length
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [promptHistoryLen, rightTab])
 
   // ── Cytoscape init ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -226,14 +279,26 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         {
           selector: 'node[type="report"]',
           style: {
-            'width': 38, 'height': 38,
+            'width': 34, 'height': 34,
             'shape': 'concave-hexagon',
             'background-color': '#f5a623',
             'border-color': '#d48806',
-            'border-width': 3,
+            'border-width': 2,
             'color': '#e6edf3',
             'font-weight': 'bold',
+            'font-size': 10,
+          }
+        },
+        {
+          selector: 'node[type="report"][value="investigation_summary"]',
+          style: {
+            'shape': 'star',
+            'width': 46, 'height': 46,
+            'background-color': '#f0a500',
+            'border-color': '#c87800',
+            'border-width': 3,
             'font-size': 11,
+            'font-weight': 'bold',
           }
         },
         {
@@ -504,7 +569,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       }
       return n.value
     })()
-    const label = displayValue.length > 30 ? displayValue.slice(0, 28) + '…' : displayValue
+    const label = n.type === 'report' && n.value === 'investigation_summary'
+      ? 'Investigation Summary'
+      : (displayValue.length > 30 ? displayValue.slice(0, 28) + '…' : displayValue)
     const d = {
       id: n.id, type: n.type, label, value: n.value,
       metadata: n.metadata, tags: n.tags, source: n.source, confidence: n.confidence,
@@ -620,7 +687,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           const phase = msg.phase ?? msg?.msg?.phase ?? ''
           refreshInvs()
           if (phase === 'custom_prompt') {
-            setRightTab('report')
+            setRightTab('chat')
           }
           return phase === 'custom_prompt'
             ? `✓ prompt done`
@@ -990,7 +1057,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const existingTypeList = [...existingTypes].filter(t => t !== 'report')
 
   return (
-    <div className="app">
+    <div className="app" style={{ gridTemplateColumns: `${leftWidth}px 5px 1fr 5px ${rightWidth}px` }}>
       {serverDown && (
         <div className="server-down-banner" role="status" aria-live="polite">
           <span className="server-down-spinner" />
@@ -1166,6 +1233,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         </div>
       </div>
 
+      {/* ── LEFT RESIZE HANDLE ── */}
+      <div className="resize-handle" onMouseDown={startDrag('left')} title="Drag to resize" />
+
       {/* ── GRAPH ── */}
       <div className="graph">
         <div id="cy" ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
@@ -1264,16 +1334,21 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           </div>
         )}
 
-        {/* Legend */}
-        <div className="legend">
-          {Object.entries(NODE_COLORS).filter(([k]) => k !== 'report').map(([type, color]) => (
-            <span key={type} className="legend-item">
-              <span className="legend-dot" style={{ background: color }} />
-              {type}
-            </span>
-          ))}
-        </div>
+        {/* Legend — hidden when filter bar is active (they'd both show at bottom-left) */}
+        {existingTypeList.length === 0 && (
+          <div className="legend">
+            {Object.entries(NODE_COLORS).filter(([k]) => k !== 'report').map(([type, color]) => (
+              <span key={type} className="legend-item">
+                <span className="legend-dot" style={{ background: color }} />
+                {type}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* ── RIGHT RESIZE HANDLE ── */}
+      <div className="resize-handle" onMouseDown={startDrag('right')} title="Drag to resize" />
 
       {/* ── RIGHT PANEL ── */}
       <div className="details">
@@ -1297,9 +1372,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           >
             Timeline
           </button>
+          <button
+            className={`panel-tab${rightTab === 'chat' ? ' active' : ''}`}
+            onClick={() => setRightTab('chat')}
+          >
+            Chat
+          </button>
         </div>
 
-        <div className="panel-content">
+        <div className={`panel-content${rightTab === 'chat' ? ' chat-mode' : ''}`}>
           {/* ── Report tab ── */}
           {rightTab === 'report' && (
             <>
@@ -1517,38 +1598,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     </div>
                   )}
 
-                  {/* Prompt history — shows analyst prompts + agent responses */}
+                  {/* Analyst prompts moved to Chat tab */}
                   {Array.isArray(report.prompt_history) && report.prompt_history.length > 0 && (
                     <div>
-                      <div className="section-label" style={{ margin: '12px 0 6px' }}>Analyst prompts</div>
-                      <div className="prompt-history">
-                        {report.prompt_history.slice().reverse().map((entry, i) => (
-                          <div key={i} className="prompt-history-entry">
-                            <div className="prompt-history-q">
-                              <span className="prompt-history-icon">Q</span>
-                              <span>{typeof entry === 'string' ? entry : iocString(entry.prompt)}</span>
-                            </div>
-                            {entry.selected_nodes && entry.selected_nodes.length > 0 && (
-                              <div className="prompt-history-nodes">
-                                {entry.selected_nodes.map((v, j) => (
-                                  <span key={j} className="ioc-chip small">{iocString(v)}</span>
-                                ))}
-                              </div>
-                            )}
-                            {entry.response && (
-                              <div className="prompt-history-a">
-                                <span className="prompt-history-icon a">A</span>
-                                <span><HighlightedText text={entry.response} nodeValues={nodeValues} onNodeClick={focusNode} /></span>
-                              </div>
-                            )}
-                            {(entry.nodes_added > 0 || entry.nodes_updated > 0) && (
-                              <div className="prompt-history-stats">
-                                {entry.nodes_added > 0 && <span>+{entry.nodes_added} nodes</span>}
-                                {entry.nodes_updated > 0 && <span>~{entry.nodes_updated} updated</span>}
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                      <div className="section-label" style={{ margin: '12px 0 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>Analyst prompts ({report.prompt_history.length})</span>
+                        <button className="btn-sm secondary" style={{ fontSize: 10, padding: '1px 8px' }} onClick={() => setRightTab('chat')}>Open Chat →</button>
                       </div>
                     </div>
                   )}
@@ -1883,9 +1938,113 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               })()}
             </>
           )}
+          {/* ── Chat tab ── */}
+          {rightTab === 'chat' && (
+            <div className="chat-container">
+              <div className="chat-messages">
+                {(!report || !Array.isArray(report.prompt_history) || report.prompt_history.length === 0) && (
+                  <div className="chat-empty">
+                    <div className="chat-empty-icon">💬</div>
+                    <div>No conversation yet.</div>
+                    <div style={{ color: 'var(--on-dim)', fontSize: 11 }}>
+                      {activeInv ? 'Type a question below to ask the agent.' : 'Open an investigation to start chatting.'}
+                    </div>
+                  </div>
+                )}
+                {report && Array.isArray(report.prompt_history) && report.prompt_history.map((entry, i) => (
+                  <React.Fragment key={i}>
+                    <div className="chat-msg user">
+                      {entry.selected_nodes && entry.selected_nodes.length > 0 && (
+                        <div className="chat-selected-nodes">
+                          {entry.selected_nodes.map((v, j) => (
+                            <span key={j} className="ioc-chip small">{iocString(v)}</span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="chat-bubble">{typeof entry === 'string' ? entry : iocString(entry.prompt)}</div>
+                      {entry.timestamp && (
+                        <div className="chat-meta">{new Date(entry.timestamp).toLocaleTimeString()}</div>
+                      )}
+                    </div>
+                    {entry.response && (
+                      <div className="chat-msg agent">
+                        <div className="chat-bubble">
+                          <HighlightedText text={entry.response} nodeValues={nodeValues} onNodeClick={focusNode} />
+                        </div>
+                        {(entry.nodes_added > 0 || entry.nodes_updated > 0) && (
+                          <div className="chat-nodes-badge">
+                            {entry.nodes_added > 0 && `+${entry.nodes_added} nodes`}
+                            {entry.nodes_updated > 0 && ` ~${entry.nodes_updated} updated`}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </React.Fragment>
+                ))}
+                {promptBusy && (
+                  <div className="chat-thinking">
+                    <div className="chat-dot" />
+                    <div className="chat-dot" />
+                    <div className="chat-dot" />
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+              {activeInv && (
+                <div className="chat-prompt">
+                  {pickedIds.size > 0 && (
+                    <div className="prompt-selected-nodes">
+                      <span className="prompt-selected-label">Selected ({pickedIds.size}):</span>
+                      <div className="prompt-selected-chips">
+                        {(() => {
+                          const cy = cyRef.current
+                          if (!cy) return null
+                          const chips = []
+                          cy.nodes().forEach(n => {
+                            if (pickedIds.has(n.id())) {
+                              const d = n.data()
+                              if (d.type !== 'report') {
+                                chips.push(
+                                  <span key={n.id()} className="prompt-chip" style={{ borderColor: NODE_COLORS[d.type] || '#8b949e' }}>
+                                    <span className="prompt-chip-type">{d.type}</span>
+                                    {d.value?.length > 30 ? d.value.slice(0, 28) + '…' : d.value}
+                                  </span>
+                                )
+                              }
+                            }
+                          })
+                          return chips
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                  <textarea
+                    className="custom-prompt-input"
+                    value={customPrompt}
+                    onChange={e => setCustomPrompt(e.target.value)}
+                    placeholder={pickedIds.size > 0
+                      ? `Ask about these ${pickedIds.size} selected node(s)… (Ctrl+Enter)`
+                      : 'Ask the agent anything about this investigation… (Ctrl+Enter)'}
+                    rows={2}
+                    onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitCustomPrompt() }}
+                  />
+                  <button
+                    className="auth-btn"
+                    disabled={promptBusy || !customPrompt.trim()}
+                    onClick={submitCustomPrompt}
+                    style={{ marginTop: 4, width: '100%' }}
+                  >
+                    {promptBusy ? 'Agent is thinking…' : (pickedIds.size > 0
+                      ? `Ask about ${pickedIds.size} selected →`
+                      : 'Send →')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-        {/* Custom prompt — pinned at bottom of right panel */}
-        {activeInv && (
+        {/* Custom prompt — pinned at bottom of right panel (hidden when Chat tab active) */}
+        {activeInv && rightTab !== 'chat' && (
           <div className="custom-prompt-section">
             {pickedIds.size > 0 && (
               <div className="prompt-selected-nodes">

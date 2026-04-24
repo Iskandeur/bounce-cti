@@ -1845,7 +1845,37 @@ C5. After the report update, stop. Do not chain further actions beyond what was 
 async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus",
                             selected_nodes: list[dict] | None = None):
     """Run a custom analyst prompt on an existing investigation."""
+    # Fetch existing prompt history to give the agent conversation context.
+    past_prompts: list = []
+    try:
+        g = gs.get_graph(inv_id)
+        report_node = next(
+            (n for n in g.get("nodes", [])
+             if n.get("type") == "report" and n.get("value") == "investigation_summary"),
+            None
+        )
+        if report_node:
+            ph = (report_node.get("metadata") or {}).get("prompt_history") or []
+            past_prompts = list(ph)
+    except Exception:
+        pass
+
     user_prompt = f"Investigation id: {inv_id}\n\n"
+
+    # Include last 6 conversation turns as explicit context so the agent can
+    # maintain a coherent multi-turn dialogue without having to re-derive it
+    # from the raw graph each time.
+    if past_prompts:
+        user_prompt += "CONVERSATION HISTORY (previous analyst–agent exchanges — maintain context):\n"
+        for entry in past_prompts[-6:]:
+            q = (entry.get("prompt") or "").strip()
+            a = (entry.get("response") or "").strip()
+            if q:
+                user_prompt += f"  ANALYST: {q}\n"
+            if a:
+                user_prompt += f"  AGENT: {a}\n"
+            user_prompt += "\n"
+        user_prompt += "---\n\n"
 
     if selected_nodes:
         user_prompt += (
