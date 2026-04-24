@@ -67,8 +67,9 @@ def get_graph(compact: bool = False) -> dict:
     within tool output limits. Compact mode returns:
       - nodes: list of {id, type, value, tags, confidence} (no metadata)
       - edges: list of {src, dst, relation} (no evidence/confidence)
-      - report_metadata: the full report node metadata (always included)
       - stats: {node_count, edge_count, type_counts}
+    Report metadata is NOT included in compact mode — call get_report()
+    separately to get the report.
 
     Full mode (compact=False) returns all nodes and edges with full metadata.
     If the graph is very large, full mode may exceed output limits and fail;
@@ -79,11 +80,9 @@ def get_graph(compact: bool = False) -> dict:
         return graph
     # Compact mode: strip metadata from non-report nodes, simplify edges
     nodes_compact = []
-    report_meta = {}
     for n in graph.get("nodes", []):
-        if n.get("type") == "report" and n.get("value") == "investigation_summary":
-            report_meta = n.get("metadata", {})
-            continue  # report data sent separately
+        if n.get("type") == "report":
+            continue  # report data accessed via get_report()
         nodes_compact.append({
             "id": n.get("id"),
             "type": n.get("type"),
@@ -100,7 +99,6 @@ def get_graph(compact: bool = False) -> dict:
     return {
         "nodes": nodes_compact,
         "edges": edges_compact,
-        "report_metadata": report_meta,
         "stats": {
             "node_count": len(nodes_compact),
             "edge_count": len(edges_compact),
