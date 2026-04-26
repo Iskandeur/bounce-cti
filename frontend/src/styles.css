@@ -1710,3 +1710,302 @@ button.secondary:hover {
   background: var(--surface);
   flex-shrink: 0;
 }
+
+/* ── Mobile top bar (hidden on desktop) ────────────────────────────────── */
+.mobile-topbar { display: none; }
+.mobile-backdrop { display: none; }
+
+/* ────────────────────────────────────────────────────────────────────────
+   MOBILE / NARROW VIEWPORT (≤ 768px)
+   ─────────────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Avoid iOS Safari double-tap zoom + bounce; let our app own the gestures. */
+  html, body, #root {
+    height: 100%;
+    /* Use dvh so the layout tracks the actual visible viewport when the
+       address bar / keyboard appears or hides. Falls back to 100% above. */
+    height: 100dvh;
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Switch the 5-column desktop grid to a vertical stack: top bar + main. */
+  .app {
+    display: flex !important;
+    flex-direction: column;
+    grid-template-columns: none !important;
+    height: 100dvh;
+    /* Respect the iPhone status-bar / home-indicator. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* Top bar — single fixed row with hamburger | title | tabs-toggle. */
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    height: 50px;
+    flex-shrink: 0;
+    padding: 0 8px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--outline);
+    z-index: 150;
+  }
+  .mobile-topbar-title {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: var(--on-bg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mobile-topbar-title .primary { color: var(--primary); }
+  .mobile-topbar-logo {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+  }
+  .mobile-icon-btn {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    color: var(--on-surface);
+    border: 1px solid var(--outline);
+    border-radius: var(--radius-sm);
+    font-size: 20px;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+  }
+  .mobile-icon-btn:active { background: var(--surface-3); }
+  .mobile-burger { font-size: 18px; line-height: 1; }
+
+  /* Backdrop covers everything beneath open drawers and dismisses on tap. */
+  .mobile-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 180;
+    animation: backdrop-fade 0.18s ease-out;
+  }
+  @keyframes backdrop-fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* Sidebar + details panels become full-height slide-in drawers. They
+     overlay the graph rather than reflowing it (the graph keeps the full
+     viewport, so the cytoscape layout stays usable). */
+  .sidebar,
+  .details {
+    position: fixed;
+    top: calc(50px + env(safe-area-inset-top));
+    bottom: env(safe-area-inset-bottom);
+    width: min(86vw, 360px);
+    max-width: 86vw;
+    z-index: 200;
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.45);
+    transition: transform 0.25s ease;
+    will-change: transform;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sidebar {
+    left: env(safe-area-inset-left);
+    transform: translateX(calc(-100% - 16px));
+    border-right: 1px solid var(--outline);
+  }
+  .details {
+    right: env(safe-area-inset-right);
+    transform: translateX(calc(100% + 16px));
+    border-left: 1px solid var(--outline);
+  }
+  .sidebar.mobile-open  { transform: translateX(0); }
+  .details.mobile-open { transform: translateX(0); }
+
+  /* Hide the desktop drag handles entirely. */
+  .resize-handle { display: none !important; }
+
+  /* Graph fills the remaining space below the top bar. */
+  .graph {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+  }
+
+  /* Toolbar floats over the graph: keep it accessible but compact. */
+  .graph-toolbar {
+    top: 6px;
+    right: 6px;
+    left: 6px;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: flex-end;
+    pointer-events: auto;
+  }
+  .graph-search-input {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    font-size: 14px;
+    padding: 6px 10px;
+  }
+  .toolbar-btn {
+    padding: 6px 9px;
+    font-size: 11px;
+  }
+  .toolbar-separator { display: none; }
+
+  /* Filter bar / legend: keep scrollable, drop the 44px clearance for the
+     missing toolbar above. */
+  .filter-bar {
+    bottom: 6px;
+    left: 6px;
+    right: 6px;
+    max-height: 30vh;
+    overflow-y: auto;
+    background: rgba(13, 17, 23, 0.78);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--outline);
+    border-radius: var(--radius);
+    padding: 6px;
+    z-index: 11;
+  }
+  .legend {
+    bottom: 6px;
+    left: 6px;
+    right: 6px;
+    max-height: 30vh;
+    overflow-y: auto;
+  }
+
+  /* iOS zooms inputs whose computed font-size is < 16px on focus. Bump the
+     ones we use most so typing on a phone keeps the layout stable. */
+  input,
+  select,
+  textarea,
+  .auto-detect-row input,
+  .add-seed-form input,
+  .add-seed-form select,
+  .custom-prompt-input,
+  .batch-textarea,
+  .graph-search-input,
+  .admin-search,
+  .admin-label-input {
+    font-size: 16px;
+  }
+
+  /* Make tap targets meet the ~44px Apple HIG minimum. */
+  button,
+  .panel-tab,
+  .toolbar-btn,
+  .filter-chip,
+  .icon-btn,
+  .auth-btn,
+  .btn-sm {
+    min-height: 40px;
+  }
+  .btn-sm,
+  .filter-chip,
+  .toolbar-btn { min-height: 36px; }
+  .icon-btn {
+    min-height: 36px;
+    min-width: 36px;
+    padding: 4px 10px;
+  }
+  .panel-tab { height: 44px; font-size: 13px; }
+
+  /* Sidebar internals: a hair more breathing room, but still dense. */
+  .sidebar { padding: 12px 12px 24px; gap: 6px; }
+  .event-log { max-height: 28vh; }
+  .inv-list  { max-height: none; }
+
+  /* Right panel: tabs scroll horizontally if needed. */
+  .panel-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .panel-tabs::-webkit-scrollbar { display: none; }
+  .panel-tab { flex: 1 0 22%; min-width: 84px; }
+  .panel-content { padding: 12px; gap: 10px; }
+
+  /* Custom-prompt + chat composer footers: keep clear of the home indicator. */
+  .custom-prompt-section,
+  .chat-prompt {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .chat-msg { max-width: 100%; }
+  .chat-bubble { font-size: 13px; }
+
+  /* Auth screen card: fill the viewport edge-to-edge with consistent inset. */
+  .auth-screen { padding: 18px; }
+  .auth-card {
+    padding: 24px 20px;
+    border-radius: var(--radius);
+  }
+  .auth-pin-input { font-size: 22px; padding: 14px 12px; letter-spacing: 6px; }
+
+  /* Service-restart banner: shrink and wrap on tiny viewports. */
+  .server-down-banner {
+    font-size: 12px;
+    padding: 8px 12px;
+    text-align: center;
+  }
+
+  /* Admin modal: take the whole viewport on phones — far easier to scroll. */
+  .admin-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .admin-modal {
+    border-radius: 0;
+    padding: 18px 16px max(18px, env(safe-area-inset-bottom));
+    min-height: 100dvh;
+    max-width: none;
+  }
+  .admin-header h2 { font-size: 17px; }
+  .admin-user-row { flex-wrap: wrap; gap: 8px; }
+  .admin-user-main { gap: 6px; }
+  .admin-summary { gap: 6px 10px; padding: 10px; }
+  .admin-summary-item { min-width: 64px; font-size: 10px; }
+  .admin-summary-item .num { font-size: 16px; }
+
+  /* Logo row in the sidebar: keep the action buttons visible but tighter. */
+  .logo-row { gap: 6px; }
+  .logo { font-size: 14px; }
+
+  /* Long values (hashes, full domains) shouldn't blow out the panel width. */
+  .seed-chip-value { max-width: 60vw; }
+  .meta-pre { max-height: 220px; font-size: 12px; }
+  .node-value { font-size: 14px; }
+
+  /* Timeline left rail compresses a bit on narrow screens. */
+  .timeline-line { width: 14px; }
+  .timeline-value { font-size: 13px; }
+}
+
+/* ── Even smaller phones (≤ 380px) — slightly tighter still ─────────── */
+@media (max-width: 380px) {
+  .mobile-topbar-title { font-size: 13px; letter-spacing: 1px; }
+  .toolbar-btn { padding: 6px 7px; font-size: 10px; }
+  .panel-tab { font-size: 12px; min-width: 72px; }
+  .auth-card { padding: 20px 16px; }
+}
+
+/* ── Reduced-motion: drop drawer slide animation ─────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .details { transition: none; }
+  .mobile-backdrop { animation: none; }
+}
