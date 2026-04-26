@@ -40,6 +40,28 @@ const MALTEGO_TYPES = {
 
 const wsMap = {}
 
+// Tracks whether the viewport is in mobile width range. We expose drawer toggles
+// and tweak interaction behavior (auto-open right panel on node tap, auto-close
+// sidebar after starting an investigation, etc.) when this is true.
+function useIsMobile(query = '(max-width: 768px)') {
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false
+    return window.matchMedia(query).matches
+  })
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia(query)
+    const handler = (e) => setIsMobile(e.matches)
+    if (mq.addEventListener) mq.addEventListener('change', handler)
+    else mq.addListener(handler)
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', handler)
+      else mq.removeListener(handler)
+    }
+  }, [query])
+  return isMobile
+}
+
 // Agent-provided fields can occasionally be objects (e.g. {type, value}) instead
 // of strings. Coerce to a display string so rendering never throws React #31.
 function iocString(v) {
@@ -172,6 +194,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [serverDown, setServerDown] = useState(false)
   const [leftWidth, setLeftWidth] = useState(260)
   const [rightWidth, setRightWidth] = useState(360)
+  const isMobile = useIsMobile()
+  const [mobileLeftOpen, setMobileLeftOpen] = useState(false)
+  const [mobileRightOpen, setMobileRightOpen] = useState(false)
 
   const cyRef = useRef(null)
   const containerRef = useRef(null)
@@ -188,6 +213,25 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   useEffect(() => { filterTypesRef.current = filterTypes }, [filterTypes])
   useEffect(() => { leftWidthRef.current = leftWidth }, [leftWidth])
   useEffect(() => { rightWidthRef.current = rightWidth }, [rightWidth])
+
+  // Keep cytoscape sized correctly when crossing the mobile breakpoint or when
+  // mobile drawers slide in/out (the graph container's effective area shifts).
+  useEffect(() => {
+    if (!cyRef.current) return
+    const id = setTimeout(() => {
+      try { cyRef.current.resize() } catch (_) {}
+    }, 320)
+    return () => clearTimeout(id)
+  }, [isMobile, mobileLeftOpen, mobileRightOpen])
+
+  // Reset mobile drawer state when leaving mobile so they don't keep an
+  // off-canvas transform applied if the user resizes their window.
+  useEffect(() => {
+    if (!isMobile) {
+      setMobileLeftOpen(false)
+      setMobileRightOpen(false)
+    }
+  }, [isMobile])
 
   // ── Panel resize drag handlers ───────────────────────────────────────────
   useEffect(() => {
@@ -420,6 +464,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       } else {
         setRightTab('node')
       }
+      // On phones, surface the details drawer automatically — otherwise the
+      // selection is invisible behind the off-canvas right panel.
+      if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
+        setMobileRightOpen(true)
+      }
     })
     cyRef.current.on('tap', evt => {
       if (evt.target === cyRef.current) {
@@ -648,6 +697,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setFilterTypes(new Set())
     setPickedIds(new Set())
     cyRef.current.elements().remove()
+    // Mobile: collapse the sidebar so the freshly opened graph is visible.
+    if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
+      setMobileLeftOpen(false)
+    }
 
     const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${wsProto}//${location.host}/ws/${id}`)
@@ -1077,7 +1130,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const existingTypeList = [...existingTypes].filter(t => t !== 'report')
 
   return (
-    <div className="app" style={{ gridTemplateColumns: `${leftWidth}px 5px 1fr 5px ${rightWidth}px` }}>
+    <div
+      className={`app${isMobile ? ' mobile' : ''}${mobileLeftOpen ? ' drawer-left-open' : ''}${mobileRightOpen ? ' drawer-right-open' : ''}`}
+      style={isMobile ? undefined : { gridTemplateColumns: `${leftWidth}px 5px 1fr 5px ${rightWidth}px` }}
+    >
       {serverDown && (
         <div className="server-down-banner" role="status" aria-live="polite">
           <span className="server-down-spinner" />
@@ -1086,8 +1142,39 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           </span>
         </div>
       )}
+      {/* ── MOBILE TOP BAR (visible only on small screens via CSS) ── */}
+      <div className="mobile-topbar" role="toolbar" aria-label="Mobile navigation">
+        <button
+          className="mobile-icon-btn"
+          aria-label="Toggle sidebar"
+          aria-expanded={mobileLeftOpen}
+          onClick={() => { setMobileLeftOpen(v => !v); setMobileRightOpen(false) }}
+        >
+          <span className="mobile-burger" aria-hidden="true">☰</span>
+        </button>
+        <div className="mobile-topbar-title">
+          <img className="logo-mark mobile-topbar-logo" src="/logo-256.png" alt="" />
+          <span>BOUNCE<span className="primary">CTI</span></span>
+        </div>
+        <button
+          className="mobile-icon-btn"
+          aria-label="Toggle details panel"
+          aria-expanded={mobileRightOpen}
+          onClick={() => { setMobileRightOpen(v => !v); setMobileLeftOpen(false) }}
+        >
+          <span className="mobile-burger" aria-hidden="true">⌘</span>
+        </button>
+      </div>
+      {/* ── MOBILE BACKDROP — taps close any open drawer ── */}
+      {(mobileLeftOpen || mobileRightOpen) && (
+        <div
+          className="mobile-backdrop"
+          onClick={() => { setMobileLeftOpen(false); setMobileRightOpen(false) }}
+          aria-hidden="true"
+        />
+      )}
       {/* ── LEFT SIDEBAR ── */}
-      <div className="sidebar">
+      <div className={`sidebar${mobileLeftOpen ? ' mobile-open' : ''}`}>
         <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
 
         <div className="section-label">
@@ -1371,7 +1458,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       <div className="resize-handle" onMouseDown={startDrag('right')} title="Drag to resize" />
 
       {/* ── RIGHT PANEL ── */}
-      <div className="details">
+      <div className={`details${mobileRightOpen ? ' mobile-open' : ''}`}>
         {/* Tab bar */}
         <div className="panel-tabs">
           <button
