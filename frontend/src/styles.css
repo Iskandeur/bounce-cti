@@ -82,6 +82,7 @@ html, body, #root {
   margin: 14px 0 6px;
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 
 /* ── Inputs / Selects / Buttons ─────────────────────────────────────────── */
@@ -949,13 +950,15 @@ button.secondary:hover {
 /* ── Batch mode toggle (sidebar) ─────────────────────────────────────────── */
 .batch-toggle {
   font-size: 10px;
-  padding: 2px 8px;
+  padding: 3px 10px;
   margin-left: auto;
   background: transparent;
   color: var(--on-dim);
   border: 1px solid var(--outline);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
   transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 .batch-toggle:hover { color: var(--primary); border-color: var(--primary); }
@@ -1531,6 +1534,24 @@ button.secondary:hover {
   border: 1px solid var(--border);
 }
 
+/* Modification entries (node update / tag / report update). */
+.timeline-mod { cursor: default; }
+.timeline-mod.clickable { cursor: pointer; }
+.timeline-mod.clickable:hover { background: var(--surface-2); }
+.timeline-dot-mod {
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+.timeline-mod-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* ── Evidence ── */
 .evidence-entry {
   border: 1px solid var(--border);
@@ -1808,27 +1829,32 @@ button.secondary:hover {
 
   /* Sidebar + details panels become full-height slide-in drawers. They
      overlay the graph rather than reflowing it (the graph keeps the full
-     viewport, so the cytoscape layout stays usable). */
+     viewport, so the cytoscape layout stays usable). The drawer extends
+     all the way to the viewport bottom (bottom: 0) and uses inner padding
+     to clear the home-indicator — avoids the iOS issue where Safari's
+     dynamic chrome cuts off the last items in a `bottom: safe-area` flow. */
   .sidebar,
   .details {
     position: fixed;
     top: calc(50px + env(safe-area-inset-top));
-    bottom: env(safe-area-inset-bottom);
+    bottom: 0;
     width: min(86vw, 360px);
     max-width: 86vw;
     z-index: 200;
     box-shadow: 0 0 24px rgba(0, 0, 0, 0.45);
     transition: transform 0.25s ease;
     will-change: transform;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
   .sidebar {
-    left: env(safe-area-inset-left);
+    left: 0;
     transform: translateX(calc(-100% - 16px));
     border-right: 1px solid var(--outline);
   }
   .details {
-    right: env(safe-area-inset-right);
+    right: 0;
     transform: translateX(calc(100% + 16px));
     border-left: 1px solid var(--outline);
   }
@@ -1927,10 +1953,26 @@ button.secondary:hover {
   }
   .panel-tab { height: 44px; font-size: 13px; }
 
-  /* Sidebar internals: a hair more breathing room, but still dense. */
-  .sidebar { padding: 12px 12px 24px; gap: 6px; }
-  .event-log { max-height: 28vh; }
+  /* Sidebar internals: a hair more breathing room, but still dense. The
+     generous bottom padding clears the iOS home-indicator AND gives the
+     last list items room to breathe past Safari's collapsing chrome. */
+  .sidebar {
+    padding: 12px 12px calc(72px + env(safe-area-inset-bottom));
+    gap: 6px;
+  }
+  .event-log { max-height: 32vh; }
   .inv-list  { max-height: none; }
+  /* Inline action buttons that aren't primary CTAs shouldn't grow to the
+     full 40px touch height — they're meant to read as small toggles next
+     to a section label, not as standalone buttons. */
+  .batch-toggle,
+  .icon-btn {
+    min-height: auto;
+  }
+  .batch-toggle { padding: 4px 10px; font-size: 11px; }
+
+  /* Generic utility: hide non-essential UI on phones. */
+  .hide-on-mobile { display: none !important; }
 
   /* Right panel: tabs scroll horizontally if needed. */
   .panel-tabs {
