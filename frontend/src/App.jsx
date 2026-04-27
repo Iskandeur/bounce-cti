@@ -1381,6 +1381,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                   + Add
                 </button>
               </div>
+              {/* Share entry-point: visible as soon as an investigation is open
+                  (don't make analysts hunt for it inside the report tab). */}
+              <button
+                className="btn-sm share-btn sidebar-share-btn"
+                onClick={() => setShareOpen(true)}
+                title="Generate a share link for this investigation"
+              >
+                ↗ Partager cette investigation
+              </button>
             </>
           )
         })()}

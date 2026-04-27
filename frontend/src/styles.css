@@ -2063,6 +2063,11 @@ button.secondary:hover {
   background: #2a4d7a;
   color: #a8d8ff;
 }
+.sidebar-share-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 12px;
+}
 .share-modal { max-width: 640px; }
 .share-inv-meta {
   display: flex;
