@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import Login from './Login.jsx'
 import AdminPanel from './AdminPanel.jsx'
+import ShareModal from './ShareModal.jsx'
+import SharedView from './SharedView.jsx'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 
@@ -152,6 +154,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [batchText, setBatchText] = useState('')
   const [model, setModel] = useState('sonnet')
   const [adminOpen, setAdminOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   useEffect(() => { /* model-coercion */
     if (allowedModels && allowedModels.length && !allowedModels.includes(model)) {
       setModel(allowedModels[0])
@@ -478,7 +481,20 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       }
     })
 
-    refreshInvs()
+    refreshInvs().then(() => {
+      // Honor a ?inv=<id> query param (used after importing a shared graph)
+      // so the recipient lands directly on their freshly cloned investigation.
+      try {
+        const sp = new URLSearchParams(window.location.search)
+        const wanted = sp.get('inv')
+        if (wanted) {
+          openInv(wanted)
+          sp.delete('inv')
+          const url = window.location.pathname + (sp.toString() ? '?' + sp.toString() : '')
+          window.history.replaceState({}, '', url)
+        }
+      } catch (_) { /* ignore */ }
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1564,6 +1580,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                         STIX
                       </button>
                     )}
+                    {activeInv && (
+                      <button
+                        className="btn-sm export-btn share-btn"
+                        onClick={() => setShareOpen(true)}
+                        title="Generate a share link (graph-only, with optional report/timeline/evidence/chats)"
+                      >
+                        ↗ Partager
+                      </button>
+                    )}
                   </div>
 
                   {report.summary && (
@@ -2301,20 +2326,42 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           </div>
         )}
       {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} selfId={userId} onImpersonate={() => window.location.reload()} />}
+      {shareOpen && activeInv && (() => {
+        const inv = invs.find(i => i.id === activeInv)
+        return inv ? <ShareModal inv={inv} onClose={() => setShareOpen(false)} /> : null
+      })()}
     </div>
     </div>
   )
 }
 
+// Read the ?share=<token> query param once at boot. The shared graph viewer
+// short-circuits the normal auth flow — anonymous analysts can review a
+// colleague's link, and logged-in ones get an Import button on the same page.
+function readShareToken() {
+  if (typeof window === 'undefined') return null
+  try {
+    const sp = new URLSearchParams(window.location.search)
+    const t = sp.get('share')
+    return t && t.length >= 8 ? t : null
+  } catch (_) { return null }
+}
+
 export default function AppRoot() {
+  const [shareToken] = useState(() => readShareToken())
   const [authState, setAuthState] = useState('checking')
   const [me, setMe] = useState(null)
   useEffect(() => {
+    if (shareToken) return // SharedView handles its own auth probe
     fetch('/api/auth/me', { credentials: 'same-origin' })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) { setMe(data); setAuthState('authed') } else { setMe(null); setAuthState('needed') } })
       .catch(() => { setMe(null); setAuthState('needed') })
-  }, [])
+  }, [shareToken])
+
+  if (shareToken) {
+    return <SharedView token={shareToken} />
+  }
   const logout = async () => {
     try { await fetch('/api/auth/logout', { method: 'POST' }) } catch (e) { /* ignore */ }
     setMe(null)

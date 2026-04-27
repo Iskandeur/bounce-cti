@@ -2051,3 +2051,267 @@ button.secondary:hover {
   .sidebar, .details { transition: none; }
   .mobile-backdrop { animation: none; }
 }
+
+/* ── Share modal ─────────────────────────────────────────────────────── */
+.share-btn {
+  background: var(--primary-dim);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  font-weight: 500;
+}
+.share-btn:hover {
+  background: #2a4d7a;
+  color: #a8d8ff;
+}
+.share-modal { max-width: 640px; }
+.share-inv-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -6px 0 14px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+}
+.share-inv-seed {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--on-surface);
+  word-break: break-all;
+}
+.share-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.share-section {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms;
+}
+.share-section:hover { border-color: var(--on-dim); }
+.share-section.on { border-color: var(--primary); background: rgba(88, 166, 255, 0.05); }
+.share-section.danger.on { border-color: var(--warning); background: rgba(227, 179, 65, 0.05); }
+.share-section input { width: auto; margin-top: 2px; accent-color: var(--primary); }
+.share-section-text { flex: 1; }
+.share-section-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--on-bg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.share-section-desc {
+  font-size: 11px;
+  color: var(--on-dim);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.share-tag-danger {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(227, 179, 65, 0.15);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  font-weight: 600;
+}
+.share-options-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.share-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--on-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.share-option select,
+.share-option input {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 13px;
+  color: var(--on-surface);
+}
+.share-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.share-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+}
+.share-row.revoked { opacity: 0.55; }
+.share-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.share-token {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: var(--primary);
+  background: var(--surface-3);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.share-row-label { color: var(--on-bg); font-weight: 500; }
+.share-row-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--on-dim);
+}
+.share-row-sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  grid-column: 1;
+}
+.share-section-chip {
+  font-size: 10px;
+  padding: 1px 7px;
+  background: var(--surface-3);
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  color: var(--on-dim);
+}
+.share-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+  grid-column: 2;
+  grid-row: 1 / -1;
+  align-self: center;
+}
+.share-row-actions .btn-sm { width: auto; padding: 4px 10px; font-size: 11px; }
+
+/* ── Shared (read-only) viewer ────────────────────────────────────────── */
+.shared-view {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: var(--bg);
+  color: var(--on-bg);
+  overflow: hidden;
+}
+.shared-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--outline);
+  flex-shrink: 0;
+}
+.shared-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.shared-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--on-bg);
+}
+.shared-badge {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  background: var(--primary-dim);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.shared-seed {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  word-break: break-all;
+}
+.shared-subtitle {
+  font-size: 11px;
+  color: var(--on-dim);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.shared-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.shared-import-btn {
+  width: auto;
+  padding: 8px 16px;
+  font-size: 13px;
+}
+.shared-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  min-height: 0;
+}
+.shared-graph {
+  position: relative;
+  background: var(--bg);
+}
+.shared-panel {
+  background: var(--surface);
+  border-left: 1px solid var(--outline);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+@media (max-width: 768px) {
+  .shared-topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+  }
+  .shared-topbar-right { justify-content: flex-end; }
+  .shared-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+  .shared-panel {
+    max-height: 50dvh;
+    border-left: none;
+    border-top: 1px solid var(--outline);
+  }
+  .share-modal { padding: 14px 12px max(14px, env(safe-area-inset-bottom)); }
+  .share-options-row { flex-direction: column; gap: 10px; }
+  .share-row { grid-template-columns: 1fr; }
+  .share-row-actions { grid-column: 1; grid-row: auto; flex-direction: row; }
+}
