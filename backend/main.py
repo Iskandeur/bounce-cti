@@ -10,7 +10,7 @@ import asyncio
 import os
 import time
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, Response, Cookie
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, Response, Cookie, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -586,6 +586,138 @@ def node_evidence(inv_id: str, node_id: str, user_id: int = Depends(current_user
         raise HTTPException(status_code=404, detail="node not found")
     evidence = gs.get_evidence_for_value(node["value"])
     return {"node_id": node_id, "value": node["value"], "evidence": evidence}
+
+
+# ── Bootstrap from a CTI PDF ────────────────────────────────────────────────
+# Lets an analyst upload an existing report (vendor write-up, IR debrief, …)
+# and get a graph for free: server-side regex pulls every plausible IOC out
+# of the text, refangs them, and chains them as seeds on a single combined
+# investigation. Same end result as running the equivalent batch-combined
+# flow by hand — minus the typing.
+PDF_MAX_BYTES = 25 * 1024 * 1024  # 25 MB ceiling
+PDF_MAX_SEEDS = 10                # cap so one PDF can't blow the rate-limits
+
+
+def _read_pdf_iocs(file: UploadFile) -> tuple[list[dict], str, bytes]:
+    """Slurp the upload, parse, and return (iocs, text, raw_bytes).
+    Raises HTTPException for any client-facing failure so the caller stays small."""
+    fname = (file.filename or "").lower()
+    if not fname.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="must be a .pdf file")
+    blob = file.file.read()
+    if len(blob) > PDF_MAX_BYTES:
+        raise HTTPException(status_code=413, detail=f"file too large (>{PDF_MAX_BYTES // (1024*1024)} MB)")
+    if len(blob) < 32:
+        raise HTTPException(status_code=400, detail="empty file")
+    try:
+        from . import pdf_import as pi
+        text = pi.extract_text(blob)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"could not parse PDF: {e}")
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="no extractable text in this PDF (image-only scan?)")
+    iocs = pi.extract_iocs(text)
+    if not iocs:
+        raise HTTPException(status_code=422, detail="no IOCs found in this PDF")
+    return iocs, text, blob
+
+
+@app.post("/api/investigations/from_pdf")
+async def from_pdf(
+    file: UploadFile = File(...),
+    model: str = Form("sonnet"),
+    user_id: int = Depends(current_user),
+):
+    """Spin up a fresh investigation seeded from a CTI report PDF."""
+    model = _check_model(user_id, model)
+    iocs, text, _blob = _read_pdf_iocs(file)
+    seeds = iocs[:PDF_MAX_SEEDS]
+    primary = seeds[0]
+    extras = seeds[1:]
+    inv_id = gs.create_investigation(primary["type"], primary["value"], user_id=user_id, model=model)
+    # Stash the source text so the agent (and the UI later) can read what
+    # the analyst actually uploaded — keyed by inv_id, capped to keep the
+    # cache table small.
+    gs.cache_set(f"pdf_source:{inv_id}", {
+        "filename": file.filename,
+        "text_excerpt": text[:50_000],
+        "extracted_iocs": iocs,
+        "uploaded_at": time.time(),
+    })
+
+    async def _chain():
+        import json as _json
+        # First pass gets the full report text so the agent encodes the
+        # narrative (actors, campaigns, stated relationships) into the graph.
+        # Subsequent add-seed passes don't need the text — the graph already
+        # carries those nodes and tags.
+        await run_investigation(
+            inv_id, primary["type"], primary["value"], model=model,
+            report_context=text,
+        )
+        for it in extras:
+            gs.set_status(inv_id, "running")
+            with gs.conn() as c:
+                payload = {"kind": "status_change", "status": "running",
+                           "add_seed_type": it["type"], "add_seed_value": it["value"]}
+                c.execute(
+                    "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                    (inv_id, "status_change", _json.dumps(payload), time.time()),
+                )
+            await run_add_seed(inv_id, it["type"], it["value"], model=model)
+
+    asyncio.create_task(_chain())
+    return {
+        "id": inv_id,
+        "filename": file.filename,
+        "extracted_iocs": iocs,
+        "seeds_queued": len(seeds),
+    }
+
+
+@app.post("/api/investigations/{inv_id}/from_pdf")
+async def add_pdf_seeds(
+    inv_id: str,
+    file: UploadFile = File(...),
+    model: str = Form("sonnet"),
+    user_id: int = Depends(current_user),
+):
+    """Append IOCs from a CTI report into an existing investigation as
+    add-seed pivots — useful when an analyst is mid-investigation and a
+    fresh write-up lands."""
+    _require_owner(inv_id, user_id)
+    model = _check_model(user_id, model)
+    iocs, text, _blob = _read_pdf_iocs(file)
+    seeds = iocs[:PDF_MAX_SEEDS]
+    # Keep an audit trail for this PDF too (overwrite-safe key namespacing
+    # prevents collision with the original from_pdf bootstrap).
+    gs.cache_set(f"pdf_source:{inv_id}:{int(time.time())}", {
+        "filename": file.filename,
+        "text_excerpt": text[:50_000],
+        "extracted_iocs": iocs,
+        "uploaded_at": time.time(),
+    })
+
+    async def _chain():
+        import json as _json
+        for it in seeds:
+            gs.set_status(inv_id, "running")
+            with gs.conn() as c:
+                payload = {"kind": "status_change", "status": "running",
+                           "add_seed_type": it["type"], "add_seed_value": it["value"]}
+                c.execute(
+                    "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                    (inv_id, "status_change", _json.dumps(payload), time.time()),
+                )
+            await run_add_seed(inv_id, it["type"], it["value"], model=model)
+
+    asyncio.create_task(_chain())
+    return {
+        "id": inv_id,
+        "filename": file.filename,
+        "extracted_iocs": iocs,
+        "seeds_queued": len(seeds),
+    }
 
 
 # ── Sharing ────────────────────────────────────────────────────────────────

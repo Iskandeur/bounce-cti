@@ -1918,8 +1918,11 @@ button.secondary:hover {
   }
 
   /* iOS zooms inputs whose computed font-size is < 16px on focus. Bump the
-     ones we use most so typing on a phone keeps the layout stable. */
-  input,
+     primary text fields so typing on a phone keeps the layout stable.
+     Excludes the graph search input — it lives inside a busy toolbar with
+     the legend below it; 14px keeps the placeholder readable end-to-end
+     without the toolbar wrapping awkwardly. */
+  input:not(.graph-search-input),
   select,
   textarea,
   .auto-detect-row input,
@@ -1927,7 +1930,6 @@ button.secondary:hover {
   .add-seed-form select,
   .custom-prompt-input,
   .batch-textarea,
-  .graph-search-input,
   .admin-search,
   .admin-label-input {
     font-size: 16px;
@@ -2078,7 +2080,7 @@ button.secondary:hover {
   color: #a8d8ff;
 }
 
-/* ── Segmented control (Single / Batch toggle) ──────────────────────── */
+/* ── Segmented control (Single / Batch / PDF tabs) ──────────────────── */
 .seg-control {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2089,6 +2091,7 @@ button.secondary:hover {
   padding: 3px;
   margin-bottom: 8px;
 }
+.seg-control-3 { grid-template-columns: 1fr 1fr 1fr; }
 .seg-option {
   width: auto;
   display: inline-flex;
@@ -2116,6 +2119,89 @@ button.secondary:hover {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 .seg-icon { font-size: 12px; opacity: 0.85; }
+
+/* ── PDF dropzone (sidebar, 'New investigation' › PDF mode) ──────────── */
+.pdf-dropzone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.pdf-drop-target {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 18px 12px;
+  background: var(--surface-2);
+  border: 1.5px dashed var(--outline);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: center;
+}
+.pdf-drop-target:hover {
+  border-color: var(--primary);
+  background: rgba(88, 166, 255, 0.04);
+}
+.pdf-drop-icon {
+  font-size: 22px;
+  line-height: 1;
+  margin-bottom: 2px;
+  opacity: 0.85;
+}
+.pdf-drop-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--on-bg);
+  word-break: break-all;
+}
+.pdf-drop-meta {
+  font-size: 11px;
+  color: var(--on-dim);
+  letter-spacing: 0.02em;
+}
+.pdf-error {
+  font-size: 11px;
+  color: var(--error);
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+/* ── Inline 'Importer un PDF' button under the Add-IOC form ──────────── */
+.pdf-add-seed-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  align-self: flex-start;
+  padding: 5px 12px;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--on-dim);
+  border: 1px dashed var(--outline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.pdf-add-seed-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  border-style: solid;
+  background: rgba(88, 166, 255, 0.05);
+}
+.pdf-add-seed-btn.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
 .share-modal { max-width: 640px; }
 .share-inv-meta {
   display: flex;

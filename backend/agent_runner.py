@@ -1064,7 +1064,18 @@ RULES:
 """
 
 
-async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model: str = "opus"):
+async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model: str = "opus",
+                            report_context: str = ""):
+    """Run the standard investigation workflow on a seed.
+
+    `report_context` (optional): when bootstrapping from a CTI PDF, the
+    raw report text the analyst uploaded. We prepend a SOURCE REPORT
+    block to the prompt so the agent has the narrative — actor names,
+    campaigns, stated relationships, TTPs — and not just the IOCs we
+    extracted with regex. The agent is told to treat the report as
+    ground truth for relationships / attribution and to encode them as
+    edges and tags rather than inventing them.
+    """
     if seed_type == "url":
         user_prompt = (
             f"Seed indicator: type=url value={seed_value}\n"
@@ -1180,6 +1191,38 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             "skip steps 2-8 and write a minimal report.\n"
             "FALLBACK: If communicating_files returns empty data[] and OTX/threatfox identifies a malware family, "
             "call malwarebazaar_signature(<family>) to find known samples and add them as hash nodes."
+        )
+
+    # If we got a CTI report PDF, prepend its text as ground truth context.
+    # The agent reads it BEFORE running tools so attribution, relationships,
+    # and tags reflect what the report actually says — not just regex hits.
+    if report_context:
+        # Trim defensively. ~30k chars ≈ 7-10 pages, well within context budget.
+        ctx = report_context.strip()
+        if len(ctx) > 30_000:
+            ctx = ctx[:30_000] + "\n…[truncated]"
+        user_prompt = (
+            "SOURCE REPORT (verbatim, treat as ground truth for this investigation):\n"
+            "═══════════════════════════════════════════════════════════════════\n"
+            f"{ctx}\n"
+            "═══════════════════════════════════════════════════════════════════\n\n"
+            "How to use this report:\n"
+            "- Encode every relationship the report STATES (X→Y, X used by actor A, "
+            "campaign C uses domain D) as edges with relation reflecting the report's "
+            "language (e.g. 'attributed_to', 'used_by_campaign', 'observed_dropping', "
+            "'communicates_with') and source=\"report\". Add the matching evidence quote.\n"
+            "- Add a tag on the seed and on actor / malware / campaign nodes "
+            "(e.g. 'apt-name', 'malware-family') taken VERBATIM from the report.\n"
+            "- Create the actor / campaign / malware family as a node when named "
+            "(reuse type 'report' for actor profiles or, when better fitting, "
+            "use 'domain' for hostnames already named).\n"
+            "- Cross-check tool output against the report. If they disagree, prefer "
+            "the report's framing in the summary, but keep the tool's raw evidence.\n"
+            "- Do NOT invent content not in the report or in tool results.\n"
+            "- After encoding the report's stated facts, run the standard MANDATORY "
+            "workflow below on the seed to enrich and validate.\n\n"
+            "─── Standard investigation prompt for this seed ───────────────────\n"
+            + user_prompt
         )
 
     env = _build_env(inv_id)

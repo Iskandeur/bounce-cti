@@ -150,11 +150,22 @@ function HighlightedText({ text, nodeValues, onNodeClick }) {
 function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [seedType, setSeedType] = useState('auto')
   const [seedValue, setSeedValue] = useState('')
-  const [batchMode, setBatchMode] = useState(false)
+  // 'single' | 'batch' | 'pdf' — three ways to start an investigation.
+  const [inputMode, setInputMode] = useState('single')
   const [batchText, setBatchText] = useState('')
   const [model, setModel] = useState('sonnet')
   const [adminOpen, setAdminOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  // PDF-import: kind='pdf' adds a third option to the New Investigation
+  // segmented control. We intentionally don't put the file picker behind
+  // a mode switch on mobile — too many taps. Instead we expose it directly
+  // via the "Importer un rapport PDF" affordance the segmented control
+  // reveals when active.
+  const [pdfFile, setPdfFile] = useState(null)
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const [pdfError, setPdfError] = useState('')
+  const pdfFileInputRef = useRef(null)
+  const pdfAddSeedInputRef = useRef(null)
   useEffect(() => { /* model-coercion */
     if (allowedModels && allowedModels.length && !allowedModels.includes(model)) {
       setModel(allowedModels[0])
@@ -860,6 +871,60 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setBatchText('')
   }
 
+  // ── PDF import ────────────────────────────────────────────────────────────
+  // Bootstrap a graph from a CTI report PDF: server-side regex extracts every
+  // plausible IOC, and the agent reads the report text as context so the
+  // graph reflects the report's narrative (actors, stated relationships).
+  const startFromPdf = async () => {
+    if (!pdfFile) return
+    setPdfBusy(true); setPdfError('')
+    try {
+      const fd = new FormData()
+      fd.append('file', pdfFile)
+      fd.append('model', model)
+      const r = await fetch('/api/investigations/from_pdf', {
+        method: 'POST', body: fd, credentials: 'same-origin'
+      })
+      if (!r.ok) {
+        const t = await r.text(); throw new Error(t || `HTTP ${r.status}`)
+      }
+      const d = await r.json()
+      await refreshInvs()
+      openInv(d.id)
+      setPdfFile(null)
+      if (pdfFileInputRef.current) pdfFileInputRef.current.value = ''
+      setEvents(e => [`▶ PDF "${d.filename}": ${d.extracted_iocs.length} IOC(s) extraits, ${d.seeds_queued} en file`, ...e])
+    } catch (e) {
+      setPdfError(String(e.message || e).slice(0, 200))
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
+  // Append IOCs extracted from a PDF onto the currently open investigation.
+  const addPdfToActiveInv = async (file) => {
+    if (!file || !activeInv) return
+    setPdfBusy(true); setPdfError('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('model', model)
+      const r = await fetch(`/api/investigations/${activeInv}/from_pdf`, {
+        method: 'POST', body: fd, credentials: 'same-origin'
+      })
+      if (!r.ok) {
+        const t = await r.text(); throw new Error(t || `HTTP ${r.status}`)
+      }
+      const d = await r.json()
+      setEvents(e => [`▶ PDF "${d.filename}" → +${d.seeds_queued} seed(s)`, ...e])
+      if (pdfAddSeedInputRef.current) pdfAddSeedInputRef.current.value = ''
+    } catch (e) {
+      setPdfError(String(e.message || e).slice(0, 200))
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
   // ── deleteInv / rerunInv ──────────────────────────────────────────────────
   const deleteInv = async (id, ev) => {
     ev.stopPropagation()
@@ -1028,7 +1093,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const PIVOTABLE = ['domain', 'ip', 'hash', 'url', 'jarm', 'asn']
   const pivot = (n) => {
     if (!PIVOTABLE.includes(n.type)) return
-    setBatchMode(false)
+    setInputMode('single')
     setSeedType(n.type)
     setSeedValue(n.value)
   }
@@ -1233,16 +1298,16 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
 
         <div className="section-label">New investigation</div>
-        {/* Segmented control: Single (one IOC) vs Batch (many IOCs at once).
-            Cleaner than a pill jammed into the section header — and the
-            two-button row reads naturally on touch screens too. */}
-        <div className="seg-control" role="tablist" aria-label="Investigation mode">
+        {/* Segmented control: Single (one IOC) vs Batch (many IOCs) vs PDF
+            (upload an existing CTI report and let the agent read it). The
+            three input modes share the same Investigate CTA below. */}
+        <div className="seg-control seg-control-3" role="tablist" aria-label="Investigation mode">
           <button
             type="button"
             role="tab"
-            aria-selected={!batchMode}
-            className={`seg-option${!batchMode ? ' active' : ''}`}
-            onClick={() => setBatchMode(false)}
+            aria-selected={inputMode === 'single'}
+            className={`seg-option${inputMode === 'single' ? ' active' : ''}`}
+            onClick={() => setInputMode('single')}
           >
             <span className="seg-icon" aria-hidden="true">◆</span>
             Single
@@ -1250,22 +1315,33 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           <button
             type="button"
             role="tab"
-            aria-selected={batchMode}
-            className={`seg-option${batchMode ? ' active' : ''}`}
-            onClick={() => setBatchMode(true)}
+            aria-selected={inputMode === 'batch'}
+            className={`seg-option${inputMode === 'batch' ? ' active' : ''}`}
+            onClick={() => setInputMode('batch')}
           >
             <span className="seg-icon" aria-hidden="true">⧉</span>
             Batch
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={inputMode === 'pdf'}
+            className={`seg-option${inputMode === 'pdf' ? ' active' : ''}`}
+            onClick={() => setInputMode('pdf')}
+            title="Upload an existing CTI report — extracts IOCs and feeds the report text to the agent"
+          >
+            <span className="seg-icon" aria-hidden="true">📄</span>
+            PDF
+          </button>
         </div>
-        {!batchMode && (
+        {inputMode === 'single' && (
           <>
             <div className="auto-detect-row">
               <input
                 value={seedValue}
                 onChange={e => { setSeedValue(e.target.value); if (seedType === 'auto') { /* auto stays */ } }}
                 onKeyDown={e => e.key === 'Enter' && start()}
-                placeholder="Paste any IOC: domain, IP, hash, URL, JARM, ASN (defanged ok)"
+                placeholder="Paste any IOC (defanged ok)"
               />
               <span className="detected-type" title="Auto-detected type (click to override)">
                 {seedType === 'auto'
@@ -1284,7 +1360,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             </select>
           </>
         )}
-        {batchMode && (
+        {inputMode === 'batch' && (
           <>
             <textarea
               className="batch-textarea"
@@ -1307,6 +1383,38 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             </div>
           </>
         )}
+        {inputMode === 'pdf' && (
+          <div className="pdf-dropzone">
+            <input
+              ref={pdfFileInputRef}
+              id="pdf-file-input"
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={e => { setPdfFile(e.target.files?.[0] || null); setPdfError('') }}
+              hidden
+            />
+            <label htmlFor="pdf-file-input" className="pdf-drop-target">
+              {pdfFile ? (
+                <>
+                  <span className="pdf-drop-icon" aria-hidden="true">📄</span>
+                  <span className="pdf-drop-name" title={pdfFile.name}>
+                    {pdfFile.name.length > 38 ? pdfFile.name.slice(0, 36) + '…' : pdfFile.name}
+                  </span>
+                  <span className="pdf-drop-meta">
+                    {(pdfFile.size / 1024).toFixed(1)} KB · cliquer pour changer
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="pdf-drop-icon" aria-hidden="true">⬆</span>
+                  <span className="pdf-drop-name">Choisir un PDF de rapport CTI</span>
+                  <span className="pdf-drop-meta">Le texte est lu par l'agent (max 25 MB)</span>
+                </>
+              )}
+            </label>
+            {pdfError && <div className="pdf-error">{pdfError}</div>}
+          </div>
+        )}
         <div className="section-label">Model</div>
         <select value={model} onChange={e => setModel(e.target.value)}>
           {(!allowedModels || allowedModels.includes('sonnet')) && <option value="sonnet">Sonnet 4.6 (recommended)</option>}
@@ -1314,8 +1422,17 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           {(!allowedModels || allowedModels.includes('opus-4.7')) && <option value="opus-4.7">Opus 4.7 (latest, smartest)</option>}
           {(!allowedModels || allowedModels.includes('haiku')) && <option value="haiku">Haiku 4.5 (faster, lighter)</option>}
         </select>
-        <button onClick={batchMode ? startBatch : start}>
-          {batchMode ? 'Launch batch →' : 'Investigate →'}
+        <button
+          onClick={
+            inputMode === 'pdf' ? startFromPdf
+              : inputMode === 'batch' ? startBatch
+              : start
+          }
+          disabled={inputMode === 'pdf' && (pdfBusy || !pdfFile)}
+        >
+          {inputMode === 'pdf'
+            ? (pdfBusy ? 'Analyse du PDF…' : 'Importer le rapport →')
+            : inputMode === 'batch' ? 'Launch batch →' : 'Investigate →'}
         </button>
 
         <div className="section-label">History</div>
@@ -1397,6 +1514,26 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                   + Add
                 </button>
               </div>
+              {/* Same affordance via PDF: drop a fresh write-up onto the
+                  graph and the extracted IOCs become add-seeds. */}
+              <input
+                ref={pdfAddSeedInputRef}
+                id="pdf-add-seed-input"
+                type="file"
+                accept="application/pdf,.pdf"
+                onChange={e => { const f = e.target.files?.[0]; if (f) addPdfToActiveInv(f) }}
+                hidden
+              />
+              <label
+                htmlFor="pdf-add-seed-input"
+                className={`btn-sm pdf-add-seed-btn${isRunning || pdfBusy ? ' disabled' : ''}`}
+                title={isRunning
+                  ? 'Agent is running — wait for it to finish'
+                  : 'Upload a CTI report PDF — extracted IOCs are added as seeds'}
+              >
+                {pdfBusy ? '… Analyse PDF' : '📄 Importer un PDF'}
+              </label>
+              {pdfError && <div className="pdf-error">{pdfError}</div>}
               {/* Share entry-point: visible as soon as an investigation is open
                   (don't make analysts hunt for it inside the report tab). */}
               <button
