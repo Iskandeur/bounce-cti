@@ -1184,6 +1184,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const existingTypeList = [...existingTypes].filter(t => t !== 'report')
 
   return (
+    <>
     <div
       className={`app${isMobile ? ' mobile' : ''}${mobileLeftOpen ? ' drawer-left-open' : ''}${mobileRightOpen ? ' drawer-right-open' : ''}`}
       style={isMobile ? undefined : { gridTemplateColumns: `${leftWidth}px 5px 1fr 5px ${rightWidth}px` }}
@@ -1231,15 +1232,30 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       <div className={`sidebar${mobileLeftOpen ? ' mobile-open' : ''}`}>
         <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
 
-        <div className="section-label">
-          New investigation
+        <div className="section-label">New investigation</div>
+        {/* Segmented control: Single (one IOC) vs Batch (many IOCs at once).
+            Cleaner than a pill jammed into the section header — and the
+            two-button row reads naturally on touch screens too. */}
+        <div className="seg-control" role="tablist" aria-label="Investigation mode">
           <button
             type="button"
-            className={`batch-toggle${batchMode ? ' active' : ''}`}
-            onClick={() => setBatchMode(v => !v)}
-            title={batchMode ? 'Back to single IOC input' : 'Switch to batch mode (many IOCs at once)'}
+            role="tab"
+            aria-selected={!batchMode}
+            className={`seg-option${!batchMode ? ' active' : ''}`}
+            onClick={() => setBatchMode(false)}
           >
-            {batchMode ? '↩ single' : '⧉ batch'}
+            <span className="seg-icon" aria-hidden="true">◆</span>
+            Single
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={batchMode}
+            className={`seg-option${batchMode ? ' active' : ''}`}
+            onClick={() => setBatchMode(true)}
+          >
+            <span className="seg-icon" aria-hidden="true">⧉</span>
+            Batch
           </button>
         </div>
         {!batchMode && (
@@ -2334,13 +2350,20 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             </button>
           </div>
         )}
-      {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} selfId={userId} onImpersonate={() => window.location.reload()} />}
-      {shareOpen && activeInv && (() => {
-        const inv = invs.find(i => i.id === activeInv)
-        return inv ? <ShareModal inv={inv} onClose={() => setShareOpen(false)} /> : null
-      })()}
+      </div>
     </div>
-    </div>
+    {/* Modals live OUTSIDE .app on purpose. On mobile, .sidebar/.details
+        get a `transform` (slide-in drawers), which makes them a containing
+        block for any descendant `position: fixed` element — so a modal
+        rendered inside .details stays glued to the (offscreen) drawer
+        instead of covering the viewport. Hoisting them up to the root
+        Fragment side-steps that. */}
+    {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} selfId={userId} onImpersonate={() => window.location.reload()} />}
+    {shareOpen && activeInv && (() => {
+      const inv = invs.find(i => i.id === activeInv)
+      return inv ? <ShareModal inv={inv} onClose={() => setShareOpen(false)} /> : null
+    })()}
+    </>
   )
 }
 
