@@ -8,3 +8,5 @@ pydantic>=2.6
 mcp>=1.0
 websockets>=12.0
 fpdf2>=2.7
+pypdf>=4.0
+python-multipart>=0.0.6
