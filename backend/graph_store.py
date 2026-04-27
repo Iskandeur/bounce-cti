@@ -67,9 +67,21 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id INTEGER NOT NULL,
     expires_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS shares (
+    token TEXT PRIMARY KEY,
+    investigation_id TEXT NOT NULL,
+    created_by INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    sections TEXT NOT NULL,
+    expires_at REAL,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    label TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_investigations_user ON investigations(user_id);
 CREATE INDEX IF NOT EXISTS idx_events_inv ON events(investigation_id);
+CREATE INDEX IF NOT EXISTS idx_shares_inv ON shares(investigation_id);
+CREATE INDEX IF NOT EXISTS idx_shares_user ON shares(created_by);
 """
 
 
@@ -442,6 +454,274 @@ def cache_set(key: str, value: Any):
     with conn() as c:
         c.execute("INSERT OR REPLACE INTO cache(key, value, created_at) VALUES (?,?,?)",
                   (key, json.dumps(value), time.time()))
+
+
+# ── Shares (link-based investigation sharing + clone) ─────────────────────
+# Sections control what the share link exposes. 'graph' is the only mandatory
+# section: a share without nodes/edges is meaningless. The other flags filter
+# the response payload (and what the import endpoint copies into the
+# recipient's account):
+#   - 'graph':    nodes + edges (always on)
+#   - 'report':   the investigation_summary node (key findings, IOCs, …)
+#   - 'timeline': agent_* events (reasoning, tool calls, status changes)
+#   - 'evidence': raw cached source data is reachable via the shared inv_id
+#   - 'chats':    prompt_history embedded inside the report metadata
+SHARE_SECTIONS = ("graph", "report", "timeline", "evidence", "chats")
+SHARE_DEFAULTS = ("graph", "report", "timeline", "evidence")  # chats off by default
+
+
+def _new_share_token() -> str:
+    import secrets as _s
+    return _s.token_urlsafe(18)
+
+
+def normalize_sections(raw: Optional[list[str]]) -> list[str]:
+    """Pin sections to the known set; always include 'graph'."""
+    if not raw:
+        return list(SHARE_DEFAULTS)
+    out = [s for s in raw if s in SHARE_SECTIONS]
+    if "graph" not in out:
+        out.append("graph")
+    return out
+
+
+def create_share(inv_id: str, user_id: int, sections: list[str],
+                 expires_at: Optional[float] = None,
+                 label: Optional[str] = None) -> dict:
+    sections = normalize_sections(sections)
+    token = _new_share_token()
+    now = time.time()
+    with conn() as c:
+        c.execute(
+            "INSERT INTO shares(token, investigation_id, created_by, created_at, sections, expires_at, revoked, label) "
+            "VALUES (?,?,?,?,?,?,0,?)",
+            (token, inv_id, user_id, now, json.dumps(sections), expires_at, label),
+        )
+    return {"token": token, "investigation_id": inv_id, "created_by": user_id,
+            "created_at": now, "sections": sections, "expires_at": expires_at,
+            "revoked": False, "label": label}
+
+
+def get_share(token: str) -> Optional[dict]:
+    with conn() as c:
+        row = c.execute("SELECT * FROM shares WHERE token=?", (token,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["sections"] = json.loads(d.get("sections") or "[]")
+    d["revoked"] = bool(d["revoked"])
+    return d
+
+
+def list_shares_for_user(user_id: int) -> list[dict]:
+    with conn() as c:
+        rows = c.execute(
+            "SELECT s.*, i.seed_type, i.seed_value FROM shares s "
+            "LEFT JOIN investigations i ON i.id = s.investigation_id "
+            "WHERE s.created_by=? ORDER BY s.created_at DESC",
+            (user_id,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["sections"] = json.loads(d.get("sections") or "[]")
+        d["revoked"] = bool(d["revoked"])
+        out.append(d)
+    return out
+
+
+def list_shares_for_investigation(inv_id: str) -> list[dict]:
+    with conn() as c:
+        rows = c.execute(
+            "SELECT * FROM shares WHERE investigation_id=? ORDER BY created_at DESC",
+            (inv_id,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["sections"] = json.loads(d.get("sections") or "[]")
+        d["revoked"] = bool(d["revoked"])
+        out.append(d)
+    return out
+
+
+def revoke_share(token: str, user_id: int) -> bool:
+    with conn() as c:
+        cur = c.execute(
+            "UPDATE shares SET revoked=1 WHERE token=? AND created_by=?",
+            (token, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def delete_share(token: str, user_id: int) -> bool:
+    with conn() as c:
+        cur = c.execute(
+            "DELETE FROM shares WHERE token=? AND created_by=?",
+            (token, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def _filter_report_metadata(md: dict, sections: list[str]) -> dict:
+    """Strip parts of the report metadata that aren't permitted by the share."""
+    out = dict(md or {})
+    if "chats" not in sections:
+        # prompt_history holds the full back-and-forth with the agent
+        out.pop("prompt_history", None)
+    return out
+
+
+def get_share_payload(token: str) -> Optional[dict]:
+    """Public read of a share token. Returns the filtered investigation data,
+    or None if the token is invalid / revoked / expired."""
+    s = get_share(token)
+    if not s or s["revoked"]:
+        return None
+    if s["expires_at"] and s["expires_at"] < time.time():
+        return None
+    inv_id = s["investigation_id"]
+    sections = s["sections"]
+    with conn() as c:
+        inv_row = c.execute(
+            "SELECT id, seed_type, seed_value, status, created_at, model FROM investigations WHERE id=?",
+            (inv_id,),
+        ).fetchone()
+    if not inv_row:
+        return None
+    inv = dict(inv_row)
+
+    graph = get_graph(inv_id)
+    # Apply chat filter to the embedded report node, if present.
+    if "report" not in sections:
+        graph["nodes"] = [n for n in graph["nodes"] if n.get("type") != "report"]
+    elif "chats" not in sections:
+        for n in graph["nodes"]:
+            if n.get("type") == "report":
+                n["metadata"] = _filter_report_metadata(n.get("metadata") or {}, sections)
+    seeds = get_investigation_seeds(inv_id)
+
+    payload = {
+        "share": {
+            "token": s["token"],
+            "sections": sections,
+            "created_at": s["created_at"],
+            "expires_at": s["expires_at"],
+            "label": s["label"],
+        },
+        "investigation": {
+            "id": inv["id"],
+            "seed_type": inv["seed_type"],
+            "seed_value": inv["seed_value"],
+            "status": inv["status"],
+            "created_at": inv["created_at"],
+            "seeds": seeds,
+        },
+        "graph": graph,
+    }
+
+    if "timeline" in sections:
+        # Surface only the agent-visible timeline items (reasoning + tool
+        # calls + status). We deliberately omit `agent_user`, raw node_added
+        # spam etc. — those are reconstructable from the graph.
+        with conn() as c:
+            evs = c.execute(
+                "SELECT id, kind, payload, created_at FROM events "
+                "WHERE investigation_id=? AND kind IN "
+                "('agent_assistant', 'status_change', 'agent_starting', 'agent_exit', 'node_tagged') "
+                "ORDER BY id",
+                (inv_id,),
+            ).fetchall()
+        payload["events"] = []
+        for r in evs:
+            try:
+                p = json.loads(r["payload"])
+            except Exception:
+                continue
+            p["_id"] = r["id"]
+            p["_ts"] = r["created_at"]
+            payload["events"].append(p)
+    return payload
+
+
+def clone_investigation(source_inv_id: str, target_user_id: int,
+                        sections: Optional[list[str]] = None,
+                        model: Optional[str] = None) -> Optional[str]:
+    """Copy a source investigation into the recipient's account.
+
+    Recomputes node IDs against the new investigation_id (since `_node_id`
+    hashes inv into the id), remaps edge endpoints accordingly, and writes
+    everything as a single fresh investigation with status='done'. The
+    recipient can then pivot, add seeds, ask the agent — it's their graph.
+
+    `sections` mirrors share filtering: when 'report' is excluded the report
+    node is omitted from the copy; when 'chats' is excluded the report's
+    prompt_history is stripped before copy. Cache (evidence) is global so
+    nothing to copy there — the new investigation can read it transparently
+    if 'evidence' is included; otherwise the API layer can refuse.
+    """
+    sections = normalize_sections(sections or list(SHARE_SECTIONS))
+    with conn() as c:
+        src = c.execute(
+            "SELECT seed_type, seed_value, model FROM investigations WHERE id=?",
+            (source_inv_id,),
+        ).fetchone()
+    if not src:
+        return None
+    new_inv = create_investigation(
+        src["seed_type"], src["seed_value"],
+        user_id=target_user_id,
+        model=model or src["model"] or "sonnet",
+    )
+    set_status(new_inv, "done")
+
+    src_graph = get_graph(source_inv_id)
+    id_map: dict[str, str] = {}
+    now = time.time()
+    with conn() as c:
+        for n in src_graph["nodes"]:
+            if n["type"] == "report" and "report" not in sections:
+                continue
+            md = n.get("metadata") or {}
+            if n["type"] == "report" and "chats" not in sections:
+                md = _filter_report_metadata(md, sections)
+            new_id = _node_id(new_inv, n["type"], n["value"])
+            id_map[n["id"]] = new_id
+            c.execute(
+                "INSERT OR IGNORE INTO nodes(id, investigation_id, type, value, metadata, tags, "
+                "confidence, source, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (new_id, new_inv, n["type"], n["value"],
+                 json.dumps(md),
+                 json.dumps(n.get("tags") or []),
+                 n.get("confidence") or 0.8,
+                 (n.get("source") or "imported"),
+                 n.get("created_at") or now),
+            )
+        for e in src_graph["edges"]:
+            new_src = id_map.get(e["src"])
+            new_dst = id_map.get(e["dst"])
+            if not new_src or not new_dst:
+                # Skip orphan edges (e.g. when 'report' was excluded and an
+                # edge pointed at the report node).
+                continue
+            new_eid = _edge_id(new_inv, new_src, new_dst, e["relation"])
+            c.execute(
+                "INSERT OR IGNORE INTO edges(id, investigation_id, src, dst, relation, "
+                "evidence, source, confidence, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (new_eid, new_inv, new_src, new_dst, e["relation"],
+                 e.get("evidence") or "", (e.get("source") or "imported"),
+                 e.get("confidence") or 0.8,
+                 e.get("created_at") or now),
+            )
+        # Write a single import-marker event so the recipient's timeline
+        # shows where the graph came from.
+        c.execute(
+            "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+            (new_inv, "imported",
+             json.dumps({"kind": "imported", "from": source_inv_id, "sections": sections}),
+             now),
+        )
+    return new_inv
 
 
 init_db()

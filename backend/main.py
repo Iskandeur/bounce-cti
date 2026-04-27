@@ -8,6 +8,7 @@ restricted to any subset of models.
 """
 import asyncio
 import os
+import time
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
@@ -585,6 +586,84 @@ def node_evidence(inv_id: str, node_id: str, user_id: int = Depends(current_user
         raise HTTPException(status_code=404, detail="node not found")
     evidence = gs.get_evidence_for_value(node["value"])
     return {"node_id": node_id, "value": node["value"], "evidence": evidence}
+
+
+# ── Sharing ────────────────────────────────────────────────────────────────
+class CreateShareReq(BaseModel):
+    sections: Optional[list[str]] = None  # subset of SHARE_SECTIONS
+    expires_in_days: Optional[int] = None
+    label: Optional[str] = None
+
+
+@app.post("/api/investigations/{inv_id}/shares")
+def create_share(inv_id: str, req: CreateShareReq, request: Request,
+                 user_id: int = Depends(current_user)):
+    _require_owner(inv_id, user_id)
+    expires_at = None
+    if req.expires_in_days and req.expires_in_days > 0:
+        expires_at = time.time() + req.expires_in_days * 86400
+    sh = gs.create_share(inv_id, user_id, req.sections or [], expires_at=expires_at,
+                         label=(req.label or None))
+    base = str(request.base_url).rstrip("/")
+    sh["url"] = f"{base}/?share={sh['token']}"
+    return sh
+
+
+@app.get("/api/investigations/{inv_id}/shares")
+def list_inv_shares(inv_id: str, user_id: int = Depends(current_user)):
+    _require_owner(inv_id, user_id)
+    return gs.list_shares_for_investigation(inv_id)
+
+
+@app.get("/api/shares")
+def list_my_shares(user_id: int = Depends(current_user)):
+    return gs.list_shares_for_user(user_id)
+
+
+@app.delete("/api/shares/{token}")
+def delete_share(token: str, user_id: int = Depends(current_user)):
+    ok = gs.delete_share(token, user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="not found")
+    return {"ok": True}
+
+
+@app.post("/api/shares/{token}/revoke")
+def revoke_share(token: str, user_id: int = Depends(current_user)):
+    ok = gs.revoke_share(token, user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="not found")
+    return {"ok": True}
+
+
+@app.get("/api/share/{token}")
+def get_public_share(token: str):
+    """Public endpoint — no auth. Returns the filtered investigation payload
+    (graph + opt-in sections) so an analyst can review a colleague's graph
+    by URL alone. Revoked / expired tokens 404."""
+    payload = gs.get_share_payload(token)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="share not found, revoked, or expired")
+    return payload
+
+
+@app.post("/api/share/{token}/import")
+def import_share(token: str, user_id: int = Depends(current_user)):
+    """Clone the shared graph into the caller's own investigations list.
+
+    The new investigation is owned by the caller, status='done'. Sections
+    follow the share's filter (chats excluded if the link excluded them).
+    Returns the new investigation id so the UI can open it.
+    """
+    s = gs.get_share(token)
+    if not s or s["revoked"]:
+        raise HTTPException(status_code=404, detail="share not found")
+    if s["expires_at"] and s["expires_at"] < time.time():
+        raise HTTPException(status_code=410, detail="share expired")
+    new_id = gs.clone_investigation(s["investigation_id"], user_id, sections=s["sections"])
+    if not new_id:
+        raise HTTPException(status_code=404, detail="source investigation missing")
+    return {"id": new_id}
 
 
 @app.websocket("/ws/{inv_id}")

@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import Login from './Login.jsx'
 import AdminPanel from './AdminPanel.jsx'
+import ShareModal from './ShareModal.jsx'
+import SharedView from './SharedView.jsx'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 
@@ -152,6 +154,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [batchText, setBatchText] = useState('')
   const [model, setModel] = useState('sonnet')
   const [adminOpen, setAdminOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   useEffect(() => { /* model-coercion */
     if (allowedModels && allowedModels.length && !allowedModels.includes(model)) {
       setModel(allowedModels[0])
@@ -478,7 +481,20 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       }
     })
 
-    refreshInvs()
+    refreshInvs().then(() => {
+      // Honor a ?inv=<id> query param (used after importing a shared graph)
+      // so the recipient lands directly on their freshly cloned investigation.
+      try {
+        const sp = new URLSearchParams(window.location.search)
+        const wanted = sp.get('inv')
+        if (wanted) {
+          openInv(wanted)
+          sp.delete('inv')
+          const url = window.location.pathname + (sp.toString() ? '?' + sp.toString() : '')
+          window.history.replaceState({}, '', url)
+        }
+      } catch (_) { /* ignore */ }
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -705,6 +721,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${wsProto}//${location.host}/ws/${id}`)
     wsMap[id] = ws
+    // Per-investigation modification dedupe: nodes get re-broadcast many
+    // times during enrichment (sources merge, metadata grows). We coalesce
+    // updates of the same node within a 5s window to a single timeline note.
+    const lastModTs = new Map()
     ws.onmessage = (m) => {
       const evt = JSON.parse(m.data)
       if (evt.kind === 'server_shutdown') {
@@ -729,6 +749,40 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           notes.push({ ts: evtTs, noteKind: 'tool', text: t.name, detail: JSON.stringify(t.input || {}).slice(0, 120) })
         }
         if (notes.length) setAgentNotes(prev => [...prev, ...notes])
+      }
+      // ── Track node/report modifications (skip the initial node_added so
+      //    we don't double-log creation; the cy.nodes() pass already gives
+      //    the timeline a creation entry via created_at). ──
+      if (evt.kind === 'node_updated' && evt.node) {
+        const nodeId = evt.node.id
+        const prevTs = lastModTs.get(nodeId) || 0
+        const isReport =
+          evt.node.type === 'report' && evt.node.value === 'investigation_summary'
+        // Always emit report updates (rare + meaningful). Coalesce other node
+        // updates inside 5 seconds — enrichment churn becomes one entry.
+        if (isReport || evtTs - prevTs > 5) {
+          lastModTs.set(nodeId, evtTs)
+          setAgentNotes(prev => [...prev, {
+            ts: evtTs,
+            noteKind: isReport ? 'report_updated' : 'node_updated',
+            text: isReport
+              ? 'Investigation report updated'
+              : iocString(evt.node.value),
+            nodeType: evt.node.type,
+            nodeId,
+          }])
+        }
+      }
+      if (evt.kind === 'node_tagged') {
+        const n = cyRef.current?.$id(evt.node_id)
+        const nodeData = n && n.length ? n.data() : {}
+        setAgentNotes(prev => [...prev, {
+          ts: evtTs,
+          noteKind: 'node_tagged',
+          text: `${iocString(nodeData.value || evt.node_id)} → ${evt.tag}`,
+          nodeType: nodeData.type,
+          nodeId: evt.node_id,
+        }])
       }
       const label = (() => {
         if (!evt.kind.startsWith('agent_') && !['snapshot','node_added','node_updated','edge_added','node_tagged'].includes(evt.kind)) {
@@ -1327,6 +1381,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                   + Add
                 </button>
               </div>
+              {/* Share entry-point: visible as soon as an investigation is open
+                  (don't make analysts hunt for it inside the report tab). */}
+              <button
+                className="btn-sm share-btn sidebar-share-btn"
+                onClick={() => setShareOpen(true)}
+                title="Generate a share link for this investigation"
+              >
+                ↗ Partager cette investigation
+              </button>
             </>
           )
         })()}
@@ -1398,7 +1461,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             {copied ? '✓ copied' : `↓ JSON (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}
           </button>
           <button
-            className="toolbar-btn"
+            className="toolbar-btn hide-on-mobile"
             onClick={copyToMaltego}
             disabled={nodeCount === 0}
             title={pickedIds.size > 0
@@ -1524,6 +1587,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                         title="Download STIX 2.1 bundle (JSON) for threat intel sharing"
                       >
                         STIX
+                      </button>
+                    )}
+                    {activeInv && (
+                      <button
+                        className="btn-sm export-btn share-btn"
+                        onClick={() => setShareOpen(true)}
+                        title="Generate a share link (graph-only, with optional report/timeline/evidence/chats)"
+                      >
+                        ↗ Partager
                       </button>
                     )}
                   </div>
@@ -1940,11 +2012,13 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     tags: d.tags || [],
                   })
                 })
-                // Merge agent notes (reasoning + tool calls)
+                // Merge agent notes (reasoning + tool calls + modifications)
                 for (const note of agentNotes) {
                   entries.push({
                     _kind: note.noteKind, ts: note.ts,
                     text: note.text, detail: note.detail || null,
+                    nodeId: note.nodeId || null,
+                    nodeType: note.nodeType || null,
                   })
                 }
                 entries.sort((a, b) => (a.ts || 0) - (b.ts || 0))
@@ -2042,6 +2116,43 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                                     {t.text}
                                   </span>
                                 ))}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+                      // Modification entries: node updates, tag changes, report updates.
+                      if (tn._kind === 'node_updated' || tn._kind === 'node_tagged' || tn._kind === 'report_updated') {
+                        const isReport = tn._kind === 'report_updated'
+                        const color = isReport
+                          ? '#f5a623'
+                          : (NODE_COLORS[tn.nodeType] || '#79c0ff')
+                        const label = tn._kind === 'report_updated'
+                          ? '✎ report updated'
+                          : tn._kind === 'node_tagged'
+                            ? '+ tag'
+                            : '✎ updated'
+                        return (
+                          <div
+                            key={`mod-${i}`}
+                            className={`timeline-entry timeline-mod${tn.nodeId ? ' clickable' : ''}`}
+                            onClick={tn.nodeId ? () => focusNode(tn.nodeId) : undefined}
+                            title={tn.nodeId ? 'Click to focus this node' : undefined}
+                          >
+                            <div className="timeline-line">
+                              <span className="timeline-dot timeline-dot-mod" style={{ background: color }} />
+                              {i < merged.length - 1 && <span className="timeline-connector" />}
+                            </div>
+                            <div className="timeline-content">
+                              <div className="timeline-header">
+                                <span className="timeline-time">{tsStr}</span>
+                                <span className="timeline-mod-label" style={{ color }}>{label}</span>
+                                {tn.nodeType && tn._kind !== 'report_updated' && (
+                                  <span className="timeline-type" style={{ color }}>{tn.nodeType}</span>
+                                )}
+                              </div>
+                              <div className="timeline-value">
+                                {tn.text && tn.text.length > 60 ? tn.text.slice(0, 58) + '…' : tn.text}
                               </div>
                             </div>
                           </div>
@@ -2224,20 +2335,42 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           </div>
         )}
       {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} selfId={userId} onImpersonate={() => window.location.reload()} />}
+      {shareOpen && activeInv && (() => {
+        const inv = invs.find(i => i.id === activeInv)
+        return inv ? <ShareModal inv={inv} onClose={() => setShareOpen(false)} /> : null
+      })()}
     </div>
     </div>
   )
 }
 
+// Read the ?share=<token> query param once at boot. The shared graph viewer
+// short-circuits the normal auth flow — anonymous analysts can review a
+// colleague's link, and logged-in ones get an Import button on the same page.
+function readShareToken() {
+  if (typeof window === 'undefined') return null
+  try {
+    const sp = new URLSearchParams(window.location.search)
+    const t = sp.get('share')
+    return t && t.length >= 8 ? t : null
+  } catch (_) { return null }
+}
+
 export default function AppRoot() {
+  const [shareToken] = useState(() => readShareToken())
   const [authState, setAuthState] = useState('checking')
   const [me, setMe] = useState(null)
   useEffect(() => {
+    if (shareToken) return // SharedView handles its own auth probe
     fetch('/api/auth/me', { credentials: 'same-origin' })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) { setMe(data); setAuthState('authed') } else { setMe(null); setAuthState('needed') } })
       .catch(() => { setMe(null); setAuthState('needed') })
-  }, [])
+  }, [shareToken])
+
+  if (shareToken) {
+    return <SharedView token={shareToken} />
+  }
   const logout = async () => {
     try { await fetch('/api/auth/logout', { method: 'POST' }) } catch (e) { /* ignore */ }
     setMe(null)
