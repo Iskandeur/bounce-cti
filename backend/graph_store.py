@@ -221,6 +221,82 @@ def tag_node(inv_id: str, type_: str, value: str, tag: str):
                   (inv_id, event["kind"], json.dumps(event), time.time()))
 
 
+def set_node_tag(inv_id: str, node_id: str, tag: str, on: bool) -> Optional[dict]:
+    """Toggle a single tag on a node by id. Returns the updated node dict
+    so the caller can broadcast a `node_updated` event over the WebSocket
+    (the existing `node_tagged` event is fire-and-forget; updating the
+    full node record keeps every connected client in sync — including
+    untag, which `node_tagged` doesn't model)."""
+    with conn() as c:
+        row = c.execute(
+            "SELECT * FROM nodes WHERE id=? AND investigation_id=?",
+            (node_id, inv_id),
+        ).fetchone()
+        if not row:
+            return None
+        existing = set(json.loads(row["tags"] or "[]"))
+        if on:
+            existing.add(tag)
+        else:
+            existing.discard(tag)
+        tags_json = json.dumps(sorted(existing))
+        c.execute("UPDATE nodes SET tags=? WHERE id=?", (tags_json, node_id))
+        # Re-fetch full row so the event payload mirrors `add_node`'s shape.
+        row2 = c.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
+        node = dict(row2)
+        node["metadata"] = json.loads(node.get("metadata") or "{}")
+        node["tags"] = json.loads(node.get("tags") or "[]")
+        event = {"kind": "node_updated", "node": {
+            "id": node["id"], "type": node["type"], "value": node["value"],
+            "metadata": node["metadata"], "tags": node["tags"],
+            "confidence": node.get("confidence") or 0.8,
+            "source": node.get("source") or "user",
+            "created_at": node.get("created_at") or time.time(),
+        }}
+        c.execute(
+            "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+            (inv_id, event["kind"], json.dumps(event), time.time()),
+        )
+    return node
+
+
+def set_node_user_note(inv_id: str, node_id: str, note: str) -> Optional[dict]:
+    """Stash an analyst-written annotation on a node. Free text, capped to
+    keep the metadata blob small. Empty string clears the note. Persists
+    inside `metadata.user_note` and broadcasts a `node_updated` event."""
+    note = (note or "").strip()[:200]
+    with conn() as c:
+        row = c.execute(
+            "SELECT * FROM nodes WHERE id=? AND investigation_id=?",
+            (node_id, inv_id),
+        ).fetchone()
+        if not row:
+            return None
+        md = json.loads(row["metadata"] or "{}")
+        if note:
+            md["user_note"] = note
+        else:
+            md.pop("user_note", None)
+        c.execute("UPDATE nodes SET metadata=? WHERE id=?",
+                  (json.dumps(md), node_id))
+        row2 = c.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
+        node = dict(row2)
+        node["metadata"] = json.loads(node.get("metadata") or "{}")
+        node["tags"] = json.loads(node.get("tags") or "[]")
+        event = {"kind": "node_updated", "node": {
+            "id": node["id"], "type": node["type"], "value": node["value"],
+            "metadata": node["metadata"], "tags": node["tags"],
+            "confidence": node.get("confidence") or 0.8,
+            "source": node.get("source") or "user",
+            "created_at": node.get("created_at") or time.time(),
+        }}
+        c.execute(
+            "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+            (inv_id, event["kind"], json.dumps(event), time.time()),
+        )
+    return node
+
+
 def get_graph(inv_id: str) -> dict:
     with conn() as c:
         nodes = [dict(r) for r in c.execute("SELECT * FROM nodes WHERE investigation_id=?", (inv_id,))]

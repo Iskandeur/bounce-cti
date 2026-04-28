@@ -190,6 +190,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // while the agent is working. Cleared when prompt_history grows.
   const [pendingPrompt, setPendingPrompt] = useState(null)
   const [existingTypes, setExistingTypes] = useState(new Set())
+  const [existingRelations, setExistingRelations] = useState(new Set())
   // Multi-selection for "copy / export" scope. Ctrl/Cmd/Shift + click toggles
   // a node into this set without touching the single-click details panel.
   // Empty set == "all nodes" (implicit select-all).
@@ -198,6 +199,22 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [graphSearch, setGraphSearch] = useState('')
   const [searchMatches, setSearchMatches] = useState(0)
   const [batchCombined, setBatchCombined] = useState(false)
+  // Live edit state for the Node tab's user_note input. We keep a draft so
+  // typing doesn't write on every keystroke, and reset it whenever the
+  // selected node changes (a fresh node = a fresh empty draft).
+  const [noteDraft, setNoteDraft] = useState('')
+  const [noteBusy, setNoteBusy] = useState(false)
+  // Toolbar toggles: show analyst pins / notes inline on the graph. Both
+  // can be flipped independently to manage visual pollution on dense
+  // graphs (Quentin's request).
+  const [showPins, setShowPins] = useState(true)
+  const [showNotes, setShowNotes] = useState(true)
+  // Hidden edge relations — kept frontend-only so muting a noisy relation
+  // (e.g. `co_resolves` or `had_resolution`) doesn't lose data, just hides.
+  const [filterRelations, setFilterRelations] = useState(new Set())
+  const showPinsRef = useRef(true)
+  const showNotesRef = useRef(true)
+  const filterRelationsRef = useRef(filterRelations)
   // Add-seed form: attach a new PEER IOC to the currently open investigation.
   const [addSeedType, setAddSeedType] = useState('auto')
   const [addSeedValue, setAddSeedValue] = useState('')
@@ -225,6 +242,18 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   useEffect(() => { activeInvRef.current = activeInv }, [activeInv])
   useEffect(() => { showEdgeLabelsRef.current = showEdgeLabels }, [showEdgeLabels])
   useEffect(() => { filterTypesRef.current = filterTypes }, [filterTypes])
+  useEffect(() => { filterRelationsRef.current = filterRelations }, [filterRelations])
+  useEffect(() => { showPinsRef.current = showPins }, [showPins])
+  useEffect(() => { showNotesRef.current = showNotes }, [showNotes])
+  // Reset note draft whenever the selected node changes so we never
+  // accidentally write the previous node's draft onto a new selection.
+  useEffect(() => {
+    if (selected) {
+      setNoteDraft((selected.metadata?.user_note) || '')
+    } else {
+      setNoteDraft('')
+    }
+  }, [selected?.id])
   useEffect(() => { leftWidthRef.current = leftWidth }, [leftWidth])
   useEffect(() => { rightWidthRef.current = rightWidth }, [rightWidth])
 
@@ -307,7 +336,21 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           style: {
             'background-color': ele => NODE_COLORS[ele.data('type')] || '#8b949e',
             'shape': ele => NODE_SHAPES[ele.data('type')] || 'ellipse',
-            'label': 'data(label)',
+            // Node label is composed live so the pin / note toolbar
+            // toggles take effect without re-ingesting the graph:
+            //   📌  if pinned and showPins is on
+            //   <truncated value>
+            //   · <user_note> if note exists and showNotes is on
+            'label': ele => {
+              const d = ele.data()
+              const base = d.label || ''
+              const pinned = d.pinned && showPinsRef.current ? '📌 ' : ''
+              const note = (d.metadata?.user_note && showNotesRef.current)
+                ? `\n· ${d.metadata.user_note}`
+                : ''
+              return pinned + base + note
+            },
+            'text-wrap': 'wrap',
             'color': '#e6edf3',
             'font-size': 10,
             'text-valign': 'bottom',
@@ -321,6 +364,18 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         {
           selector: 'node[?seed]',
           style: { 'width': 32, 'height': 32, 'border-width': 3, 'border-color': '#f0f6fc', 'font-weight': 'bold' }
+        },
+        // Analyst-pinned nodes: gold halo + thicker border, plus an
+        // emoji prefix in the label (turned on/off via showPinsRef).
+        {
+          selector: 'node[?pinned]',
+          style: {
+            'border-color': '#fbbf24',
+            'border-width': 4,
+            'shadow-blur': 14,
+            'shadow-color': '#fbbf24',
+            'shadow-opacity': 0.55,
+          },
         },
         {
           selector: 'node[?suspicious]',
@@ -418,6 +473,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             'text-background-color': '#0d1117',
             'text-background-opacity': 1,
             'text-background-padding': 2,
+            // Per-relation visibility toggle (Quentin's request: hide
+            // historical / co_resolves links to declutter dense graphs).
+            'display': ele => filterRelationsRef.current.has(ele.data('relation')) ? 'none' : 'element',
           }
         },
         {
@@ -517,6 +575,14 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       .style('label', ele => showEdgeLabels ? (ele.data('relation') || '') : '')
       .update()
   }, [showEdgeLabels])
+
+  // Refresh cytoscape rendering when pin/note toggles or edge-relation
+  // filter changes — the style functions read from refs, so we just need
+  // to nudge cy to re-evaluate them.
+  useEffect(() => {
+    if (!cyRef.current) return
+    cyRef.current.style().update()
+  }, [showPins, showNotes, filterRelations])
 
   // Sync the `picked` CSS class on nodes whenever the selection set changes.
   useEffect(() => {
@@ -661,7 +727,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       metadata: n.metadata, tags: n.tags, source: n.source, confidence: n.confidence,
       created_at: n.created_at
     }
-    ;(n.tags || []).forEach(t => { d[t] = true })
+    // Boolean flags driven by tag presence — each MUST be set explicitly
+    // (true OR false) on every update, otherwise an "unpin" or "untag"
+    // leaves the previous true value lingering in cytoscape's data merge.
+    const FLAG_TAGS = ['pinned', 'suspicious', 'phishing', 'cdn', 'parking', 'sinkhole', 'seed']
+    const tagSet = new Set(n.tags || [])
+    FLAG_TAGS.forEach(t => { d[t] = tagSet.has(t) })
     if (cy.$id(n.id).length) {
       cy.$id(n.id).data(d)
     } else {
@@ -676,6 +747,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (cy.$id(e.id).length) return
     if (!cy.$id(e.src).length || !cy.$id(e.dst).length) return
     cy.add({ group: 'edges', data: { id: e.id, source: e.src, target: e.dst, relation: e.relation, evidence: e.evidence } })
+    if (e.relation) {
+      setExistingRelations(prev => {
+        if (prev.has(e.relation)) return prev
+        const next = new Set(prev); next.add(e.relation); return next
+      })
+    }
   }, [])
 
   const handleEvent = useCallback((evt) => {
@@ -722,6 +799,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setNodeValues(new Map())
     setExistingTypes(new Set())
     setFilterTypes(new Set())
+    setFilterRelations(new Set())
+    setExistingRelations(new Set())
     setPickedIds(new Set())
     cyRef.current.elements().remove()
     // Mobile: collapse the sidebar so the freshly opened graph is visible.
@@ -1052,6 +1131,42 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   }
 
   // ── pivot ─────────────────────────────────────────────────────────────────
+  // ── Pin / Unpin a node (toggles the 'pinned' tag). The backend broadcasts
+  // a node_updated event so the cytoscape style reacts live. ──────────────
+  const togglePin = async (node) => {
+    if (!activeInv || !node) return
+    const isPinned = (node.tags || []).includes('pinned')
+    try {
+      await fetch(`/api/investigations/${activeInv}/nodes/${node.id}/tag`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ tag: 'pinned', on: !isPinned }),
+      })
+    } catch (_) { /* ignore — WS will replay if reconnect */ }
+  }
+
+  // ── Save the analyst's free-text note for the currently selected node ──
+  const saveNote = async () => {
+    if (!activeInv || !selected) return
+    setNoteBusy(true)
+    try {
+      await fetch(`/api/investigations/${activeInv}/nodes/${selected.id}/note`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ note: noteDraft || '' }),
+      })
+    } catch (_) { /* ignore */ }
+    setNoteBusy(false)
+  }
+
+  const toggleFilterRelation = useCallback((rel) => {
+    setFilterRelations(prev => {
+      const next = new Set(prev)
+      if (next.has(rel)) next.delete(rel); else next.add(rel)
+      return next
+    })
+  }, [])
+
   const submitCustomPrompt = async () => {
     if (!activeInv || !customPrompt.trim()) return
     const text = customPrompt.trim()
@@ -1086,6 +1201,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     })
     const sel = selectedNodes.length > 0 ? ` [${selectedNodes.length} selected]` : ''
     setEvents(e => [`▶ custom prompt${sel}: ${text.slice(0, 60)}…`, ...e])
+    // The bulk selection has been "consumed" by this prompt. Clear it so
+    // the user can start a fresh selection without the previous batch
+    // sticking around (and so it's visually obvious which nodes are now
+    // in flight). This addresses Quentin's confusion when the selection
+    // remained highlighted after the prompt fired.
+    setPickedIds(new Set())
     // NOTE: promptBusy stays true — cleared when prompt_history grows or agent_exit fires
     refreshInvs()
   }
@@ -1604,6 +1725,20 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             {showEdgeLabels ? '⌗ Labels on' : '⌗ Labels off'}
           </button>
           <button
+            className={`toolbar-btn${showPins ? ' active' : ''}`}
+            onClick={() => setShowPins(v => !v)}
+            title="Toggle 📌 pin markers on the graph"
+          >
+            {showPins ? '📌 Pins on' : '📌 Pins off'}
+          </button>
+          <button
+            className={`toolbar-btn${showNotes ? ' active' : ''}`}
+            onClick={() => setShowNotes(v => !v)}
+            title="Toggle analyst notes (e.g. 'VPN', 'C2') under each node"
+          >
+            {showNotes ? '✎ Notes on' : '✎ Notes off'}
+          </button>
+          <button
             className="toolbar-btn"
             onClick={copyGraphJson}
             disabled={nodeCount === 0}
@@ -1651,6 +1786,29 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                   }
                 >
                   {type}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Edge-relation filter row. Shows once we have ≥2 distinct relations
+            on the graph. Click a chip to mute that relation type — useful for
+            collapsing noisy historical / co_resolves links on dense graphs.
+            Frontend-only (no data is lost). */}
+        {existingRelations.size >= 2 && (
+          <div className="filter-bar filter-bar-relations">
+            <span className="filter-bar-label">edges</span>
+            {[...existingRelations].sort().map(rel => {
+              const active = !filterRelations.has(rel)
+              return (
+                <button
+                  key={rel}
+                  className={`filter-chip relation-chip${active ? '' : ' off'}`}
+                  onClick={() => toggleFilterRelation(rel)}
+                  title={active ? `Hide ${rel} edges` : `Show ${rel} edges`}
+                >
+                  {rel}
                 </button>
               )
             })}
@@ -1981,6 +2139,47 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                       {selected.tags.map(t => (
                         <span key={t} className={`tag-chip tag-${t}`}>{t}</span>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Annotation row — Pin toggle + free-text note. Lives at the
+                      top of the Node tab so it's the first thing analysts see
+                      when triaging a node. Pin marks the node visually on the
+                      graph (gold halo); note becomes a small badge under it. */}
+                  {selected.type !== 'report' && (
+                    <div className="annot-row">
+                      <button
+                        className={`btn-sm annot-pin${(selected.tags || []).includes('pinned') ? ' on' : ''}`}
+                        onClick={() => togglePin(selected)}
+                        title={(selected.tags || []).includes('pinned')
+                          ? 'Unpin this node'
+                          : 'Pin this node — highlights it on the graph for quick triage'}
+                      >
+                        {(selected.tags || []).includes('pinned') ? '📌 Pinned' : '📌 Pin'}
+                      </button>
+                      <input
+                        className="annot-note-input"
+                        value={noteDraft}
+                        onChange={e => setNoteDraft(e.target.value)}
+                        onBlur={() => {
+                          const current = (selected.metadata?.user_note) || ''
+                          if (current !== noteDraft) saveNote()
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { e.preventDefault(); saveNote(); e.target.blur() }
+                          if (e.key === 'Escape') { setNoteDraft((selected.metadata?.user_note) || ''); e.target.blur() }
+                        }}
+                        placeholder="Note (ex. VPN, C2, sinkhole)…"
+                        maxLength={120}
+                        disabled={noteBusy}
+                      />
+                      {noteDraft && (
+                        <button
+                          className="btn-sm secondary annot-clear"
+                          onClick={() => { setNoteDraft(''); saveNote() }}
+                          title="Clear note"
+                        >✕</button>
+                      )}
                     </div>
                   )}
 
@@ -2387,7 +2586,14 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                 <div className="chat-prompt">
                   {pickedIds.size > 0 && (
                     <div className="prompt-selected-nodes">
-                      <span className="prompt-selected-label">Selected ({pickedIds.size}):</span>
+                      <span className="prompt-selected-label">
+                        Selected ({pickedIds.size})
+                        {pickedIds.size >= 6 && (
+                          <span className="prompt-selected-warn" title="Big bulk prompts can hit agent rate limits or time-budget — split if it stalls.">
+                            · {pickedIds.size} nodes · long run
+                          </span>
+                        )}:
+                      </span>
                       <div className="prompt-selected-chips">
                         {(() => {
                           const cy = cyRef.current
