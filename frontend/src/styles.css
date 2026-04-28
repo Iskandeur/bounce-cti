@@ -2413,6 +2413,17 @@ button.secondary:hover {
   padding: 8px 16px;
   font-size: 13px;
 }
+.shared-import-target {
+  width: auto;
+  max-width: 240px;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: var(--surface-2);
+  color: var(--on-surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+}
+.shared-import-target:focus { border-color: var(--primary); }
 .shared-body {
   flex: 1;
   display: grid;
