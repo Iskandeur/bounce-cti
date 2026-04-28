@@ -2424,6 +2424,101 @@ button.secondary:hover {
   border-radius: var(--radius-sm);
 }
 .shared-import-target:focus { border-color: var(--primary); }
+
+/* ── Node annotation row (Pin + free-text note) ──────────────────────── */
+.annot-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.annot-pin {
+  width: auto;
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--on-dim);
+  border: 1px solid var(--outline);
+  padding: 5px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.annot-pin:hover {
+  border-color: #fbbf24;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+}
+.annot-pin.on {
+  border-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+  font-weight: 600;
+}
+.annot-note-input {
+  flex: 1;
+  min-width: 100px;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+.annot-clear {
+  width: auto;
+  padding: 5px 10px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+/* ── Edge-relation filter row ────────────────────────────────────────── */
+.filter-bar-relations {
+  bottom: 80px; /* sit above the node-type filter so the two stack cleanly */
+  background: rgba(13, 17, 23, 0.78);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+  align-items: center;
+}
+.filter-bar-label {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--on-dim);
+  margin-right: 4px;
+}
+.relation-chip {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--on-dim);
+  background: rgba(118, 131, 144, 0.12);
+  color: var(--on-surface);
+  cursor: pointer;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.relation-chip:hover { opacity: 0.85; }
+.relation-chip.off {
+  background: transparent;
+  border-color: var(--outline);
+  color: var(--on-dim);
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+/* Warning chip when bulk-prompt selection is heavy */
+.prompt-selected-warn {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--warning);
+  background: rgba(227, 179, 65, 0.12);
+  border: 1px solid rgba(227, 179, 65, 0.4);
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+  text-transform: none;
+}
 .shared-body {
   flex: 1;
   display: grid;

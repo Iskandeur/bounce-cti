@@ -588,6 +588,45 @@ def node_evidence(inv_id: str, node_id: str, user_id: int = Depends(current_user
     return {"node_id": node_id, "value": node["value"], "evidence": evidence}
 
 
+# ── Node annotations (pin tag + free-text note) ──────────────────────────
+class TagToggleReq(BaseModel):
+    tag: str
+    on: bool = True
+
+
+@app.post("/api/investigations/{inv_id}/nodes/{node_id}/tag")
+def toggle_node_tag(inv_id: str, node_id: str, req: TagToggleReq,
+                    user_id: int = Depends(current_user)):
+    """Add or remove a single tag on a node. Used for the Pin button
+    (tag='pinned'), but generic — any tag works. Persists + broadcasts
+    a node_updated event so other open clients see the change live."""
+    _require_owner(inv_id, user_id)
+    tag = (req.tag or "").strip().lower()[:32]
+    if not tag:
+        raise HTTPException(status_code=400, detail="tag required")
+    node = gs.set_node_tag(inv_id, node_id, tag, bool(req.on))
+    if node is None:
+        raise HTTPException(status_code=404, detail="node not found")
+    return {"node": node}
+
+
+class NoteReq(BaseModel):
+    note: str = ""
+
+
+@app.post("/api/investigations/{inv_id}/nodes/{node_id}/note")
+def set_node_note(inv_id: str, node_id: str, req: NoteReq,
+                  user_id: int = Depends(current_user)):
+    """Set or clear an analyst's free-text annotation on a node
+    (e.g. 'VPN server', 'C2', 'sinkhole'). Stored in metadata.user_note.
+    Empty string clears."""
+    _require_owner(inv_id, user_id)
+    node = gs.set_node_user_note(inv_id, node_id, req.note or "")
+    if node is None:
+        raise HTTPException(status_code=404, detail="node not found")
+    return {"node": node}
+
+
 # ── Bootstrap from a CTI PDF ────────────────────────────────────────────────
 # Lets an analyst upload an existing report (vendor write-up, IR debrief, …)
 # and get a graph for free: server-side regex pulls every plausible IOC out
