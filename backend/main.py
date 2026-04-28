@@ -779,23 +779,48 @@ def get_public_share(token: str):
     return payload
 
 
-@app.post("/api/share/{token}/import")
-def import_share(token: str, user_id: int = Depends(current_user)):
-    """Clone the shared graph into the caller's own investigations list.
+class ImportShareReq(BaseModel):
+    target_inv_id: Optional[str] = None  # when set, merge into this inv instead of cloning
 
-    The new investigation is owned by the caller, status='done'. Sections
-    follow the share's filter (chats excluded if the link excluded them).
-    Returns the new investigation id so the UI can open it.
+
+@app.post("/api/share/{token}/import")
+def import_share(token: str,
+                 req: Optional[ImportShareReq] = None,
+                 user_id: int = Depends(current_user)):
+    """Add the shared graph to the caller's investigations.
+
+    Two modes:
+    - `target_inv_id` omitted: clone — creates a brand-new investigation
+      owned by the caller (status='done'), node ids recomputed against
+      the new inv. This is the default when the recipient has no graph
+      to merge into.
+    - `target_inv_id` provided and owned by the caller: merge — upserts
+      every shared node into the existing investigation (dedup by
+      type/value, metadata + tags + sources_seen unioned) and rewrites
+      edges against the target. Existing report node is preserved.
+
+    Either way, sections follow the share's filter (chats excluded if
+    the link excluded them).
     """
     s = gs.get_share(token)
     if not s or s["revoked"]:
         raise HTTPException(status_code=404, detail="share not found")
     if s["expires_at"] and s["expires_at"] < time.time():
         raise HTTPException(status_code=410, detail="share expired")
+
+    target = (req.target_inv_id if req else None)
+    if target:
+        if gs.get_investigation_owner(target) != user_id:
+            raise HTTPException(status_code=403, detail="target investigation not owned by you")
+        result = gs.merge_into_investigation(s["investigation_id"], target, sections=s["sections"])
+        # Echo the same shape as clone (`id`) so the UI can open the inv
+        # uniformly, alongside the merge counters.
+        return {"id": target, "mode": "merge", **result}
+
     new_id = gs.clone_investigation(s["investigation_id"], user_id, sections=s["sections"])
     if not new_id:
         raise HTTPException(status_code=404, detail="source investigation missing")
-    return {"id": new_id}
+    return {"id": new_id, "mode": "clone"}
 
 
 @app.websocket("/ws/{inv_id}")

@@ -724,4 +724,114 @@ def clone_investigation(source_inv_id: str, target_user_id: int,
     return new_inv
 
 
+def merge_into_investigation(source_inv_id: str, target_inv_id: str,
+                             sections: Optional[list[str]] = None) -> dict:
+    """Merge a source investigation's graph into an existing target.
+
+    Use case: an analyst already has a graph, then receives a share link
+    that contains overlapping IOCs. Cloning would land it as a separate
+    investigation, leaving the duplicates dangling in two parallel graphs
+    with no edge between them. Merging unifies them in a single graph:
+
+    - Each source node is upserted into the target via `add_node`, which
+      dedupes on `(target_inv_id, type, value)` and merges metadata,
+      tags, and `sources_seen` into the existing row when it matches.
+    - Each source edge is rewritten with the source/destination resolved
+      via the source's (type, value) pair, then `add_edge` re-hashes the
+      edge id against `target_inv_id`. The unique `(inv, src, dst, rel)`
+      constraint suppresses redundant edges; new ones land cleanly.
+    - The source's report node is skipped when the target already has one
+      so the recipient's analysis is never overwritten by the share's.
+
+    Returns counters so the UI can confirm 'X added, Y merged, Z edges'.
+    """
+    sections = normalize_sections(sections or list(SHARE_SECTIONS))
+    src = get_graph(source_inv_id)
+    tgt = get_graph(target_inv_id)
+    target_keys = {(n["type"], (n.get("value") or "").lower()) for n in tgt["nodes"]}
+    target_has_report = any(
+        n.get("type") == "report" and n.get("value") == "investigation_summary"
+        for n in tgt["nodes"]
+    )
+
+    nodes_added = 0
+    nodes_merged = 0
+    edges_added = 0
+    # source_node_id -> (type, value) so we can rewrite edges below.
+    id_lookup: dict[str, tuple[str, str]] = {}
+
+    for n in src["nodes"]:
+        if n["type"] == "report":
+            if "report" not in sections:
+                continue
+            if n.get("value") == "investigation_summary" and target_has_report:
+                # Don't clobber the recipient's analysis. They can still
+                # open the share view directly to read the original report.
+                continue
+        md = n.get("metadata") or {}
+        if n["type"] == "report" and "chats" not in sections:
+            md = _filter_report_metadata(md, sections)
+        key = (n["type"], (n.get("value") or "").lower())
+        existed = key in target_keys
+        # add_node handles upsert: first call inserts, second merges metadata
+        # + tags + sources_seen, emits node_added / node_updated events so
+        # any open WebSocket on the target investigation sees the merge live.
+        add_node(
+            target_inv_id, n["type"], n["value"],
+            metadata=md, tags=n.get("tags") or [],
+            source=(n.get("source") or "imported"),
+            confidence=(n.get("confidence") or 0.8),
+        )
+        id_lookup[n["id"]] = (n["type"], n["value"])
+        if existed:
+            nodes_merged += 1
+        else:
+            nodes_added += 1
+            target_keys.add(key)
+
+    for e in src["edges"]:
+        s_tv = id_lookup.get(e["src"])
+        d_tv = id_lookup.get(e["dst"])
+        if not s_tv or not d_tv:
+            # Endpoint was filtered (e.g. report excluded). Skip silently.
+            continue
+        # add_edge dedupes by (inv, src, dst, relation); a redundant edge is
+        # a no-op. We don't get a precise "edges merged vs new" count back
+        # without an extra round-trip, so report the upper bound.
+        add_edge(
+            target_inv_id,
+            s_tv[0], s_tv[1],
+            d_tv[0], d_tv[1],
+            e.get("relation") or "related",
+            evidence=(e.get("evidence") or ""),
+            source=(e.get("source") or "imported"),
+            confidence=(e.get("confidence") or 0.8),
+        )
+        edges_added += 1
+
+    # Audit trail so the recipient can see when/where this merge came from.
+    with conn() as c:
+        c.execute(
+            "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+            (target_inv_id, "imported",
+             json.dumps({
+                 "kind": "imported",
+                 "from": source_inv_id,
+                 "mode": "merge",
+                 "sections": sections,
+                 "nodes_added": nodes_added,
+                 "nodes_merged": nodes_merged,
+                 "edges_added": edges_added,
+             }),
+             time.time()),
+        )
+
+    return {
+        "target_inv_id": target_inv_id,
+        "nodes_added": nodes_added,
+        "nodes_merged": nodes_merged,
+        "edges_added": edges_added,
+    }
+
+
 init_db()

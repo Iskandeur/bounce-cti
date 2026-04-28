@@ -35,10 +35,17 @@ export default function SharedView({ token }) {
   const [tab, setTab] = useState('report')
   const [importBusy, setImportBusy] = useState(false)
   const [panelOpen, setPanelOpen] = useState(true)
+  // Target picker for the import action. '' = create a new investigation,
+  // otherwise the analyst's existing investigation id we should merge into.
+  const [importTarget, setImportTarget] = useState('')
+  const [myInvs, setMyInvs] = useState([])
   const cyRef = useRef(null)
   const containerRef = useRef(null)
 
-  // Fetch share + auth status in parallel.
+  // Fetch share + auth status in parallel. When authed, also pull the
+  // recipient's investigations so we can offer 'merge into existing' as an
+  // import target — fixes the duplicate-IOC-no-edges problem you get when
+  // the receiver already has overlapping nodes in another graph.
   useEffect(() => {
     let cancel = false
     Promise.all([
@@ -48,6 +55,12 @@ export default function SharedView({ token }) {
       if (cancel) return
       setData(share)
       setMe(who || null)
+      if (who) {
+        fetch('/api/investigations', { credentials: 'same-origin' })
+          .then(r => r.ok ? r.json() : [])
+          .then(list => { if (!cancel) setMyInvs(Array.isArray(list) ? list : []) })
+          .catch(() => {})
+      }
     }).catch((e) => {
       if (cancel) return
       setErr(typeof e === 'number' ? `Lien introuvable, révoqué ou expiré (HTTP ${e})` : 'Erreur réseau')
@@ -152,7 +165,7 @@ export default function SharedView({ token }) {
     }
   }, [data])
 
-  // ── Import: clone into the recipient's account, then go to that inv ──
+  // ── Import: clone (new inv) or merge (into one of mine), then jump there ──
   const importToMyAccount = async () => {
     if (!me) {
       // Send the analyst to login, then bring them back to this share URL.
@@ -161,15 +174,23 @@ export default function SharedView({ token }) {
     }
     setImportBusy(true)
     try {
-      const r = await fetch(`/api/share/${encodeURIComponent(token)}/import`,
-        { method: 'POST', credentials: 'same-origin' })
+      const r = await fetch(`/api/share/${encodeURIComponent(token)}/import`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(importTarget ? { target_inv_id: importTarget } : {}),
+      })
       if (!r.ok) {
         const t = await r.text()
         alert(`Import a échoué: ${t || r.status}`)
         return
       }
       const d = await r.json()
-      // Drop the share token from the URL and let MainApp surface the new inv.
+      if (d.mode === 'merge') {
+        // Friendly counters so the analyst sees what landed in their graph.
+        const summary = `Merge OK — +${d.nodes_added} nouveau(x), ${d.nodes_merged} dédupliqué(s), ${d.edges_added} edge(s).`
+        try { console.log(summary) } catch (_) {}
+      }
       window.location.href = `/?inv=${encodeURIComponent(d.id)}`
     } finally {
       setImportBusy(false)
@@ -234,14 +255,42 @@ export default function SharedView({ token }) {
           >
             {panelOpen ? '▶ panneau' : '◀ panneau'}
           </button>
+          {me && myInvs.length > 0 && (
+            <select
+              className="shared-import-target"
+              value={importTarget}
+              onChange={e => setImportTarget(e.target.value)}
+              title="Choisir où atterrir : nouveau graphe ou merge dans une investigation existante"
+              disabled={importBusy}
+            >
+              <option value="">↪ Nouvelle investigation</option>
+              <optgroup label="Merger dans une investigation existante">
+                {myInvs.map(i => (
+                  <option key={i.id} value={i.id}>
+                    {i.seed_value.length > 36 ? i.seed_value.slice(0, 34) + '…' : i.seed_value}
+                    {' '}({i.seed_type})
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          )}
           <button
             className="auth-btn shared-import-btn"
             disabled={importBusy}
             onClick={importToMyAccount}
-            title={me ? 'Cloner ce graphe dans votre compte (vous pourrez pivoter dessus)'
-                     : 'Connectez-vous pour importer ce graphe'}
+            title={!me
+              ? 'Connectez-vous pour importer ce graphe'
+              : importTarget
+                ? 'Fusionner ce graphe dans l\'investigation choisie (dédupe par type+valeur)'
+                : 'Cloner ce graphe dans une nouvelle investigation'}
           >
-            {importBusy ? 'Import…' : me ? '↓ Importer dans mon compte' : 'Se connecter pour importer'}
+            {importBusy
+              ? 'Import…'
+              : !me
+                ? 'Se connecter pour importer'
+                : importTarget
+                  ? '⤵ Merger ici'
+                  : '↓ Importer dans mon compte'}
           </button>
         </div>
       </header>
