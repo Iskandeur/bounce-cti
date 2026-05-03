@@ -1,6 +1,7 @@
-# EVAL_PROTOCOL_V2 — Bounce-CTI Evaluation Protocol
+# EVAL_PROTOCOL — Bounce-CTI Evaluation Protocol
 
-> **Version** 2.0 · **Status** active · **Cadence** run against every non-trivial change to `agent_runner.py` system prompt, MCP tool set, `defuse_lists.py`, or source integrations.
+> **Version** 2.1 · **Status** active · **Cadence** run against every non-trivial change to `agent_runner.py` system prompt, MCP tool set, `defuse_lists.py`, or source integrations.
+> Renamed from `EVAL_PROTOCOL_V2.md` (V1 deleted) on 2026-05-03.
 
 ---
 

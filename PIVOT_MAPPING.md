@@ -233,7 +233,7 @@ R4. Budget intelligent (yield-based) :
 
 **Côté runner** : compteur du nombre de tool calls, hook sur dépassement 60 (commence à vérifier le yield à chaque call), 90 (kill switch + SELF_CRITIQUE forcé).
 
-**Note EVAL** : `EVAL_PROTOCOL_V2.md` §4.5 reste valide (BD pénalise > 60). Le tool n'aura un BD < 100 sur un cas que s'il a réellement besoin d'étendre — et le `gaps_report` justifie l'extension. C'est un trade-off conscient : -50 sur BD vs +30 sur NR/ER pour les cas complexes (Case 1, 9, 11). Globalement net positif.
+**Note EVAL** : `EVAL_PROTOCOL.md` §4.5 reste valide (BD pénalise > 60). Le tool n'aura un BD < 100 sur un cas que s'il a réellement besoin d'étendre — et le `gaps_report` justifie l'extension. C'est un trade-off conscient : -50 sur BD vs +30 sur NR/ER pour les cas complexes (Case 1, 9, 11). Globalement net positif.
 
 ---
 
@@ -298,7 +298,7 @@ Une fois ce doc validé, l'ordre des commits sera :
 10. `feat: DOM fingerprint extractor (Phase 2)`
 11. `feat: add source <name>` × N (Phase 3)
 12. `docs: update CLAUDE.md, ARCHITECTURE.md, README.md, .env.example`
-13. (re-run EVAL_PROTOCOL_V2 — pas de commit)
+13. (re-run EVAL_PROTOCOL — pas de commit)
 14. `merge feat/autonomy-engine → main`
 
 Chaque commit est testable indépendamment. Reverter un commit ne casse pas les précédents.

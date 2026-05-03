@@ -59,7 +59,7 @@ runs/                   # Archived eval-protocol scorecards (one folder per run)
 deploy.sh               # Auto-deploy script (callable on the VPS)
 run_mcp.py              # MCP server launcher (referenced by generated mcp.json configs)
 mcp.json                # Template MCP config (rendered per investigation at runtime)
-EVAL_PROTOCOL_V2.md     # Active eval protocol (run on every non-trivial agent change)
+EVAL_PROTOCOL.md        # Active eval protocol (run on every non-trivial agent change)
 PIVOT_MAPPING.md        # Architecture spec for the autonomy engine refactor
 ```
 
@@ -153,7 +153,7 @@ Whenever a commit changes any of the following, the corresponding docs must be u
 | User-visible features (UI, exports, imports, sharing)       | `README.md`, `PURPOSE.md` if scope shifts             |
 | Deploy pipeline (`.github/workflows/`, `deploy.sh`)         | `CLAUDE.md` "Deployment & CI/CD", `ARCHITECTURE.md`   |
 | `.env.example` keys                                         | `README.md` setup, `ARCHITECTURE.md` configuration    |
-| Agent system prompt / workflow (`agent_runner.py`)          | `EVAL_PROTOCOL_V2.md` may need a re-run; note in commit message |
+| Agent system prompt / workflow (`agent_runner.py`)          | `EVAL_PROTOCOL.md` may need a re-run; note in commit message |
 
 **Before every commit**, scan the staged diff and ask: *"Does this commit invalidate any
 claim in `README.md`, `CLAUDE.md`, `ARCHITECTURE.md`, `PURPOSE.md`, or `.env.example`?"*

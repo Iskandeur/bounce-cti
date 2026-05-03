@@ -149,6 +149,6 @@ the deploy pipeline, required GitHub secrets, and rollback procedure.
 
 ## Eval
 
-`EVAL_PROTOCOL_V2.md` is the active scoring rubric for the agent. Re-run it
+`EVAL_PROTOCOL.md` is the active scoring rubric for the agent. Re-run it
 against a new commit whenever you touch the agent system prompt, MCP tool set,
 defuse lists, or source integrations. Past runs live under `runs/`.
