@@ -9,10 +9,11 @@
 > arrange one.
 
 Autonomous CTI investigation tool. Feed it a domain, IP, file hash, URL, JARM
-fingerprint, or ASN, and a Claude Code agent pivots through ~40 public-source
-tools (DNS / RDAP, crt.sh, VirusTotal, URLScan, Onyphe, Shodan, OTX, ThreatFox,
-abuse.ch URLhaus & MalwareBazaar, Mnemonic pDNS, ip-api, Wayback) building a
-live infrastructure graph in your browser.
+fingerprint, or ASN, and a Claude Code agent pivots through ~50 public-source
+tools (DNS / RDAP, crt.sh, CertSpotter, VirusTotal, URLScan, Onyphe, Shodan,
+Netlas, ZoomEye, CriminalIP, OTX, ThreatFox, AbuseIPDB, abuse.ch URLhaus &
+MalwareBazaar, Mnemonic pDNS, ip-api, Wayback, Whoxy reverse-WHOIS, OpenPhish,
+DOM fingerprints) building a live infrastructure graph in your browser.
 
 ## Features
 
@@ -69,15 +70,31 @@ Make sure `claude` (Claude Code CLI) is on your `PATH`, or set `CLAUDE_BIN` in
 ### API keys (in `.env`)
 
 All free-tier or community keys; everything except VirusTotal is optional but
-strongly recommended for full coverage.
+strongly recommended for full coverage. See `.env.example` for the full list
+including the Phase 3 sources (AbuseIPDB, CertSpotter, Netlas, Whoxy, ZoomEye,
+CriminalIP).
 
 ```
+# Core
 VIRUSTOTAL_API_KEY=    # 4 req/min on free tier
 URLSCAN_API_KEY=       # free
 ONYPHE_API_KEY=        # free community tier
 SHODAN_API_KEY=        # paid; optional
 OTX_API_KEY=           # free
 ABUSECH_AUTH_KEY=      # free, register at https://auth.abuse.ch/  (URLhaus + MalwareBazaar)
+
+# Phase 3 (added 2026-05-03; all optional, free tiers)
+ABUSEIPDB_API_KEY=     # 1000 req/day  https://www.abuseipdb.com
+CERTSPOTTER_API_KEY=   #  100 req/day  https://sslmate.com (SSLMate)
+NETLAS_API_KEY=        #   50 req/day  https://app.netlas.io
+WHOXY_API_KEY=         # 1500 lifetime https://www.whoxy.com (reverse WHOIS)
+ZOOMEYE_API_KEY=       #  10k /month   https://www.zoomeye.org
+CRIMINALIP_API_KEY=    #  ~50/day      https://www.criminalip.io
+
+# Multi-key rotation (optional). Supersedes the single-key form per source.
+# VIRUSTOTAL_API_KEYS=k1,k2,k3
+# NETLAS_API_KEYS=...
+
 CLAUDE_BIN=claude      # path to claude CLI if not in PATH
 ```
 
