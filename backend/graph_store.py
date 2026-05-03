@@ -77,11 +77,30 @@ CREATE TABLE IF NOT EXISTS shares (
     revoked INTEGER NOT NULL DEFAULT 0,
     label TEXT
 );
+CREATE TABLE IF NOT EXISTS pivot_tasks (
+    id TEXT PRIMARY KEY,
+    investigation_id TEXT NOT NULL,
+    node_type TEXT NOT NULL,
+    node_value TEXT NOT NULL,
+    pivot_op TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 5,
+    status TEXT NOT NULL DEFAULT 'pending',
+    skip_reason TEXT,
+    result_summary TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    enqueued_at REAL NOT NULL,
+    started_at REAL,
+    completed_at REAL,
+    UNIQUE(investigation_id, node_type, node_value, pivot_op)
+);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_investigations_user ON investigations(user_id);
 CREATE INDEX IF NOT EXISTS idx_events_inv ON events(investigation_id);
 CREATE INDEX IF NOT EXISTS idx_shares_inv ON shares(investigation_id);
 CREATE INDEX IF NOT EXISTS idx_shares_user ON shares(created_by);
+CREATE INDEX IF NOT EXISTS idx_pivot_tasks_inv_status ON pivot_tasks(investigation_id, status);
+CREATE INDEX IF NOT EXISTS idx_pivot_tasks_inv_priority ON pivot_tasks(investigation_id, priority, enqueued_at);
+CREATE INDEX IF NOT EXISTS idx_pivot_tasks_inv_node ON pivot_tasks(investigation_id, node_type, node_value);
 """
 
 
@@ -530,6 +549,183 @@ def cache_set(key: str, value: Any):
     with conn() as c:
         c.execute("INSERT OR REPLACE INTO cache(key, value, created_at) VALUES (?,?,?)",
                   (key, json.dumps(value), time.time()))
+
+
+# ── Pivot queue (autonomy engine) ─────────────────────────────────────────
+
+def _pivot_task_id(inv: str, node_type: str, node_value: str, pivot_op: str) -> str:
+    return hashlib.sha1(f"{inv}|{node_type}|{node_value.lower()}|{pivot_op}".encode()).hexdigest()[:16]
+
+
+def enqueue_pivot(inv_id: str, node_type: str, node_value: str, pivot_op: str,
+                   priority: int = 5, status: str = "pending",
+                   skip_reason: Optional[str] = None) -> dict:
+    """Idempotent enqueue. Returns {id, was_new: bool}."""
+    tid = _pivot_task_id(inv_id, node_type, node_value, pivot_op)
+    now = time.time()
+    with conn() as c:
+        try:
+            c.execute(
+                "INSERT INTO pivot_tasks(id, investigation_id, node_type, node_value, pivot_op,"
+                " priority, status, skip_reason, attempts, enqueued_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (tid, inv_id, node_type, node_value, pivot_op, priority, status, skip_reason, 0, now),
+            )
+            return {"id": tid, "was_new": True}
+        except sqlite3.IntegrityError:
+            return {"id": tid, "was_new": False}
+
+
+def acquire_pivot(inv_id: str) -> Optional[dict]:
+    """Pop the next pending pivot (lowest priority number first, then FIFO).
+    Marks it 'running' atomically."""
+    now = time.time()
+    with conn() as c:
+        row = c.execute(
+            "SELECT id, node_type, node_value, pivot_op, priority FROM pivot_tasks"
+            " WHERE investigation_id=? AND status='pending'"
+            " ORDER BY priority ASC, enqueued_at ASC LIMIT 1",
+            (inv_id,),
+        ).fetchone()
+        if not row:
+            return None
+        c.execute(
+            "UPDATE pivot_tasks SET status='running', started_at=?, attempts=attempts+1 WHERE id=?",
+            (now, row["id"]),
+        )
+        return {
+            "task_id": row["id"],
+            "node_type": row["node_type"],
+            "node_value": row["node_value"],
+            "pivot_op": row["pivot_op"],
+            "priority": row["priority"],
+        }
+
+
+def complete_pivot(task_id: str, status: str = "done", summary: Optional[str] = None) -> bool:
+    if status not in ("done", "failed", "skipped"):
+        status = "done"
+    summary = (summary or "")[:500]
+    now = time.time()
+    with conn() as c:
+        cur = c.execute(
+            "UPDATE pivot_tasks SET status=?, result_summary=?, completed_at=? WHERE id=?",
+            (status, summary, now, task_id),
+        )
+        return cur.rowcount > 0
+
+
+def pivot_queue_status(inv_id: str) -> dict:
+    """Aggregate counts. Useful for queue_status() MCP tool."""
+    out = {"pending": 0, "running": 0, "done": 0, "skipped": 0, "failed": 0, "by_op": {}}
+    with conn() as c:
+        for r in c.execute(
+            "SELECT status, pivot_op, COUNT(*) AS n FROM pivot_tasks"
+            " WHERE investigation_id=? GROUP BY status, pivot_op",
+            (inv_id,),
+        ):
+            out[r["status"]] = out.get(r["status"], 0) + r["n"]
+            op = r["pivot_op"]
+            out["by_op"].setdefault(op, {})[r["status"]] = r["n"]
+    return out
+
+
+def pivot_count_per_node(inv_id: str, node_type: str, node_value: str,
+                          priority_max: Optional[int] = None) -> int:
+    """How many pivot tasks already exist for this node? Used by fan-out cap."""
+    sql = ("SELECT COUNT(*) AS n FROM pivot_tasks WHERE investigation_id=?"
+           " AND node_type=? AND lower(node_value)=lower(?)")
+    args: list[Any] = [inv_id, node_type, node_value]
+    if priority_max is not None:
+        sql += " AND priority <= ?"
+        args.append(priority_max)
+    with conn() as c:
+        row = c.execute(sql, args).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def coverage_matrix(inv_id: str) -> list[dict]:
+    """For each node in the investigation, list the pivot tasks split by status."""
+    with conn() as c:
+        nodes = c.execute(
+            "SELECT id, type, value FROM nodes WHERE investigation_id=? ORDER BY created_at",
+            (inv_id,),
+        ).fetchall()
+        tasks = c.execute(
+            "SELECT node_type, node_value, pivot_op, status, skip_reason FROM pivot_tasks"
+            " WHERE investigation_id=?",
+            (inv_id,),
+        ).fetchall()
+    by_key: dict[tuple, list] = {}
+    for t in tasks:
+        by_key.setdefault((t["node_type"], (t["node_value"] or "").lower()), []).append(t)
+    out = []
+    for n in nodes:
+        bucket = by_key.get((n["type"], (n["value"] or "").lower()), [])
+        slot = {"node_id": n["id"], "node_type": n["type"], "node_value": n["value"],
+                "pivots_done": [], "pivots_pending": [], "pivots_skipped": [],
+                "pivots_failed": [], "pivots_running": []}
+        for t in bucket:
+            key = {"done": "pivots_done", "pending": "pivots_pending",
+                   "skipped": "pivots_skipped", "failed": "pivots_failed",
+                   "running": "pivots_running"}.get(t["status"], "pivots_done")
+            slot[key].append(t["pivot_op"])
+        out.append(slot)
+    return out
+
+
+def gaps_report(inv_id: str) -> dict:
+    """Group skipped/failed pivots by reason. Used for self-critique pre-report."""
+    out: dict = {"by_reason": {}, "total_skipped": 0, "total_failed": 0}
+    with conn() as c:
+        for r in c.execute(
+            "SELECT pivot_op, node_type, node_value, status, skip_reason, result_summary"
+            " FROM pivot_tasks WHERE investigation_id=? AND status IN ('skipped','failed')",
+            (inv_id,),
+        ):
+            reason = r["skip_reason"] or ("failed" if r["status"] == "failed" else "unknown")
+            out["by_reason"].setdefault(reason, []).append({
+                "pivot_op": r["pivot_op"],
+                "node_type": r["node_type"],
+                "node_value": r["node_value"],
+                "summary": (r["result_summary"] or "")[:120],
+            })
+            if r["status"] == "skipped":
+                out["total_skipped"] += 1
+            else:
+                out["total_failed"] += 1
+    return out
+
+
+def requeue_missing(inv_id: str, mapping_for_node) -> int:
+    """For each node in the graph, ensure all expected pivots are enqueued.
+    `mapping_for_node` is a callable (node_type, node_value) -> list[(pivot_op, priority)].
+    Returns the count of newly enqueued tasks."""
+    enqueued = 0
+    with conn() as c:
+        nodes = c.execute(
+            "SELECT type, value FROM nodes WHERE investigation_id=?", (inv_id,)
+        ).fetchall()
+    for n in nodes:
+        for op, prio in mapping_for_node(n["type"], n["value"]):
+            r = enqueue_pivot(inv_id, n["type"], n["value"], op, priority=prio)
+            if r["was_new"]:
+                enqueued += 1
+    return enqueued
+
+
+def nodes_added_since(inv_id: str, since_ts: float,
+                       types: Optional[list[str]] = None) -> int:
+    """Count nodes added since `since_ts`. Optionally filtered by type list.
+    Used by per-hop fan-out cap."""
+    sql = "SELECT COUNT(*) AS n FROM nodes WHERE investigation_id=? AND created_at >= ?"
+    args: list[Any] = [inv_id, since_ts]
+    if types:
+        placeholders = ",".join("?" for _ in types)
+        sql += f" AND type IN ({placeholders})"
+        args.extend(types)
+    with conn() as c:
+        row = c.execute(sql, args).fetchone()
+    return int(row["n"]) if row else 0
 
 
 # ── Shares (link-based investigation sharing + clone) ─────────────────────
