@@ -2,6 +2,8 @@
 from mcp.server.fastmcp import FastMCP
 import importlib
 
+from ..hints import with_hints
+
 mcp = FastMCP("bounce-cti")
 
 # Lazy source-module loader. Top-level imports of all sources add ~1.5s to
@@ -20,7 +22,7 @@ def _src(name: str):
 @mcp.tool()
 async def dns_resolve(domain: str) -> dict:
     """Resolve A/AAAA/MX/NS/TXT/CNAME/SOA records for a domain."""
-    return await _src("dns_tools").resolve_all(domain)
+    return with_hints("dns_resolve", await _src("dns_tools").resolve_all(domain), domain)
 
 
 @mcp.tool()
@@ -57,25 +59,25 @@ async def crtsh_query(q: str, match: str = "ILIKE") -> dict:
 @mcp.tool()
 async def rdap_domain(domain: str) -> dict:
     """RDAP lookup for a domain (registrar, registrant, dates, nameservers)."""
-    return await _src("rdap").rdap_domain(domain)
+    return with_hints("rdap_domain", await _src("rdap").rdap_domain(domain), domain)
 
 
 @mcp.tool()
 async def rdap_ip(ip: str) -> dict:
     """RDAP lookup for an IP (ASN, netname, country, abuse contact)."""
-    return await _src("rdap").rdap_ip(ip)
+    return with_hints("rdap_ip", await _src("rdap").rdap_ip(ip), ip)
 
 
 @mcp.tool()
 async def virustotal_domain(domain: str) -> dict:
     """VirusTotal v3 domain report."""
-    return await _src("virustotal").vt_domain(domain)
+    return with_hints("virustotal_domain", await _src("virustotal").vt_domain(domain), domain)
 
 
 @mcp.tool()
 async def virustotal_ip(ip: str) -> dict:
     """VirusTotal v3 IP report."""
-    return await _src("virustotal").vt_ip(ip)
+    return with_hints("virustotal_ip", await _src("virustotal").vt_ip(ip), ip)
 
 
 @mcp.tool()
@@ -112,13 +114,13 @@ async def virustotal_communicating_files(kind: str, value: str) -> dict:
 @mcp.tool()
 async def urlscan_search(query: str) -> dict:
     """URLScan.io search. Examples: domain:example.com, ip:1.2.3.4, hash:<jarm>, page.title:"login"."""
-    return await _src("urlscan").urlscan_search(query)
+    return with_hints("urlscan_search", await _src("urlscan").urlscan_search(query), query)
 
 
 @mcp.tool()
 async def urlscan_result(uuid: str) -> dict:
     """Fetch full urlscan result by submission UUID (DOM hash, JARM, cert, network)."""
-    return await _src("urlscan").urlscan_result(uuid)
+    return with_hints("urlscan_result", await _src("urlscan").urlscan_result(uuid), uuid)
 
 
 @mcp.tool()

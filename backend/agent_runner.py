@@ -67,6 +67,158 @@ def _get_called_cti_tools(inv_id: str) -> set:
     return tools
 
 
+def _get_called_tool_invocations(inv_id: str) -> set:
+    """Like _get_called_cti_tools but returns (tool_name, primary_arg_str_lower).
+    Used by the adaptive-followup logic to detect which (tool, value) pairs
+    were actually invoked, so we don't re-trigger them."""
+    with gs.conn() as c:
+        rows = c.execute(
+            "SELECT payload FROM events WHERE investigation_id=?",
+            (inv_id,)
+        ).fetchall()
+    out: set = set()
+    for (payload,) in rows:
+        try:
+            d = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if d.get("kind") != "agent_assistant":
+            continue
+        for block in d.get("msg", {}).get("message", {}).get("content", []):
+            if block.get("type") != "tool_use":
+                continue
+            name = block.get("name", "")
+            if not name.startswith("mcp__cti__"):
+                continue
+            short = name[len("mcp__cti__"):]
+            inp = block.get("input") or {}
+            # Pick the first non-empty string-ish value as primary arg
+            primary = ""
+            for v in inp.values():
+                if isinstance(v, (str, int)) and str(v).strip():
+                    primary = str(v).strip().lower()
+                    break
+            out.add((short, primary))
+    return out
+
+
+def _adaptive_followup_targets(inv_id: str) -> list:
+    """Inspect the current graph and return per-node Phase 3 gaps that would
+    be high-leverage to fill. Adaptive: only emits tasks for nodes that
+    actually exist in the graph; tools that have no API key configured are
+    silently skipped (the source itself will degrade gracefully). Cap at 12
+    to avoid Phase 2 storm.
+
+    Returns: [(node_type, node_value, [missing_tool_call_strings], rationale)]
+    """
+    try:
+        called = _get_called_tool_invocations(inv_id)
+    except Exception:
+        called = set()
+    try:
+        graph = gs.get_graph(inv_id)
+    except Exception:
+        return []
+
+    nodes = graph.get("nodes", []) if isinstance(graph, dict) else []
+
+    def was_called(tool: str, value: str) -> bool:
+        return (tool, str(value).lower()) in called
+
+    targets = []
+    seen_keys: set = set()  # dedup on (node_type, node_value)
+
+    for n in nodes:
+        ntype = (n.get("type") or "").lower()
+        nvalue = n.get("value") or ""
+        ntags = [t.lower() for t in (n.get("tags") or [])]
+        md = n.get("metadata") or {}
+
+        if not nvalue:
+            continue
+        key = (ntype, nvalue.lower())
+        if key in seen_keys:
+            continue
+
+        # email → whoxy_reverse
+        if ntype == "email" and not any(t in ntags for t in ("privacy", "redacted")):
+            if not was_called("whoxy_reverse", nvalue):
+                targets.append((ntype, nvalue, [f"whoxy_reverse(email=\"{nvalue}\")"],
+                                 "registrant email never reverse-WHOISed"))
+                seen_keys.add(key)
+                continue
+
+        # JARM → netlas_jarm + zoomeye_jarm
+        if ntype == "jarm":
+            missing = []
+            if not was_called("netlas_jarm", nvalue):
+                missing.append(f"netlas_jarm(\"{nvalue}\")")
+            if not was_called("zoomeye_jarm", nvalue):
+                missing.append(f"zoomeye_jarm(\"{nvalue}\")")
+            if missing:
+                targets.append((ntype, nvalue, missing,
+                                 "JARM never multi-source pivoted (netlas/zoomeye)"))
+                seen_keys.add(key)
+                continue
+
+        # favicon_hash → netlas_favicon + zoomeye_favicon
+        if ntype == "favicon_hash":
+            missing = []
+            if not was_called("netlas_favicon", nvalue):
+                missing.append(f"netlas_favicon(\"{nvalue}\")")
+            if not was_called("zoomeye_favicon", nvalue):
+                missing.append(f"zoomeye_favicon(\"{nvalue}\")")
+            if missing:
+                targets.append((ntype, nvalue, missing,
+                                 "favicon hash never pivoted"))
+                seen_keys.add(key)
+                continue
+
+        # cert with serial → certspotter_serial
+        if ntype == "cert":
+            serial = md.get("serial") or md.get("serial_number") or md.get("serialNumber")
+            if serial and isinstance(serial, str) and not was_called("certspotter_serial", serial):
+                targets.append((ntype, nvalue,
+                                 [f"certspotter_serial(\"{serial}\")"],
+                                 f"cert serial {serial[:24]}... never CT-cluster pivoted"))
+                seen_keys.add(key)
+                continue
+
+        # Seed domain → certspotter_issuances + dom_fingerprints
+        if ntype == "domain" and "seed" in ntags:
+            missing = []
+            if not was_called("certspotter_issuances", nvalue):
+                missing.append(f"certspotter_issuances(domain=\"{nvalue}\", include_subdomains=True)")
+            if missing:
+                targets.append((ntype, nvalue, missing,
+                                 "seed domain CT-history never enriched via CertSpotter"))
+                seen_keys.add(key)
+                continue
+
+        # Non-defused IP → abuseipdb + criminalip
+        if ntype == "ip" and not any(t in ntags for t in ("cdn", "parking", "sinkhole", "dyndns")):
+            missing = []
+            if not was_called("abuseipdb_check", nvalue):
+                missing.append(f"abuseipdb_check(\"{nvalue}\")")
+            if not was_called("criminalip_ip", nvalue):
+                missing.append(f"criminalip_ip(\"{nvalue}\")")
+            if missing:
+                targets.append((ntype, nvalue, missing,
+                                 "non-CDN IP never IP-rep cross-checked"))
+                seen_keys.add(key)
+                continue
+
+        # URL → dom_fingerprints
+        if ntype == "url" and not was_called("dom_fingerprints", nvalue):
+            targets.append((ntype, nvalue, [f"dom_fingerprints(url=\"{nvalue}\")"],
+                             "URL DOM never fingerprinted"))
+            seen_keys.add(key)
+            continue
+
+    # Cap to 12 — Phase 2 should be focused, not exhaustive
+    return targets[:12]
+
+
 def _is_parked(inv_id: str) -> bool:
     """Check if the investigation identified the seed as parked."""
     try:
@@ -343,6 +495,24 @@ QUOTA AWARENESS:
         → per-source key pool snapshot. If a primary source is exhausted, redirect
           to alternatives (netlas/zoomeye instead of shodan, mnemonic_pdns instead
           of vt_resolutions, abuseipdb/criminalip instead of vt_ip, etc.).
+
+══════════════════════════════════════════════
+PIVOT HINTS IN TOOL RESPONSES — read them
+══════════════════════════════════════════════
+Several CTI tools (rdap_domain, rdap_ip, virustotal_domain, virustotal_ip,
+urlscan_search, urlscan_result, dns_resolve) augment their responses with a
+"_pivot_hints" array — short, context-specific suggestions that read like:
+
+   "PIVOT_HINT: registrant email 'x@y.com' is NOT privacy-protected — call
+    whoxy_reverse(email='x@y.com') to enumerate sibling domains by same registrant."
+
+These are computed from the actual response data (a non-private email triggers a
+whoxy hint; a JARM triggers netlas_jarm + zoomeye_jarm hints; an urlscan UUID
+triggers a dom_fingerprints hint). They are HIGH-SIGNAL and TIME-LOCAL: at the
+moment you receive the response, the hint tells you the most valuable next pivot.
+
+When you see "_pivot_hints" in a response: READ them, and CALL the suggested
+tool unless you have a strong reason not to. Skipping a hint is a missed pivot.
 
 ══════════════════════════════════════════════
 NEW HIGH-VALUE SOURCES — when to reach for each
@@ -1433,12 +1603,17 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
 
     phase1_ok = saw_result or has_report or rc == 0
 
-    # ── Phase 2: Follow-up for missing mandatory tools ──
+    # ── Phase 2: Follow-up for missing mandatory tools + adaptive Phase 3 gaps ──
     if phase1_ok and not _is_parked(inv_id):
         called = _get_called_cti_tools(inv_id)
         missing = _missing_mandatory_tools(seed_type, seed_value, called)
-        if missing:
-            _log(inv_id, "phase2_needed", {"missing": missing, "called": sorted(called)})
+        adaptive_targets = _adaptive_followup_targets(inv_id)
+        if missing or adaptive_targets:
+            _log(inv_id, "phase2_needed", {
+                "missing": missing,
+                "adaptive_targets_count": len(adaptive_targets),
+                "called": sorted(called),
+            })
             # Build extra follow-up steps for IP/domain seeds
             extra_steps = []
             if seed_type == "ip":
@@ -1500,6 +1675,44 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 "workflow, then add_edge(seed→report, known_ioc)."
             )
             already_called_list = sorted(called)
+
+            # Build the adaptive Phase 3 gap section (per-graph-state, not a
+            # static script). Each line names a node already in the graph and
+            # the specific tool calls that would high-leverage-pivot on it.
+            adaptive_block = ""
+            if adaptive_targets:
+                lines = []
+                for i, (ntype, nvalue, calls, rationale) in enumerate(adaptive_targets, 1):
+                    short_value = nvalue if len(nvalue) <= 60 else nvalue[:57] + "..."
+                    line = (f"  {i}. {ntype} \"{short_value}\" — {' AND '.join(calls)}\n"
+                            f"     [why: {rationale}]")
+                    lines.append(line)
+                adaptive_block = (
+                    "\n\nADAPTIVE PHASE-3 GAPS — graph-state-aware pivots:\n"
+                    "The following nodes are already in the graph but have NOT been pivoted with\n"
+                    "newly-available Phase 3 sources. For EACH item, run the listed tool call(s)\n"
+                    "and add the results to the graph (new nodes + edges from the parent node).\n"
+                    "These are not optional — they are gaps where the main phase missed a\n"
+                    "high-leverage pivot. Skip ONLY if the source returns no useful data, and\n"
+                    "note the reason in the report's gaps_summary.\n\n"
+                    + "\n".join(lines)
+                )
+
+            mandatory_section = ""
+            if missing:
+                mandatory_section = (
+                    f"STEP 2-{len(missing)+1}: Call ONLY these CTI tools that were "
+                    f"missed in phase 1 (do NOT substitute with any other tool, do "
+                    f"NOT repeat already-called tools):\n"
+                    + "\n".join(f"  {i+2}. {m}" for i, m in enumerate(missing))
+                    + "\nFor each result, add new nodes and edges to the graph.\n"
+                )
+            else:
+                mandatory_section = (
+                    "All mandatory phase-1 tools were called. Focus on the adaptive\n"
+                    "Phase-3 gaps below.\n"
+                )
+
             followup_prompt = (
                 f"Continue the investigation on {seed_value} (type={seed_type}). "
                 f"The graph already has nodes from the main investigation.\n\n"
@@ -1507,12 +1720,9 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 f"already in the graph):\n  "
                 + ", ".join(already_called_list or ["(none)"]) + "\n\n"
                 f"STEP 1: Call get_graph(compact=True) to see what already exists.\n"
-                f"STEP 2-{len(missing)+1}: Call ONLY these CTI tools that were "
-                f"missed in phase 1 (do NOT substitute with any other tool, do "
-                f"NOT repeat already-called tools):\n"
-                + "\n".join(f"  {i+2}. {m}" for i, m in enumerate(missing))
-                + "\nFor each result, add new nodes and edges to the graph.\n"
-                + report_instr
+                + mandatory_section
+                + adaptive_block
+                + "\n\n" + report_instr
                 + steps_block
             )
             rc2, saw2, _ = await _run_claude_phase(
