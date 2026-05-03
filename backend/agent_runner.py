@@ -857,8 +857,14 @@ NOW START the investigation. Execute the workflow step by step. Do not stop unti
 
 
 _ALLOWED_TOOLS = (
+    # graph + autonomy engine
     "mcp__graph__add_node,mcp__graph__add_edge,mcp__graph__tag_node,"
-    "mcp__graph__get_graph,mcp__graph__defuse,"
+    "mcp__graph__get_graph,mcp__graph__get_node,mcp__graph__get_report,"
+    "mcp__graph__defuse,"
+    "mcp__graph__next_pivot,mcp__graph__mark_pivot_done,mcp__graph__queue_status,"
+    "mcp__graph__coverage_matrix,mcp__graph__requeue_missing,"
+    "mcp__graph__gaps_report,mcp__graph__quota_status,"
+    # CTI sources (existing)
     "mcp__cti__dns_resolve,mcp__cti__reverse_dns,mcp__cti__crtsh_subdomains,"
     "mcp__cti__crtsh_serial,mcp__cti__crtsh_query,"
     "mcp__cti__rdap_domain,mcp__cti__rdap_ip,"
@@ -875,7 +881,16 @@ _ALLOWED_TOOLS = (
     "mcp__cti__otx_domain,mcp__cti__otx_ip,mcp__cti__otx_file,"
     "mcp__cti__threatfox_search,mcp__cti__wayback,"
     "mcp__cti__mnemonic_pdns,"
-    "mcp__cti__urlhaus_host,mcp__cti__malwarebazaar_hash,mcp__cti__malwarebazaar_signature"
+    "mcp__cti__urlhaus_host,mcp__cti__malwarebazaar_hash,mcp__cti__malwarebazaar_signature,"
+    # CTI sources (Phase 3 — added 2026-05-03)
+    "mcp__cti__abuseipdb_check,"
+    "mcp__cti__certspotter_issuances,mcp__cti__certspotter_serial,"
+    "mcp__cti__netlas_search,mcp__cti__netlas_jarm,mcp__cti__netlas_favicon,"
+    "mcp__cti__whoxy_reverse,"
+    "mcp__cti__zoomeye_search,mcp__cti__zoomeye_jarm,mcp__cti__zoomeye_favicon,"
+    "mcp__cti__criminalip_ip,mcp__cti__criminalip_domain,"
+    "mcp__cti__openphish_check,"
+    "mcp__cti__dom_fingerprints"
 )
 _DISALLOWED_TOOLS = "Bash,Edit,Write,MultiEdit,Read,Glob,Grep,NotebookEdit,WebSearch,WebFetch,Task,TodoWrite"
 
@@ -893,8 +908,16 @@ def _build_env(inv_id: str) -> dict:
                          if not any(x in p.lower() for x in
                                     ("antigravity", "vscode", "cursor", "code/bin", "trae"))),
     }
+    # Single-key env vars (legacy) + multi-key env vars (key_pool)
     for k in ("VIRUSTOTAL_API_KEY", "URLSCAN_API_KEY", "ONYPHE_API_KEY",
-              "SHODAN_API_KEY", "OTX_API_KEY", "ABUSECH_AUTH_KEY"):
+              "SHODAN_API_KEY", "OTX_API_KEY", "ABUSECH_AUTH_KEY",
+              "ABUSEIPDB_API_KEY", "CERTSPOTTER_API_KEY", "NETLAS_API_KEY",
+              "WHOXY_API_KEY", "ZOOMEYE_API_KEY", "CRIMINALIP_API_KEY",
+              # multi-key forms (rotation)
+              "VIRUSTOTAL_API_KEYS", "URLSCAN_API_KEYS", "ONYPHE_API_KEYS",
+              "SHODAN_API_KEYS", "OTX_API_KEYS", "ABUSECH_API_KEYS",
+              "ABUSEIPDB_API_KEYS", "CERTSPOTTER_API_KEYS", "NETLAS_API_KEYS",
+              "WHOXY_API_KEYS", "ZOOMEYE_API_KEYS", "CRIMINALIP_API_KEYS"):
         if parent.get(k):
             env[k] = parent[k]
     env["BOUNCE_INV_ID"] = inv_id

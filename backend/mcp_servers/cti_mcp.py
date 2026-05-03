@@ -274,5 +274,127 @@ async def wayback(url: str) -> dict:
     return await _src("wayback").wayback_snapshots(url)
 
 
+# ── Phase 3 sources (added 2026-05-03) ─────────────────────────────────
+
+@mcp.tool()
+async def abuseipdb_check(ip: str, max_age_days: int = 90) -> dict:
+    """AbuseIPDB report for an IP: confidence score, country, ISP, total
+    reports, last report date, categories. Free 1000 req/day."""
+    return await _src("abuseipdb").check_ip(ip, max_age_days=max_age_days)
+
+
+@mcp.tool()
+async def certspotter_issuances(domain: str, include_subdomains: bool = True) -> dict:
+    """CertSpotter (SSLMate) — certs issued for a domain. Each issuance has
+    dns_names, issuer, validity, cert hashes. Free 100 req/day."""
+    return await _src("certspotter").issuances_for_domain(domain, include_subdomains=include_subdomains)
+
+
+@mcp.tool()
+async def certspotter_serial(serial: str) -> dict:
+    """CertSpotter lookup by cert serial (hex). Cross-host reuse detection
+    (Cobalt Strike default certs etc.)."""
+    return await _src("certspotter").issuances_for_serial(serial)
+
+
+@mcp.tool()
+async def netlas_search(query: str, size: int = 20) -> dict:
+    """Netlas host search (Lucene-like). Examples:
+      domain:evil.com
+      ip:1.2.3.4
+      jarm:<jarm_fingerprint>
+      http.favicon.hash:<int>
+      asn:AS12345
+    Free 50 req/day."""
+    return await _src("netlas").host_search(query, size=size)
+
+
+@mcp.tool()
+async def netlas_jarm(jarm: str, size: int = 20) -> dict:
+    """Netlas — find hosts by JARM fingerprint."""
+    return await _src("netlas").jarm_search(jarm, size=size)
+
+
+@mcp.tool()
+async def netlas_favicon(favicon_hash: str, size: int = 20) -> dict:
+    """Netlas — find hosts by favicon mmh3 hash (Shodan-compat int)."""
+    return await _src("netlas").favicon_search(favicon_hash, size=size)
+
+
+@mcp.tool()
+async def whoxy_reverse(email: str | None = None, name: str | None = None,
+                         keyword: str | None = None, page: int = 1) -> dict:
+    """Whoxy reverse WHOIS — list domains registered by an email, a name,
+    or matching a keyword. Free tier: 1500 lifetime requests."""
+    if email:
+        return await _src("whoxy").reverse_by_email(email, page=page)
+    if name:
+        return await _src("whoxy").reverse_by_name(name, page=page)
+    if keyword:
+        return await _src("whoxy").reverse_by_keyword(keyword, page=page)
+    return {"error": "whoxy_reverse: pass at least one of email, name, keyword"}
+
+
+@mcp.tool()
+async def zoomeye_search(query: str, page: int = 1) -> dict:
+    """ZoomEye host search. Examples: ip:"1.2.3.4", hostname:"x.com",
+    iconhash:"<mmh3>", ssl.jarm:"<jarm>". Free 10k/month."""
+    return await _src("zoomeye").host_search(query, page=page)
+
+
+@mcp.tool()
+async def zoomeye_jarm(jarm: str, page: int = 1) -> dict:
+    """ZoomEye — find hosts by JARM fingerprint."""
+    return await _src("zoomeye").jarm_search(jarm, page=page)
+
+
+@mcp.tool()
+async def zoomeye_favicon(favicon_hash: str, page: int = 1) -> dict:
+    """ZoomEye — find hosts by favicon mmh3 hash (Shodan-compat int)."""
+    return await _src("zoomeye").favicon_search(favicon_hash, page=page)
+
+
+@mcp.tool()
+async def criminalip_ip(ip: str, full: bool = False) -> dict:
+    """CriminalIP IP report: ASN, geo, ports, scoring, malicious flags.
+    Free ~50 req/day."""
+    return await _src("criminalip").ip_report(ip, full=full)
+
+
+@mcp.tool()
+async def criminalip_domain(domain: str) -> dict:
+    """CriminalIP domain scan: scoring, related malware, hosting."""
+    return await _src("criminalip").domain_report(domain)
+
+
+@mcp.tool()
+async def openphish_check(url: str | None = None, host: str | None = None) -> dict:
+    """OpenPhish community feed — corroborate phishing classification.
+    Pass `url` for exact match or `host` for substring match. No auth."""
+    if url:
+        return await _src("openphish").check_url(url)
+    if host:
+        return await _src("openphish").check_host(host)
+    return {"error": "openphish_check: pass either url or host"}
+
+
+@mcp.tool()
+async def dom_fingerprints(url: str | None = None,
+                            urlscan_uuid: str | None = None) -> dict:
+    """Extract high-signal DOM fingerprints from a page: favicon mmh3 hash
+    (Shodan-compat), title SHA1, marketing tracking IDs (GA, GA4, GTM, FB
+    Pixel, Yandex, Hotjar, Adobe DTM, MS Clarity, TikTok), form action URLs
+    (often the phishing backend), inline-script SHA1s, crypto wallet
+    addresses (BTC bech32, ETH, XMR — drainer kits).
+
+    Pass either `url` (live fetch + favicon) or `urlscan_uuid` (uses urlscan's
+    public DOM endpoint, no extra fetch). Cached for 24h."""
+    if url:
+        return await _src("fingerprints").extract_from_url(url)
+    if urlscan_uuid:
+        return await _src("fingerprints").extract_from_urlscan(urlscan_uuid)
+    return {"error": "dom_fingerprints: pass either url or urlscan_uuid"}
+
+
 if __name__ == "__main__":
     mcp.run()
