@@ -128,6 +128,14 @@ def mark_quota_exhausted(source: str, key: str) -> None:
         s["cooldowns"][key] = next_midnight
 
 
+def has_any_key(source: str) -> bool:
+    """Return True if at least one key is configured for ``source`` (regardless
+    of cooldown). Used by the pivot mapper to decide whether a pivot should be
+    enqueued as 'pending' or 'skipped' with reason='no_api_key'."""
+    with _lock:
+        return len(_ensure_state(source)["keys"]) > 0
+
+
 def status(source: str) -> dict:
     with _lock:
         s = _ensure_state(source)
