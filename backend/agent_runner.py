@@ -385,15 +385,28 @@ R1. EVERY piece of information you find MUST become a node and/or edge via add_n
 R2. ALWAYS call defuse(kind, value) before pivoting on any IP or NS.
     If should_stop_pivot=true → tag the node with the returned tags, add a note in metadata, then STOP pivoting on it. Still graph the node itself.
 R3. Only use MCP tools (mcp__graph__* and mcp__cti__*). Do not attempt to read files, run commands, or search the web.
-R4. Budget (yield-based, not flat cap):
+R4. Budget (yield-based, not flat cap) — STRICTLY ENFORCED:
     Soft-cap = 60 tool calls (the PURPOSE target for fast-triage).
-    Hard-cap = 90 tool calls (after which you MUST finalize and call SELF_CRITIQUE → REPORT).
-    Between 60 and 90, you may CONTINUE calling tools ONLY IF the queue (queue_status) is non-empty
-    AND the last 5 tool calls produced ≥ 1 new "discriminating fingerprint" — meaning a node of
-    type jarm, favicon_hash, cert_serial, tracking_id, wallet_address, email, or a non-CDN ip/domain.
-    If yes, log a brief justification by calling add_node(report, "budget_extension_<N>",
-    metadata={reason:"...", calls_so_far:<N>}) and continue.
-    If no, STOP exploration and proceed to SELF_CRITIQUE → REPORT.
+    Hard-cap = 90 tool calls (after which you MUST finalize: SELF_CRITIQUE → REPORT).
+
+    BEFORE call N=61 and EVERY 5 calls thereafter, you MUST do BOTH of these
+    in the same turn before any further pivots:
+
+      1. Call queue_status() to confirm pending > 0 (otherwise STOP).
+      2. add_node("report", "budget_extension_<N>", metadata={
+           "reason": "<one specific yield, e.g. last 5 calls produced 2 JARMs + 1 cert>",
+           "calls_so_far": <N>,
+           "queue_pending": <from queue_status>,
+           "discriminating_fingerprints_last5": <count of new
+              jarm/favicon_hash/cert_serial/tracking_id/wallet_address/email/non-CDN ip
+              added since the previous budget_extension or start>
+         })
+         If discriminating_fingerprints_last5 == 0, you DO NOT continue — stop here
+         and go to SELF_CRITIQUE.
+
+    SKIPPING the budget_extension log is a hard violation of R4 and degrades the
+    eval BD score from 100 to 50. Don't be lazy here — it's literally one add_node
+    call before continuing.
 R5. ALWAYS set source= to the API name that produced the data (e.g. "virustotal", "crtsh", "rdap", "dns").
 R6. ALWAYS add edges between nodes. A node with no edges is useless to the analyst.
 R7. Steps marked MANDATORY must be executed. Do NOT skip threat intel (STEP 6), malware hash lookups (communicating_files), or the report node (STEP 8).
@@ -708,7 +721,20 @@ The category drives which pivots are HIGHEST-leverage. Quick reference:
   smishing_hub           → R14 origin unmask, virustotal_resolutions_domain
                            (historical), DOM template hash across siblings
   apt_targeted           → whoxy_reverse(email | name), cert SAN cluster,
-                           mnemonic_pdns historical, certspotter_issuances
+                           mnemonic_pdns historical, certspotter_issuances.
+                           IF the registrant_email returned by RDAP is privacy-masked
+                           (privacyguardian, contactprivacy, withheldforprivacy, etc.):
+                             whoxy_reverse won't resolve to siblings. INSTEAD pivot via:
+                             (a) NS-set sharing — same_ns_set is a strong APT signal:
+                                 onyphe_resolver_reverse on each NS hostname to find
+                                 other domains on the same NS pair;
+                             (b) cert SAN cluster — crtsh_query for the cert subject
+                                 organisation field; if SAN list contains other apex
+                                 domains, graph each as a sibling;
+                             (c) mnemonic_pdns on the seed's IPs — historical neighbours
+                                 on the same hosting block, then crtsh on each.
+                           Privacy-masked registrant is COMMON for APT — don't give
+                           up at the privacy layer.
   commodity_malware      → virustotal_communicating_files,
                            malwarebazaar_signature, threatfox_search,
                            otx_file → enumerate sample family

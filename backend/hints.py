@@ -248,20 +248,21 @@ def hint_for_virustotal_resolutions_ip(response: dict, ip: str) -> list[str]:
         return []
     # VT pDNS items have attributes.host_name
     co_resolvers: list[str] = []
-    for item in data[:8]:  # top 8
+    for item in data[:15]:  # peek deeper than the surface 5
         attrs = item.get("attributes") if isinstance(item, dict) else None
         host = (attrs or {}).get("host_name") if isinstance(attrs, dict) else None
         if host and host not in co_resolvers:
             co_resolvers.append(host)
     if not co_resolvers:
         return []
-    examples = ", ".join(co_resolvers[:5])
+    examples = ", ".join(co_resolvers[:8])  # bumped from 5 to 8 (Case 7 fix)
     return [
-        f"PIVOT_HINT: VT pDNS shows {len(co_resolvers)} co-resolvers on {ip} "
-        f"(examples: {examples}). For shared-hosting IPs (>80 co-residents), "
+        f"PIVOT_HINT: VT pDNS shows {len(co_resolvers)}+ co-resolvers on {ip} "
+        f"(top 8: {examples}). For shared-hosting IPs (>80 co-residents), "
         "tag 'shared_hosting' and graph 3 representatives only. For small clusters "
-        "(< 30 co-residents — likely intentional), graph EACH as a domain node "
-        "with a co_resolves edge — TDS / Keitaro / phishing-kit infra hides here."
+        "(< 30 co-residents — likely intentional, e.g. TDS / Keitaro / phishing-kit "
+        "infra), graph EACH listed co-resolver as a domain node with a co_resolves "
+        "edge from the IP. The cap is generous on purpose — prefer over-graphing here."
     ]
 
 
