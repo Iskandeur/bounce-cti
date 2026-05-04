@@ -83,7 +83,7 @@ async def virustotal_ip(ip: str) -> dict:
 @mcp.tool()
 async def virustotal_file(hash: str) -> dict:
     """VirusTotal v3 file report by md5/sha1/sha256."""
-    return await _src("virustotal").vt_file(hash)
+    return with_hints("virustotal_file", await _src("virustotal").vt_file(hash), hash)
 
 
 @mcp.tool()
@@ -95,7 +95,7 @@ async def virustotal_resolutions_domain(domain: str) -> dict:
 @mcp.tool()
 async def virustotal_resolutions_ip(ip: str) -> dict:
     """Historical passive DNS resolutions for an IP (VT) — co-resident domains."""
-    return await _src("virustotal").vt_ip_resolutions(ip)
+    return with_hints("virustotal_resolutions_ip", await _src("virustotal").vt_ip_resolutions(ip), ip)
 
 
 @mcp.tool()
