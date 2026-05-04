@@ -135,6 +135,7 @@ SQLite-backed store. Tables:
 | `users`          | `id`, `pin_hmac` (UNIQUE), `created_at`, `is_admin`, `allowed_models` (JSON or NULL), `label`                                 |
 | `sessions`       | `token` (PK), `user_id`, `expires_at`                                                                                         |
 | `shares`         | `token` (PK), `investigation_id`, `created_by`, `created_at`, `sections` (JSON), `expires_at`, `revoked`, `label`             |
+| `pivot_tasks`    | `id`, `investigation_id`, `node_type`, `node_value`, `pivot_op`, `priority`, `status` (pending\|running\|done\|skipped\|failed), `skip_reason`, `result_summary`, `attempts`, `enqueued_at`, `started_at`, `completed_at`, UNIQUE(inv,node_type,node_value,pivot_op) |
 
 Node IDs are SHA1 hashes of `(investigation_id, type, value)` (lower-cased) —
 so upserts are idempotent.
@@ -153,8 +154,12 @@ so upserts are idempotent.
   flag was cleared). If `ADMIN_PIN` is unset, it does nothing.
 
 ### `backend/mcp_servers/graph_mcp.py`
-MCP server exposing graph write/read tools to the agent:
-- `add_node(type, value, metadata, confidence, source, tags)`
+MCP server exposing graph write/read tools + the autonomy engine to the agent:
+
+**Graph CRUD**
+- `add_node(type, value, metadata, confidence, source, tags)` — also
+  auto-enqueues all applicable pivots for this node into `pivot_tasks`
+  (defuse-aware, fan-out capped at 8 high + 4 low priority per node)
 - `add_edge(src_type, src_value, dst_type, dst_value, relation, evidence, source, confidence)`
 - `tag_node(type, value, tag)`
 - `get_graph(compact: bool = False)` — full or compact (slim metadata) snapshot
@@ -163,15 +168,25 @@ MCP server exposing graph write/read tools to the agent:
 - `defuse(kind, value)` — CDN/parking/sinkhole/dyndns check; returns
   `should_stop_pivot` + a tag suggestion
 
+**Autonomy engine** (drains `pivot_tasks`, drives convergence)
+- `next_pivot()` — pop highest-priority pending task, atomically marks `running`
+- `mark_pivot_done(task_id, summary, status)` — close a task
+- `queue_status()` — counts: pending/running/done/skipped/failed + by-op breakdown
+- `coverage_matrix(only_with_gaps: bool = False)` — per-node pivot coverage
+- `requeue_missing()` — close coverage gaps idempotently
+- `gaps_report()` — group skipped/failed pivots by reason (no_api_key, defused, ...)
+- `quota_status()` — per-source key pool snapshot
+
 `BOUNCE_INV_ID` env var selects which investigation the agent is writing to.
 
 ### `backend/mcp_servers/cti_mcp.py`
-MCP server exposing ~40 async CTI source tools:
+MCP server exposing ~50 async CTI source tools:
 
 - DNS / pDNS: `dns_resolve`, `reverse_dns`, `mnemonic_pdns`,
   `onyphe_resolver_forward`, `onyphe_resolver_reverse`
 - RDAP / WHOIS: `rdap_domain`, `rdap_ip`
-- Certificates: `crtsh_subdomains`, `crtsh_serial`, `crtsh_query`, `onyphe_ctl`
+- Certificates: `crtsh_subdomains`, `crtsh_serial`, `crtsh_query`, `onyphe_ctl`,
+  `certspotter_issuances`, `certspotter_serial`
 - VirusTotal: `virustotal_domain`, `virustotal_ip`, `virustotal_file`,
   `virustotal_resolutions_domain`, `virustotal_resolutions_ip`,
   `virustotal_subdomains`, `virustotal_communicating_files`
@@ -183,12 +198,57 @@ MCP server exposing ~40 async CTI source tools:
 - abuse.ch: `urlhaus_host`, `malwarebazaar_hash`, `malwarebazaar_signature`
 - ip-api: `ip_api_lookup`, `ip_api_batch_lookup`, `ip_api_edns`
 - Wayback: `wayback`
+- **Phase 3 (added 2026-05-03)**:
+  - `abuseipdb_check` — IP reputation (1000 req/day free)
+  - `netlas_search` / `netlas_jarm` / `netlas_favicon` — scanner DB (50 req/day)
+  - `whoxy_reverse` — reverse WHOIS by email/name/keyword (1500 lifetime)
+  - `zoomeye_search` / `zoomeye_jarm` / `zoomeye_favicon` — scanner DB (10k/mo)
+  - `criminalip_ip` / `criminalip_domain` — IP/domain intel (~50/day)
+  - `openphish_check` — community phishing feed corroboration (no auth)
+- **Phase 2 fingerprint extractor**:
+  - `dom_fingerprints(url|urlscan_uuid)` — favicon mmh3 hash (Shodan-compat),
+    title SHA1, marketing tracking IDs (GA, GA4, GTM, FB Pixel, Yandex,
+    Hotjar, Adobe DTM, MS Clarity, TikTok), form action URLs, inline-script
+    SHA1s, crypto wallet addresses (BTC bech32, ETH, XMR)
 
 ### `backend/sources/`
 One file per source. All async, all cached via `graph_store.cache_get/cache_set`.
-Files: `crtsh`, `rdap`, `dns_tools`, `virustotal`, `urlscan`, `onyphe`,
+
+Existing: `crtsh`, `rdap`, `dns_tools`, `virustotal`, `urlscan`, `onyphe`,
 `shodan`, `otx`, `threatfox`, `wayback`, `ip_api`, `mnemonic`, `abusech`
 (URLhaus + MalwareBazaar), and `http_client` (shared HTTPX client + retry).
+
+Phase 2 (DOM fingerprinting): `fingerprints` — extracts favicon mmh3 hash
+(Shodan-compat), title SHA1, marketing tracking IDs, form actions, inline
+scripts, crypto wallet addresses from a page's HTML or a urlscan UUID.
+
+Phase 3 (added 2026-05-03): `abuseipdb`, `certspotter`, `netlas`, `whoxy`,
+`zoomeye`, `criminalip`, `openphish`. Each goes through `key_pool.acquire()`
+for rotation/cooldown and degrades gracefully when no key is configured.
+
+### `backend/key_pool.py`
+In-process API key pool with round-robin rotation, cooldown on 429
+(`mark_rate_limited(src, key, cooldown_seconds)`) and full-day cooldown on
+quota exhaustion (`mark_quota_exhausted(src, key)`). Reads keys from env in
+two formats per source: `<PREFIX>_API_KEYS=k1,k2,k3` (multi, takes
+precedence) or `<PREFIX>_API_KEY=k1` (single, legacy). Per-source short
+names: `vt`, `urlscan`, `onyphe`, `shodan`, `otx`, `abusech`, `abuseipdb`,
+`certspotter`, `netlas`, `whoxy`, `zoomeye`, `criminalip`. Sources call
+`acquire(src)` and degrade gracefully when None is returned.
+
+### `backend/pivot_mapping.py`
+Per-node-type pivot rules. `pivots_for(type, value, has_key, defused)`
+returns `[(pivot_op, priority, skip_reason_or_None)]`. Defused nodes only
+receive doc-only pivots (rdap, dns_resolve); the rest are inserted as
+`skipped` with `skip_reason='defused'`. No-key sources are inserted as
+`skipped` with `skip_reason='no_api_key'` so they surface in `gaps_report`.
+
+Also exports `CLOUD_ASNS` (multi-tenant cloud/CDN ASN list, used by the
+convergence check), per-node fan-out caps (`MAX_HIGH_PRIO_PER_NODE=8`,
+`MAX_LOW_PRIO_PER_NODE=4`), per-hop cap (`MAX_NEW_NODES_PER_HOP=30`), and
+`discriminating_marker(type, tags, metadata)` — the predicate used by the
+convergence criterion (jarm, favicon_hash, cert_serial, tracking_id,
+wallet_address, email, plus non-CDN ip/domain/ns/asn).
 
 ### `backend/defuse_lists.py`
 Hardcoded lists for noise filtering:
@@ -290,12 +350,28 @@ UI panels:
 All keys in `.env` (copy from `.env.example`):
 
 ```
+# Core sources (existing)
 VIRUSTOTAL_API_KEY=    # 4 req/min free tier
 URLSCAN_API_KEY=       # free
 ONYPHE_API_KEY=        # free community tier
 SHODAN_API_KEY=        # paid, optional
 OTX_API_KEY=           # free
 ABUSECH_AUTH_KEY=      # free, register at https://auth.abuse.ch/  (URLhaus + MalwareBazaar)
+
+# Phase 3 sources (added 2026-05-03)
+ABUSEIPDB_API_KEY=     # free 1000 req/day
+CERTSPOTTER_API_KEY=   # free 100 req/day (SSLMate)
+NETLAS_API_KEY=        # free 50 req/day
+WHOXY_API_KEY=         # free 1500 lifetime
+ZOOMEYE_API_KEY=       # free 10k/month
+CRIMINALIP_API_KEY=    # free ~50/day
+
+# Multi-key rotation (optional; if set, takes precedence over the single-key form)
+# Useful for free tiers (VT, Netlas, CertSpotter, CriminalIP).
+# VIRUSTOTAL_API_KEYS=k1,k2,k3
+# NETLAS_API_KEYS=...
+# CERTSPOTTER_API_KEYS=...
+
 CLAUDE_BIN=claude      # path to claude CLI if not in PATH
 ADMIN_PIN=             # optional; if unset, an admin PIN is generated on first start
 ```

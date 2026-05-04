@@ -67,6 +67,163 @@ def _get_called_cti_tools(inv_id: str) -> set:
     return tools
 
 
+def _get_called_tool_invocations(inv_id: str) -> set:
+    """Like _get_called_cti_tools but returns (tool_name, primary_arg_str_lower).
+    Used by the adaptive-followup logic to detect which (tool, value) pairs
+    were actually invoked, so we don't re-trigger them."""
+    with gs.conn() as c:
+        rows = c.execute(
+            "SELECT payload FROM events WHERE investigation_id=?",
+            (inv_id,)
+        ).fetchall()
+    out: set = set()
+    for (payload,) in rows:
+        try:
+            d = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if d.get("kind") != "agent_assistant":
+            continue
+        for block in d.get("msg", {}).get("message", {}).get("content", []):
+            if block.get("type") != "tool_use":
+                continue
+            name = block.get("name", "")
+            if not name.startswith("mcp__cti__"):
+                continue
+            short = name[len("mcp__cti__"):]
+            inp = block.get("input") or {}
+            # Pick the first non-empty string-ish value as primary arg
+            primary = ""
+            for v in inp.values():
+                if isinstance(v, (str, int)) and str(v).strip():
+                    primary = str(v).strip().lower()
+                    break
+            out.add((short, primary))
+    return out
+
+
+def _adaptive_followup_targets(inv_id: str) -> list:
+    """Inspect the current graph and return per-node Phase 3 gaps that would
+    be high-leverage to fill. Adaptive: only emits tasks for nodes that
+    actually exist in the graph; tools that have no API key configured are
+    silently skipped (the source itself will degrade gracefully). Cap at 12
+    to avoid Phase 2 storm.
+
+    Returns: [(node_type, node_value, [missing_tool_call_strings], rationale)]
+    """
+    try:
+        called = _get_called_tool_invocations(inv_id)
+    except Exception:
+        called = set()
+    try:
+        graph = gs.get_graph(inv_id)
+    except Exception:
+        return []
+
+    nodes = graph.get("nodes", []) if isinstance(graph, dict) else []
+
+    def was_called(tool: str, value: str) -> bool:
+        return (tool, str(value).lower()) in called
+
+    targets = []
+    seen_keys: set = set()  # dedup on (node_type, node_value)
+
+    for n in nodes:
+        ntype = (n.get("type") or "").lower()
+        nvalue = n.get("value") or ""
+        ntags = [t.lower() for t in (n.get("tags") or [])]
+        md = n.get("metadata") or {}
+
+        if not nvalue:
+            continue
+        key = (ntype, nvalue.lower())
+        if key in seen_keys:
+            continue
+
+        # email → whoxy_reverse (skip institutional / registrar emails)
+        if ntype == "email" and not any(t in ntags for t in ("privacy", "redacted", "institutional", "registrar")):
+            try:
+                from .hints import _is_private_email
+                is_inst = _is_private_email(nvalue)
+            except Exception:
+                is_inst = False
+            if not is_inst and not was_called("whoxy_reverse", nvalue):
+                targets.append((ntype, nvalue, [f"whoxy_reverse(email=\"{nvalue}\")"],
+                                 "registrant email never reverse-WHOISed"))
+                seen_keys.add(key)
+                continue
+
+        # JARM → netlas_jarm + zoomeye_jarm
+        if ntype == "jarm":
+            missing = []
+            if not was_called("netlas_jarm", nvalue):
+                missing.append(f"netlas_jarm(\"{nvalue}\")")
+            if not was_called("zoomeye_jarm", nvalue):
+                missing.append(f"zoomeye_jarm(\"{nvalue}\")")
+            if missing:
+                targets.append((ntype, nvalue, missing,
+                                 "JARM never multi-source pivoted (netlas/zoomeye)"))
+                seen_keys.add(key)
+                continue
+
+        # favicon_hash → netlas_favicon + zoomeye_favicon
+        if ntype == "favicon_hash":
+            missing = []
+            if not was_called("netlas_favicon", nvalue):
+                missing.append(f"netlas_favicon(\"{nvalue}\")")
+            if not was_called("zoomeye_favicon", nvalue):
+                missing.append(f"zoomeye_favicon(\"{nvalue}\")")
+            if missing:
+                targets.append((ntype, nvalue, missing,
+                                 "favicon hash never pivoted"))
+                seen_keys.add(key)
+                continue
+
+        # cert with serial → certspotter_serial
+        if ntype == "cert":
+            serial = md.get("serial") or md.get("serial_number") or md.get("serialNumber")
+            if serial and isinstance(serial, str) and not was_called("certspotter_serial", serial):
+                targets.append((ntype, nvalue,
+                                 [f"certspotter_serial(\"{serial}\")"],
+                                 f"cert serial {serial[:24]}... never CT-cluster pivoted"))
+                seen_keys.add(key)
+                continue
+
+        # Seed domain → certspotter_issuances + dom_fingerprints
+        if ntype == "domain" and "seed" in ntags:
+            missing = []
+            if not was_called("certspotter_issuances", nvalue):
+                missing.append(f"certspotter_issuances(domain=\"{nvalue}\", include_subdomains=True)")
+            if missing:
+                targets.append((ntype, nvalue, missing,
+                                 "seed domain CT-history never enriched via CertSpotter"))
+                seen_keys.add(key)
+                continue
+
+        # Non-defused IP → abuseipdb + criminalip
+        if ntype == "ip" and not any(t in ntags for t in ("cdn", "parking", "sinkhole", "dyndns")):
+            missing = []
+            if not was_called("abuseipdb_check", nvalue):
+                missing.append(f"abuseipdb_check(\"{nvalue}\")")
+            if not was_called("criminalip_ip", nvalue):
+                missing.append(f"criminalip_ip(\"{nvalue}\")")
+            if missing:
+                targets.append((ntype, nvalue, missing,
+                                 "non-CDN IP never IP-rep cross-checked"))
+                seen_keys.add(key)
+                continue
+
+        # URL → dom_fingerprints
+        if ntype == "url" and not was_called("dom_fingerprints", nvalue):
+            targets.append((ntype, nvalue, [f"dom_fingerprints(url=\"{nvalue}\")"],
+                             "URL DOM never fingerprinted"))
+            seen_keys.add(key)
+            continue
+
+    # Cap to 12 — Phase 2 should be focused, not exhaustive
+    return targets[:12]
+
+
 def _is_parked(inv_id: str) -> bool:
     """Check if the investigation identified the seed as parked."""
     try:
@@ -228,7 +385,15 @@ R1. EVERY piece of information you find MUST become a node and/or edge via add_n
 R2. ALWAYS call defuse(kind, value) before pivoting on any IP or NS.
     If should_stop_pivot=true → tag the node with the returned tags, add a note in metadata, then STOP pivoting on it. Still graph the node itself.
 R3. Only use MCP tools (mcp__graph__* and mcp__cti__*). Do not attempt to read files, run commands, or search the web.
-R4. Budget: max 80 tool calls total. If you hit the limit, stop and write the report node.
+R4. Budget (yield-based, not flat cap):
+    Soft-cap = 60 tool calls (the PURPOSE target for fast-triage).
+    Hard-cap = 90 tool calls (after which you MUST finalize and call SELF_CRITIQUE → REPORT).
+    Between 60 and 90, you may CONTINUE calling tools ONLY IF the queue (queue_status) is non-empty
+    AND the last 5 tool calls produced ≥ 1 new "discriminating fingerprint" — meaning a node of
+    type jarm, favicon_hash, cert_serial, tracking_id, wallet_address, email, or a non-CDN ip/domain.
+    If yes, log a brief justification by calling add_node(report, "budget_extension_<N>",
+    metadata={reason:"...", calls_so_far:<N>}) and continue.
+    If no, STOP exploration and proceed to SELF_CRITIQUE → REPORT.
 R5. ALWAYS set source= to the API name that produced the data (e.g. "virustotal", "crtsh", "rdap", "dns").
 R6. ALWAYS add edges between nodes. A node with no edges is useless to the analyst.
 R7. Steps marked MANDATORY must be executed. Do NOT skip threat intel (STEP 6), malware hash lookups (communicating_files), or the report node (STEP 8).
@@ -288,6 +453,118 @@ R14. CLOUDFLARE-FRONTED DOMAIN — ORIGIN-UNMASK IS MANDATORY. If the seed's
     edge is a critical failure.
 
 ══════════════════════════════════════════════
+AUTONOMY ENGINE — pivot queue + coverage + self-critique
+══════════════════════════════════════════════
+You have 7 graph tools that drive a structural exhaustion check. They are NOT optional
+nice-to-haves — using them properly is what separates a "good triage" from a "complete one".
+
+PIVOT QUEUE (auto-populated by add_node):
+  Every add_node() you make auto-enqueues all applicable pivots for that node into the
+  pivot_tasks queue (e.g. add_node(domain, X) auto-queues rdap_domain, dns_resolve,
+  crtsh_subdomains, virustotal_domain, virustotal_subdomains, urlscan_search, wayback,
+  otx_domain, onyphe_domain, threatfox_search, urlhaus_host, mnemonic_pdns,
+  certspotter_issuances, dom_fingerprints + per-node fan-out caps and defuse-aware
+  filtering). Defused IPs/NS/domains only enqueue rdap+dns_resolve; the rest are inserted
+  as 'skipped' with reason='defused'.
+
+  This means YOU DO NOT NEED to remember every pivot mentioned in the WORKFLOW STEPS below.
+  The queue does it for you. The STEPS below remain useful as priority/order hints, but
+  the queue is the source of truth for "what's left to do".
+
+  Tools:
+    next_pivot()              → pop highest-priority pending task; returns
+                                 {task_id, node_type, node_value, pivot_op}
+    mark_pivot_done(task_id, summary, status='done')
+                              → close the task. summary should be 1 line:
+                                "5 subs, 1 new IP" or "no records".
+    queue_status()            → {pending, running, done, skipped, failed, by_op:{...}}
+
+COVERAGE CHECK (call before writing the report):
+    coverage_matrix(only_with_gaps=true)
+        → list of nodes that still have pending/failed pivots. Use it to spot trous.
+    requeue_missing()
+        → for every node, ensure all expected pivots are enqueued (idempotent).
+          Returns {enqueued: N}. If N>0, you had coverage gaps — drain them
+          before terminating.
+
+SELF-CRITIQUE (call BEFORE writing the report):
+    gaps_report()
+        → grouped view of skipped/failed pivots by reason
+          (no_api_key, defused, rate_limit, fanout_per_node, ...).
+          You MUST integrate the highlights into report.metadata.gaps_summary
+          and report.metadata.pivots_not_attempted so the analyst knows what
+          you couldn't do and why. This is non-negotiable.
+
+QUOTA AWARENESS:
+    quota_status()
+        → per-source key pool snapshot. If a primary source is exhausted, redirect
+          to alternatives (netlas/zoomeye instead of shodan, mnemonic_pdns instead
+          of vt_resolutions, abuseipdb/criminalip instead of vt_ip, etc.).
+
+══════════════════════════════════════════════
+PIVOT HINTS IN TOOL RESPONSES — read them
+══════════════════════════════════════════════
+Several CTI tools (rdap_domain, rdap_ip, virustotal_domain, virustotal_ip,
+urlscan_search, urlscan_result, dns_resolve) augment their responses with a
+"_pivot_hints" array — short, context-specific suggestions that read like:
+
+   "PIVOT_HINT: registrant email 'x@y.com' is NOT privacy-protected — call
+    whoxy_reverse(email='x@y.com') to enumerate sibling domains by same registrant."
+
+These are computed from the actual response data (a non-private email triggers a
+whoxy hint; a JARM triggers netlas_jarm + zoomeye_jarm hints; an urlscan UUID
+triggers a dom_fingerprints hint). They are HIGH-SIGNAL and TIME-LOCAL: at the
+moment you receive the response, the hint tells you the most valuable next pivot.
+
+When you see "_pivot_hints" in a response: READ them, and CALL the suggested
+tool unless you have a strong reason not to. Skipping a hint is a missed pivot.
+
+══════════════════════════════════════════════
+NEW HIGH-VALUE SOURCES — when to reach for each
+══════════════════════════════════════════════
+DOM FINGERPRINTS (dom_fingerprints):
+  Pass either url or urlscan_uuid. Returns favicon_hash (Shodan-compat mmh3),
+  title_hash (sha1), tracking_ids (GA, GA4, GTM, FB Pixel, Yandex, Hotjar,
+  Clarity, TikTok), form_actions, inline_script_hashes, wallet_addresses (BTC
+  bech32, ETH, XMR — drainer kits).
+  Call it on EVERY url node you graph for a phishing/scam seed (drainer kits,
+  fake-update pages, smishing landings, fake-government). Each tracking_id and
+  favicon_hash becomes a NEW pivot via shodan_search/netlas/zoomeye.
+
+WHOXY (whoxy_reverse): registrant email/name/keyword → list of registered domains.
+  Call it whenever rdap_domain returned a NON-PRIVACY-PROTECTED registrant_email
+  or registrant_name. This is the canonical reverse-WHOIS pivot (Salt Typhoon,
+  LummaC2 etc.). Pass email= OR name= OR keyword=.
+
+CERTSPOTTER (certspotter_issuances, certspotter_serial):
+  Continuous CT log monitoring. Use certspotter_issuances(domain) for a
+  comprehensive cert history (often catches more than crt.sh on edge cases).
+  Use certspotter_serial(serial) to find every cert sharing a serial — strong
+  cluster signal.
+
+NETLAS (netlas_search, netlas_jarm, netlas_favicon):
+  Multi-purpose scanner DB. Lucene query syntax. Always try netlas_jarm AND
+  netlas_favicon when you have those values — they often surface origins that
+  Shodan misses (different scanning vantage point).
+
+ZOOMEYE (zoomeye_search, zoomeye_jarm, zoomeye_favicon):
+  Same role as Netlas, third-source corroboration. Use it when JARM/favicon
+  yielded results elsewhere — multi-source = stronger cluster.
+
+ABUSEIPDB (abuseipdb_check):
+  IP reputation. Cheap (1000/day free). Call it for EVERY non-defused IP node
+  you graph, alongside virustotal_ip. If confidence_score > 50, tag the IP
+  "suspicious" with the AbuseIPDB confidence value in metadata.
+
+CRIMINALIP (criminalip_ip, criminalip_domain):
+  Alternative scanner DB with strong scoring. Call when shodan/vt yielded
+  little. Free tier ~50/day, so prioritize for non-defused, non-CDN IPs.
+
+OPENPHISH (openphish_check): community phishing feed corroboration.
+  Call openphish_check(host=<seed>) for any suspected phishing domain. Listed
+  match = strong corroboration to escalate threat_assessment.
+
+══════════════════════════════════════════════
 PASSIVE FINGERPRINTING — ALWAYS SAFE, ALWAYS USEFUL
 ══════════════════════════════════════════════
 shodan_host, onyphe_ip, onyphe_domain and virustotal_* are PASSIVE lookups: they query
@@ -308,7 +585,20 @@ the recorded result.
 ══════════════════════════════════════════════
 GRAPH SCHEMA — node types and edge relations
 ══════════════════════════════════════════════
-Node types: domain, ip, ns, registrar, cert, asn, email, url, hash, jarm, favicon, country, report
+Node types (canonical):
+  Core:     domain, ip, ns, registrar, cert, asn, email, url, hash, jarm, country, report
+  Phase 2 (DOM fingerprints — when extracted via dom_fingerprints):
+            favicon_hash (mmh3 int, Shodan http.favicon.hash compat),
+            title_hash (sha1 of <title>),
+            tracking_id (GA/GTM/FB Pixel/Yandex/Hotjar/Clarity/TikTok/Adobe DTM),
+            form_action (phishing backend URL — also graph as a `url` if interesting),
+            wallet_address (BTC bech32 / ETH / XMR — drainer kit cluster),
+            js_hash (sha1 of inline scripts).
+  Cluster pivot anchors:
+            cert_serial (TLS cert serial number — strong cluster signal).
+  Aliases auto-resolved by the queue: 'favicon' -> 'favicon_hash',
+            'cert_sha1'/'cert_sha256'/'cert_thumbprint' -> 'cert_serial',
+            'ja3'/'ja3s' -> 'jarm'. Use canonical names when possible.
 Tags to use: seed, suspicious, benign, cdn, parking, sinkhole, dyndns, shared_hosting, c2, phishing, expired
 
 COUNTRY NODE — USE SPARINGLY AND ONLY WHEN THE LINK IS UNAMBIGUOUS
@@ -520,26 +810,37 @@ STEP 7 — SIMILAR ATTACK PATTERN HUNTING (do this aggressively — go as far as
   analyst sees the cluster, not just the seed.
 
   a. JARM fingerprint pivot — if you found a JARM that is NOT a well-known CDN JARM:
-     → shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") AND urlscan_search("hash:<jarm>")
-     → For EACH hit in the merged results (Shodan hits + Onyphe datascan records + URLScan
-       scans), you MUST add_node(ip, <ip>) AND add_edge(<seed>→<ip>, same_jarm, source=<shodan|onyphe|urlscan>).
-       Graph the top 10 distinct IPs. If a hit has already been added, skip — but never
-       skip the whole cluster "because shodan returned results". An un-graphed cluster is
-       a pivot failure: the analyst will not see that the seed has siblings.
+     → shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") AND
+       netlas_jarm(<jarm>) AND zoomeye_jarm(<jarm>) AND urlscan_search("hash:<jarm>")
+     → Multi-source is intentional: each scanner has different vantage. Onyphe may miss
+       what Netlas catches; Shodan free tier is credit-limited so Netlas+ZoomEye fill in.
+     → For EACH hit in the merged results, you MUST add_node(ip, <ip>) AND
+       add_edge(<seed>→<ip>, same_jarm, source=<shodan|onyphe|netlas|zoomeye|urlscan>).
+       Graph the top 10 distinct IPs (across sources, by ASN diversity).
      → Do NOT summarize the cluster in free text — every member is a node.
-  b. Favicon hash pivot — if VT/onyphe exposed a favicon hash:
-     → shodan_search("http.favicon.hash:<hash>") AND onyphe_datascan("favicon:<hash>")
-     → For matches: add_node(ip), add_edge(<seed>→<ip>, same_favicon)
+  b. Favicon hash pivot — if VT/onyphe/dom_fingerprints exposed a favicon hash:
+     → add_node(favicon_hash, <hash>, source=<from>) FIRST (so it auto-enqueues lookups)
+     → shodan_search("http.favicon.hash:<hash>") AND onyphe_datascan("favicon:<hash>") AND
+       netlas_favicon(<hash>) AND zoomeye_favicon(<hash>)
+     → For matches: add_node(ip), add_edge(<seed>→<ip>, same_favicon, source=<...>)
   c. Certificate pivot — if you found a cert serial/SHA1/SHA256:
-     → shodan_search("ssl.cert.serial:<serial>") and crt.sh by serial when possible
+     → shodan_search("ssl.cert.serial:<serial>") AND crtsh_serial(<serial>) AND
+       certspotter_serial(<serial>) — third source to catch what crt.sh missed
      → add_edge(<seed>→<other>, same_cert)
+     → certspotter_issuances(<seed>) for a richer issuance history than crt.sh on edge cases
   d. NS-set pivot — if the domain uses an unusual NS set (not parking, not big providers):
      → If shodan_search or urlscan_search reveal other domains using the EXACT same NS set:
          add_edge(<seed>→<domain>, same_ns_set)  ← this is one of the strongest pivots
-  e. Registrant pivot — if RDAP exposed a registrant email/org that is not privacy-protected:
-     → urlscan_search("page.url:<email_local_part>") or note as pivot suggestion
+  e. Registrant pivot — if RDAP exposed a registrant email/org that is NOT privacy-protected:
+     → add_node(email, <email>) FIRST so the queue auto-enqueues whoxy_reverse
+     → whoxy_reverse(email=<registrant_email>) — REVERSE WHOIS, the primary pivot for
+       Salt-Typhoon-class APT clusters. For each domain returned (max 20):
+         add_node(domain, <d>, source="whoxy")
+         add_edge(<email>→<d>, registered_by, source="whoxy")
+     → If a recognizable name (not generic): whoxy_reverse(name=<registrant_name>)
      → onyphe_pastries(<email>) to detect leak/credential reuse mentions
-     → add_edge(<seed>→<other>, same_registrant)
+     → urlscan_search("page.url:<email_local_part>") as supplemental
+     → add_edge(<seed>→<other>, same_registrant) for each cluster member
   f. Filename / hash pivot — if VT communicating_files showed sample hashes:
      → For top 3: virustotal_file(<hash>) → extract names, signatures, families
      → add_node(hash), add_edge(<seed>→<hash>, communicates_with)
@@ -548,11 +849,37 @@ STEP 7 — SIMILAR ATTACK PATTERN HUNTING (do this aggressively — go as far as
      → urlscan_search("page.title:\"<title>\"") to find lookalike phishing pages
      → add_edge(<seed>→<url>, same_page_template)
   h. ASN/CIDR neighbourhood — if the IP is on a small/abused ASN (NOT a big cloud):
-     → shodan_search("asn:<ASN> port:443") and look for hosts with same JARM/title
-     → Tag the ASN node "abused_asn" if you find multiple suspicious neighbours
+     → shodan_search("asn:<ASN> port:443") AND netlas_search("asn:<ASN>")
+     → Look for hosts with same JARM/title. Tag the ASN node "abused_asn" if you find
+       multiple suspicious neighbours.
+  i. DOM fingerprint pivot — if the seed (or any url node) is a phishing/scam page:
+     → For each URL node graphed (especially if the seed is a URL): dom_fingerprints(url=<u>)
+     → For each tracking_id returned (GA, GTM, FB Pixel, Yandex, Hotjar, Clarity, TikTok):
+         add_node(tracking_id, <value>, metadata={type:<ga|gtm|...>}, source="dom")
+         The queue auto-enqueues urlscan_search to find sibling pages using the same ID.
+     → For each form_action URL: add_node(url, <action_url>) — often the phishing backend.
+     → For favicon_hash returned: add_node(favicon_hash, <hash>) — auto-pivots to scanner DBs.
+     → For wallet_addresses (BTC bech32 / ETH / XMR): add_node(wallet_address, <addr>,
+       metadata={chain:<...>}) — drainer kit cluster signal.
+  j. OpenPhish corroboration — for any suspected phishing seed:
+     → openphish_check(host=<seed>) — listed match = strong escalation signal.
 
-  Keep going until you have either exhausted the markers or you are within ~10 calls of
-  the budget. Every same_* edge you add is high-value pivot evidence — graph it.
+  Keep going until BOTH:
+    (1) the queue is empty (queue_status returns pending=0 AND running=0), AND
+    (2) coverage_matrix(only_with_gaps=true) returns []  ← run requeue_missing first.
+  Every same_* edge you add is high-value pivot evidence — graph it.
+
+STEP 7.5 — SELF-CRITIQUE (MANDATORY before STEP 8)
+  Before writing the report, perform structural exhaustion check + self-critique:
+    1. requeue_missing()  → if it returns enqueued > 0, drain those new pivots (loop back
+       to next_pivot until queue empty). Skipping this means missed pivots silently.
+    2. coverage_matrix(only_with_gaps=true)  → if any node still has pivots_pending,
+       that's a gap. Drain or explicitly mark complete via mark_pivot_done(status='skipped',
+       summary="why").
+    3. gaps_report()  → snapshot the {by_reason, total_skipped, total_failed}. You will
+       paste this into report.metadata.gaps_summary at STEP 8.
+    4. queue_status()  → final tally. report.metadata.queue_final = {pending, done,
+       skipped, failed}.
 
 STEP 8 — Final report (MANDATORY — always do this last)
   BEFORE writing the report, verify you have called ALL of these (if you haven't, go back and call them NOW):
@@ -562,6 +889,7 @@ STEP 8 — Final report (MANDATORY — always do this last)
     □ onyphe_domain(<seed>)                           — second-source fingerprinting
     □ onyphe_ctl(<seed>)                              — CT-log SAN pivots
     □ shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") — if JARM found, not CDN
+    □ STEP 7.5 self-critique completed (requeue_missing + coverage_matrix + gaps_report)
   If any are unchecked, do NOT write the report yet. Go call them first.
 
   Before writing, SCAN graph nodes for: threatfox malware_family, otx pulse
@@ -583,7 +911,11 @@ STEP 8 — Final report (MANDATORY — always do this last)
     "discriminating_markers": ["<exact value of strong marker>", ...],
     "pivot_suggestions": ["<concrete next step mentioning exact IOC values>", ...],
     "ioc_list": ["<exact value matching a graph node>", ...],
-    "sources_used": ["dns","rdap","crtsh","virustotal",...]
+    "sources_used": ["dns","rdap","crtsh","virustotal",...],
+    # MANDATORY (STEP 7.5 self-critique):
+    "gaps_summary": "<from gaps_report(): 1-2 lines naming the top reasons (e.g. 'whoxy_reverse skipped on 3 emails: rate_limit; criminalip_ip skipped on 2 IPs: no_api_key')>",
+    "pivots_not_attempted": [{"op":"<pivot_op>", "node":"<type:value>", "reason":"<no_api_key|rate_limit|defused|fanout_per_node>"}, ...],
+    "queue_final": {"pending":0, "done":<N>, "skipped":<N>, "failed":<N>}
   }, source="agent", tags=["report"])
   IMPORTANT for key_findings: each finding MUST be an object {text, sources[]}, not a plain string.
   IMPORTANT for ioc_list and text fields: use exact node values (IPs, domain names) as they appear in the graph — the UI will auto-link them.
@@ -852,13 +1184,48 @@ This exception does NOT apply to:
   - Domains that merely have a name resembling a malware family (e.g., "wannacry.com" owned by a domain broker is NOT the same as an FBI-seized C2 domain)
   - Domains parked by commercial brokers (HugeDomains, Sedo, Afternic, etc.) — these ALWAYS get early-exit, regardless of their name
 
-NOW START the investigation. Execute the workflow step by step. Do not stop until STEP 8 is done.
+══════════════════════════════════════════════
+EXECUTION MODEL — state machine summary
+══════════════════════════════════════════════
+You operate as a state machine, not a linear script:
+
+  SEED_BOOTSTRAP   add_node(seed) → triggers auto-enqueue of initial pivots
+       │
+       ▼
+  DRAIN_QUEUE      loop: next_pivot() → call the tool → process results (which
+       │           triggers more add_nodes, which auto-enqueue more pivots) →
+       │           mark_pivot_done(task_id, summary). The WORKFLOW STEPS above
+       │           are PRIORITY HINTS for what to do, but the queue is the
+       │           authoritative todo-list.
+       ▼
+  EXHAUSTION_CHK   when queue_status.pending == 0:
+       │             - requeue_missing()  ← may add new tasks
+       │             - if requeue_missing returned 0, transition. Else loop.
+       ▼
+  CONVERGE_CHECK   if any of these is true → SELF_CRITIQUE → REPORT:
+       │             - tool_calls >= 90 (hard cap)
+       │             - tool_calls >= 60 AND last 5 calls produced 0 new
+       │               discriminating fingerprints (yield-based stop)
+       │             - queue is empty AND coverage_matrix(only_with_gaps=true) is empty
+       ▼
+  SELF_CRITIQUE    gaps_report() → STEP 7.5 above
+       ▼
+  REPORT           STEP 8 → add_node(report, "investigation_summary", ...)
+
+NOW START the investigation. Use add_node aggressively (it auto-builds your queue).
+Drain the queue with next_pivot until exhausted. Self-critique. Report.
 """
 
 
 _ALLOWED_TOOLS = (
+    # graph + autonomy engine
     "mcp__graph__add_node,mcp__graph__add_edge,mcp__graph__tag_node,"
-    "mcp__graph__get_graph,mcp__graph__defuse,"
+    "mcp__graph__get_graph,mcp__graph__get_node,mcp__graph__get_report,"
+    "mcp__graph__defuse,"
+    "mcp__graph__next_pivot,mcp__graph__mark_pivot_done,mcp__graph__queue_status,"
+    "mcp__graph__coverage_matrix,mcp__graph__requeue_missing,"
+    "mcp__graph__gaps_report,mcp__graph__quota_status,"
+    # CTI sources (existing)
     "mcp__cti__dns_resolve,mcp__cti__reverse_dns,mcp__cti__crtsh_subdomains,"
     "mcp__cti__crtsh_serial,mcp__cti__crtsh_query,"
     "mcp__cti__rdap_domain,mcp__cti__rdap_ip,"
@@ -875,7 +1242,16 @@ _ALLOWED_TOOLS = (
     "mcp__cti__otx_domain,mcp__cti__otx_ip,mcp__cti__otx_file,"
     "mcp__cti__threatfox_search,mcp__cti__wayback,"
     "mcp__cti__mnemonic_pdns,"
-    "mcp__cti__urlhaus_host,mcp__cti__malwarebazaar_hash,mcp__cti__malwarebazaar_signature"
+    "mcp__cti__urlhaus_host,mcp__cti__malwarebazaar_hash,mcp__cti__malwarebazaar_signature,"
+    # CTI sources (Phase 3 — added 2026-05-03)
+    "mcp__cti__abuseipdb_check,"
+    "mcp__cti__certspotter_issuances,mcp__cti__certspotter_serial,"
+    "mcp__cti__netlas_search,mcp__cti__netlas_jarm,mcp__cti__netlas_favicon,"
+    "mcp__cti__whoxy_reverse,"
+    "mcp__cti__zoomeye_search,mcp__cti__zoomeye_jarm,mcp__cti__zoomeye_favicon,"
+    "mcp__cti__criminalip_ip,mcp__cti__criminalip_domain,"
+    "mcp__cti__openphish_check,"
+    "mcp__cti__dom_fingerprints"
 )
 _DISALLOWED_TOOLS = "Bash,Edit,Write,MultiEdit,Read,Glob,Grep,NotebookEdit,WebSearch,WebFetch,Task,TodoWrite"
 
@@ -893,8 +1269,16 @@ def _build_env(inv_id: str) -> dict:
                          if not any(x in p.lower() for x in
                                     ("antigravity", "vscode", "cursor", "code/bin", "trae"))),
     }
+    # Single-key env vars (legacy) + multi-key env vars (key_pool)
     for k in ("VIRUSTOTAL_API_KEY", "URLSCAN_API_KEY", "ONYPHE_API_KEY",
-              "SHODAN_API_KEY", "OTX_API_KEY", "ABUSECH_AUTH_KEY"):
+              "SHODAN_API_KEY", "OTX_API_KEY", "ABUSECH_AUTH_KEY",
+              "ABUSEIPDB_API_KEY", "CERTSPOTTER_API_KEY", "NETLAS_API_KEY",
+              "WHOXY_API_KEY", "ZOOMEYE_API_KEY", "CRIMINALIP_API_KEY",
+              # multi-key forms (rotation)
+              "VIRUSTOTAL_API_KEYS", "URLSCAN_API_KEYS", "ONYPHE_API_KEYS",
+              "SHODAN_API_KEYS", "OTX_API_KEYS", "ABUSECH_API_KEYS",
+              "ABUSEIPDB_API_KEYS", "CERTSPOTTER_API_KEYS", "NETLAS_API_KEYS",
+              "WHOXY_API_KEYS", "ZOOMEYE_API_KEYS", "CRIMINALIP_API_KEYS"):
         if parent.get(k):
             env[k] = parent[k]
     env["BOUNCE_INV_ID"] = inv_id
@@ -1237,12 +1621,17 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
 
     phase1_ok = saw_result or has_report or rc == 0
 
-    # ── Phase 2: Follow-up for missing mandatory tools ──
+    # ── Phase 2: Follow-up for missing mandatory tools + adaptive Phase 3 gaps ──
     if phase1_ok and not _is_parked(inv_id):
         called = _get_called_cti_tools(inv_id)
         missing = _missing_mandatory_tools(seed_type, seed_value, called)
-        if missing:
-            _log(inv_id, "phase2_needed", {"missing": missing, "called": sorted(called)})
+        adaptive_targets = _adaptive_followup_targets(inv_id)
+        if missing or adaptive_targets:
+            _log(inv_id, "phase2_needed", {
+                "missing": missing,
+                "adaptive_targets_count": len(adaptive_targets),
+                "called": sorted(called),
+            })
             # Build extra follow-up steps for IP/domain seeds
             extra_steps = []
             if seed_type == "ip":
@@ -1304,6 +1693,44 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 "workflow, then add_edge(seed→report, known_ioc)."
             )
             already_called_list = sorted(called)
+
+            # Build the adaptive Phase 3 gap section (per-graph-state, not a
+            # static script). Each line names a node already in the graph and
+            # the specific tool calls that would high-leverage-pivot on it.
+            adaptive_block = ""
+            if adaptive_targets:
+                lines = []
+                for i, (ntype, nvalue, calls, rationale) in enumerate(adaptive_targets, 1):
+                    short_value = nvalue if len(nvalue) <= 60 else nvalue[:57] + "..."
+                    line = (f"  {i}. {ntype} \"{short_value}\" — {' AND '.join(calls)}\n"
+                            f"     [why: {rationale}]")
+                    lines.append(line)
+                adaptive_block = (
+                    "\n\nADAPTIVE PHASE-3 GAPS — graph-state-aware pivots:\n"
+                    "The following nodes are already in the graph but have NOT been pivoted with\n"
+                    "newly-available Phase 3 sources. For EACH item, run the listed tool call(s)\n"
+                    "and add the results to the graph (new nodes + edges from the parent node).\n"
+                    "These are not optional — they are gaps where the main phase missed a\n"
+                    "high-leverage pivot. Skip ONLY if the source returns no useful data, and\n"
+                    "note the reason in the report's gaps_summary.\n\n"
+                    + "\n".join(lines)
+                )
+
+            mandatory_section = ""
+            if missing:
+                mandatory_section = (
+                    f"STEP 2-{len(missing)+1}: Call ONLY these CTI tools that were "
+                    f"missed in phase 1 (do NOT substitute with any other tool, do "
+                    f"NOT repeat already-called tools):\n"
+                    + "\n".join(f"  {i+2}. {m}" for i, m in enumerate(missing))
+                    + "\nFor each result, add new nodes and edges to the graph.\n"
+                )
+            else:
+                mandatory_section = (
+                    "All mandatory phase-1 tools were called. Focus on the adaptive\n"
+                    "Phase-3 gaps below.\n"
+                )
+
             followup_prompt = (
                 f"Continue the investigation on {seed_value} (type={seed_type}). "
                 f"The graph already has nodes from the main investigation.\n\n"
@@ -1311,12 +1738,9 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 f"already in the graph):\n  "
                 + ", ".join(already_called_list or ["(none)"]) + "\n\n"
                 f"STEP 1: Call get_graph(compact=True) to see what already exists.\n"
-                f"STEP 2-{len(missing)+1}: Call ONLY these CTI tools that were "
-                f"missed in phase 1 (do NOT substitute with any other tool, do "
-                f"NOT repeat already-called tools):\n"
-                + "\n".join(f"  {i+2}. {m}" for i, m in enumerate(missing))
-                + "\nFor each result, add new nodes and edges to the graph.\n"
-                + report_instr
+                + mandatory_section
+                + adaptive_block
+                + "\n\n" + report_instr
                 + steps_block
             )
             rc2, saw2, _ = await _run_claude_phase(

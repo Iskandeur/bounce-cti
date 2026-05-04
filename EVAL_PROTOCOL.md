@@ -1,6 +1,7 @@
-# EVAL_PROTOCOL_V2 — Bounce-CTI Evaluation Protocol
+# EVAL_PROTOCOL — Bounce-CTI Evaluation Protocol
 
-> **Version** 2.0 · **Status** active · **Cadence** run against every non-trivial change to `agent_runner.py` system prompt, MCP tool set, `defuse_lists.py`, or source integrations.
+> **Version** 2.1 · **Status** active · **Cadence** run against every non-trivial change to `agent_runner.py` system prompt, MCP tool set, `defuse_lists.py`, or source integrations.
+> Renamed from `EVAL_PROTOCOL_V2.md` (V1 deleted) on 2026-05-03.
 
 ---
 
@@ -110,8 +111,23 @@ Floor at 0.
 
 ### 4.5 Budget discipline (BD)
 - 100 if total MCP tool calls ≤ 60 AND max pivot depth ≤ 3
-- 50 if calls in (60, 90] or depth = 4
-- 0 if calls > 90 or depth > 4
+- 75 if calls in (60, 90] AND every extension was justified by a logged
+  `budget_extension` event citing yield (≥ 1 discriminating fingerprint per
+  5 calls during the extension window)
+- 50 if calls in (60, 90] without justification, OR depth = 4
+- 0  if calls > 90 or depth > 4
+
+**Rationale (revised 2026-05-03)**: PURPOSE positions Bounce-CTI as a fast-triage
+tool (~60 calls). The autonomy engine adds a yield-based extension to 90 for
+genuinely complex cases (Smishing-Triad-class hubs, multi-tier C2). Cases that
+need to extend should produce *measurable* extra signal — ergo the
+`budget_extension` event log.
+
+**Evaluation procedure**: count `agent_tool_use` events. For runs in (60, 90],
+inspect the `budget_extension` events: each must precede the extension window
+and cite ≥ 1 new fingerprint discriminant added during it (jarm, favicon_hash,
+cert_serial, registrant_email, tracking_id, wallet_address, non-cloud-ASN
+ip/domain). If yes → 75. If no → 50.
 
 ### 4.6 Report quality (RQ)
 - 100 if the written report names the threat actor / family, lists ≥ 70% of ground-truth nodes, and mentions the primary discriminating marker by name
@@ -821,6 +837,10 @@ Carried forward from the research phase, reviewed for V2.
 ## 11. Changelog
 
 - **v2.0** (2026-04) — Initial V2 protocol. 12 cases across 6 domains / 3 IPv4 / 3 hash seeds. All markers from the design matrix covered. Eval loop, scoring rubric, failure taxonomy, freshness pre-check codified.
+- **v2.1** (2026-05-03) — Autonomy engine update. §4.5 BD scoring revised:
+  yield-justified extensions (60, 90] earn 75 instead of 50. Reflects the new
+  pivot queue + soft-cap budget logic introduced in `feat/autonomy-engine`.
+  No case content changed.
 
 ---
 
