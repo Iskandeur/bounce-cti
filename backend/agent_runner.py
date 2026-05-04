@@ -140,9 +140,14 @@ def _adaptive_followup_targets(inv_id: str) -> list:
         if key in seen_keys:
             continue
 
-        # email → whoxy_reverse
-        if ntype == "email" and not any(t in ntags for t in ("privacy", "redacted")):
-            if not was_called("whoxy_reverse", nvalue):
+        # email → whoxy_reverse (skip institutional / registrar emails)
+        if ntype == "email" and not any(t in ntags for t in ("privacy", "redacted", "institutional", "registrar")):
+            try:
+                from .hints import _is_private_email
+                is_inst = _is_private_email(nvalue)
+            except Exception:
+                is_inst = False
+            if not is_inst and not was_called("whoxy_reverse", nvalue):
                 targets.append((ntype, nvalue, [f"whoxy_reverse(email=\"{nvalue}\")"],
                                  "registrant email never reverse-WHOISed"))
                 seen_keys.add(key)
@@ -580,7 +585,20 @@ the recorded result.
 ══════════════════════════════════════════════
 GRAPH SCHEMA — node types and edge relations
 ══════════════════════════════════════════════
-Node types: domain, ip, ns, registrar, cert, asn, email, url, hash, jarm, favicon, country, report
+Node types (canonical):
+  Core:     domain, ip, ns, registrar, cert, asn, email, url, hash, jarm, country, report
+  Phase 2 (DOM fingerprints — when extracted via dom_fingerprints):
+            favicon_hash (mmh3 int, Shodan http.favicon.hash compat),
+            title_hash (sha1 of <title>),
+            tracking_id (GA/GTM/FB Pixel/Yandex/Hotjar/Clarity/TikTok/Adobe DTM),
+            form_action (phishing backend URL — also graph as a `url` if interesting),
+            wallet_address (BTC bech32 / ETH / XMR — drainer kit cluster),
+            js_hash (sha1 of inline scripts).
+  Cluster pivot anchors:
+            cert_serial (TLS cert serial number — strong cluster signal).
+  Aliases auto-resolved by the queue: 'favicon' -> 'favicon_hash',
+            'cert_sha1'/'cert_sha256'/'cert_thumbprint' -> 'cert_serial',
+            'ja3'/'ja3s' -> 'jarm'. Use canonical names when possible.
 Tags to use: seed, suspicious, benign, cdn, parking, sinkhole, dyndns, shared_hosting, c2, phishing, expired
 
 COUNTRY NODE — USE SPARINGLY AND ONLY WHEN THE LINK IS UNAMBIGUOUS

@@ -105,6 +105,18 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     # connectors/evidence only). The auto-enqueue will skip them silently.
 }
 
+# Type aliases — different names for the same conceptual node type. When
+# the agent calls add_node(favicon, ...) we want the same pivots as
+# add_node(favicon_hash, ...). Resolved at lookup time in pivots_for().
+_TYPE_ALIASES: dict[str, str] = {
+    "favicon": "favicon_hash",          # prompt legacy name
+    "cert_sha1": "cert_serial",         # CT-cluster pivot is the same
+    "cert_sha256": "cert_serial",
+    "cert_thumbprint": "cert_serial",
+    "ja3": "jarm",                       # different fingerprint, same scanner pivots
+    "ja3s": "jarm",
+}
+
 # Cloud / CDN ASN list — nodes with these ASNs are non-discriminating
 # infrastructure (multi-tenant). Used by the convergence check, not the
 # pivot mapper itself.
@@ -134,6 +146,15 @@ MAX_LOW_PRIO_PER_NODE = 4    # priority >= 4
 MAX_NEW_NODES_PER_HOP = 30
 
 
+def canonical_type(node_type: str) -> str:
+    """Map an agent-provided node type to the canonical key used in
+    _PIVOT_RULES (e.g. 'favicon' -> 'favicon_hash')."""
+    if not node_type:
+        return ""
+    t = node_type.strip().lower()
+    return _TYPE_ALIASES.get(t, t)
+
+
 def pivots_for(node_type: str, node_value: str, *,
                has_key: Callable[[str], bool],
                defused: bool = False) -> list[tuple[str, int, Optional[str]]]:
@@ -144,7 +165,7 @@ def pivots_for(node_type: str, node_value: str, *,
       with ``skip_reason='no_api_key'``.
     - Otherwise, ``skip_reason`` is ``None`` (the caller enqueues as pending).
     """
-    rules = _PIVOT_RULES.get(node_type, [])
+    rules = _PIVOT_RULES.get(canonical_type(node_type), [])
     out: list[tuple[str, int, Optional[str]]] = []
     for op, prio, key_required, doc_only in rules:
         if defused and not doc_only:

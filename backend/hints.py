@@ -24,7 +24,27 @@ from typing import Any
 _PRIVACY_EMAIL_PATTERNS = (
     "privacy", "redacted", "whoisproxy", "whoisguard", "domainsbyproxy",
     "perfectprivacy", "withheldforprivacy", "anonymize", "registrar.contact",
-    "abuse@", "noreply@", "support@", "admin@",
+)
+
+# Generic local-parts that indicate an institutional / registrar mailbox,
+# never an actual registrant. Match the LEFT side of the @ exactly.
+_INSTITUTIONAL_LOCAL_PARTS = frozenset((
+    "abuse", "noreply", "no-reply", "support", "admin", "info",
+    "hostmaster", "postmaster", "webmaster", "billing", "contact",
+    "domains", "domain", "registrar", "whois", "tech", "compliance",
+    "security", "dns", "service", "help",
+))
+
+# Domain endings that strongly suggest the email belongs to a registrar /
+# registry / WHOIS-management service (not to an actual customer registrant).
+_REGISTRAR_EMAIL_ENDINGS = (
+    "namesilo.com", "namecheap.com", "godaddy.com", "google.com",
+    "googledomains.com", "dynadot.com", "porkbun.com", "tucows.com",
+    "enom.com", "hover.com", "gandi.net", "ovh.com", "ovh.net",
+    "ionos.com", "1and1.com", "dreamhost.com", "bluehost.com",
+    "hostinger.com", "register.com", "name.com", "internet.bs",
+    "inwx.com", "csc.com", "markmonitor.com", "safenames.net",
+    "easydns.com", "dnimble.com", "openprovider.com",
 )
 
 _WELL_KNOWN_CDN_JARMS = {
@@ -34,10 +54,28 @@ _WELL_KNOWN_CDN_JARMS = {
 
 
 def _is_private_email(email: str) -> bool:
-    if not email:
+    """Return True if the email is privacy-masked, an institutional/abuse
+    inbox, or belongs to a known registrar service. We use this to suppress
+    pivot hints that would point the agent at a non-registrant email
+    (false-positive whoxy_reverse calls)."""
+    if not email or "@" not in email:
         return True
-    el = email.lower()
-    return any(p in el for p in _PRIVACY_EMAIL_PATTERNS)
+    el = email.lower().strip()
+    # Substring match on common privacy-mask vocabulary
+    if any(p in el for p in _PRIVACY_EMAIL_PATTERNS):
+        return True
+    # Split local@domain
+    try:
+        local, domain = el.split("@", 1)
+    except ValueError:
+        return True
+    # Generic institutional local-part
+    if local in _INSTITUTIONAL_LOCAL_PARTS:
+        return True
+    # Domain belongs to a known registrar service
+    if any(domain == d or domain.endswith("." + d) for d in _REGISTRAR_EMAIL_ENDINGS):
+        return True
+    return False
 
 
 def _flatten_strings(obj: Any, out: list[str], max_depth: int = 5) -> None:
