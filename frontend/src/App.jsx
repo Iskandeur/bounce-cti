@@ -240,6 +240,24 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const chatEndRef = useRef(null)
 
   useEffect(() => { activeInvRef.current = activeInv }, [activeInv])
+
+  // Sync activeInv ↔ URL (?inv=<id>) so that:
+  //   - hard refresh keeps the investigation you were viewing,
+  //   - browser back/forward navigates between recently-opened investigations,
+  //   - the URL is shareable / pinnable.
+  // Uses replaceState (not pushState) on natural switching so the back button
+  // doesn't accumulate one entry per investigation click within a session.
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const cur = sp.get('inv') || null
+      if (activeInv === cur) return
+      if (activeInv) sp.set('inv', activeInv)
+      else sp.delete('inv')
+      const url = window.location.pathname + (sp.toString() ? '?' + sp.toString() : '')
+      window.history.replaceState({}, '', url)
+    } catch (_) { /* ignore */ }
+  }, [activeInv])
   useEffect(() => { showEdgeLabelsRef.current = showEdgeLabels }, [showEdgeLabels])
   useEffect(() => { filterTypesRef.current = filterTypes }, [filterTypes])
   useEffect(() => { filterRelationsRef.current = filterRelations }, [filterRelations])
@@ -551,17 +569,17 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     })
 
     refreshInvs().then(() => {
-      // Honor a ?inv=<id> query param (used after importing a shared graph)
-      // so the recipient lands directly on their freshly cloned investigation.
+      // Honor a ?inv=<id> query param. Two cases:
+      //   (a) hard reload while viewing an investigation → restore that one
+      //   (b) link from a shared graph clone → land directly on it
+      // We DO NOT strip the param afterwards: the URL is the canonical state
+      // for "which investigation is open". Subsequent openInv() calls update
+      // it via the activeInv→URL sync useEffect below, so back/forward and
+      // browser refresh both behave correctly.
       try {
         const sp = new URLSearchParams(window.location.search)
         const wanted = sp.get('inv')
-        if (wanted) {
-          openInv(wanted)
-          sp.delete('inv')
-          const url = window.location.pathname + (sp.toString() ? '?' + sp.toString() : '')
-          window.history.replaceState({}, '', url)
-        }
+        if (wanted) openInv(wanted)
       } catch (_) { /* ignore */ }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1023,12 +1041,14 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
 
   const stopInv = async (id, ev) => {
     ev.stopPropagation()
+    if (!confirm('Stop this investigation? The agent will be killed mid-run; partial graph + events are kept.')) return
     await fetch(`/api/investigations/${id}/stop`, { method: 'POST' })
     await refreshInvs()
   }
 
   const rerunInv = async (id, ev) => {
     ev.stopPropagation()
+    if (!confirm('Rerun this investigation? The existing graph is preserved; the agent will pivot from current state with a fresh budget.')) return
     await fetch(`/api/investigations/${id}/rerun`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ model }) })
     await refreshInvs()
     openInv(id)

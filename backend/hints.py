@@ -184,6 +184,88 @@ def hint_for_virustotal_domain(response: dict, domain: str) -> list[str]:
     return hints
 
 
+def hint_for_virustotal_file(response: dict, file_hash: str) -> list[str]:
+    """vt_file is the entry point for hash investigations. The agent often
+    stops at "VT says malicious", graphs the hash, and never extracts the
+    contacted IPs/domains in the response — so no shodan/JARM pivot fires.
+    Fix: explicitly point to contacted infra fields when present.
+    """
+    if not isinstance(response, dict):
+        return []
+    data = response.get("data") if isinstance(response.get("data"), dict) else response
+    attrs = (data or {}).get("attributes") or {}
+    rels = (data or {}).get("relationships") or {}
+    hints: list[str] = []
+
+    # Detection ratio + family suggest commodity_malware hypothesis
+    stats = attrs.get("last_analysis_stats") or {}
+    mal = stats.get("malicious", 0) if isinstance(stats, dict) else 0
+    threat_label = attrs.get("popular_threat_classification") or {}
+    family = threat_label.get("suggested_threat_label") if isinstance(threat_label, dict) else None
+    if mal >= 1:
+        if family:
+            hints.append(
+                f"PIVOT_HINT: VT family label '{family}' ({mal} engines flag malicious). "
+                f"Consider malwarebazaar_signature('{family.split('.')[0]}') AND "
+                f"threatfox_search('{file_hash}') to enumerate the campaign cluster."
+            )
+        else:
+            hints.append(
+                f"PIVOT_HINT: VT flags this hash malicious ({mal} engines) but no family "
+                "label — call malwarebazaar_hash() and otx_file() for family attribution."
+            )
+
+    # Contacted infrastructure — usually under relationships.contacted_*
+    contacted = []
+    for kind in ("contacted_ips", "contacted_domains", "contacted_urls"):
+        block = rels.get(kind) if isinstance(rels, dict) else None
+        items = (block or {}).get("data") if isinstance(block, dict) else None
+        if isinstance(items, list):
+            for it in items[:3]:  # cap to top 3
+                if isinstance(it, dict) and it.get("id"):
+                    contacted.append((kind.replace("contacted_", "").rstrip("s"), it["id"]))
+    if contacted:
+        bits = ", ".join(f"{kind}={val}" for kind, val in contacted)
+        hints.append(
+            f"PIVOT_HINT: VT-contacted infra: {bits}. For each: "
+            "add_node + run the per-type playbook (rdap_ip + reverse_dns + "
+            "shodan_host on IPs; rdap_domain + virustotal_domain on domains). "
+            "Hash investigations that stop at 'VT verdict' miss the C2 cluster."
+        )
+    return hints
+
+
+def hint_for_virustotal_resolutions_ip(response: dict, ip: str) -> list[str]:
+    """vt_resolutions_ip returns co-resident domains. Empirically, the agent
+    sometimes graphs only the malicious-flagged ones and skips the rest, even
+    when they're part of a TDS cluster (Case 7 SocGholish failure mode).
+    Hint: enumerate the top co-resolvers explicitly.
+    """
+    if not isinstance(response, dict):
+        return []
+    data = response.get("data") if isinstance(response.get("data"), list) else None
+    if not data or not isinstance(data, list):
+        return []
+    # VT pDNS items have attributes.host_name
+    co_resolvers: list[str] = []
+    for item in data[:15]:  # peek deeper than the surface 5
+        attrs = item.get("attributes") if isinstance(item, dict) else None
+        host = (attrs or {}).get("host_name") if isinstance(attrs, dict) else None
+        if host and host not in co_resolvers:
+            co_resolvers.append(host)
+    if not co_resolvers:
+        return []
+    examples = ", ".join(co_resolvers[:8])  # bumped from 5 to 8 (Case 7 fix)
+    return [
+        f"PIVOT_HINT: VT pDNS shows {len(co_resolvers)}+ co-resolvers on {ip} "
+        f"(top 8: {examples}). For shared-hosting IPs (>80 co-residents), "
+        "tag 'shared_hosting' and graph 3 representatives only. For small clusters "
+        "(< 30 co-residents — likely intentional, e.g. TDS / Keitaro / phishing-kit "
+        "infra), graph EACH listed co-resolver as a domain node with a co_resolves "
+        "edge from the IP. The cap is generous on purpose — prefer over-graphing here."
+    ]
+
+
 def hint_for_virustotal_ip(response: dict, ip: str) -> list[str]:
     if not isinstance(response, dict):
         return []
@@ -292,6 +374,8 @@ HINT_DISPATCH = {
     "rdap_ip": hint_for_rdap_ip,
     "virustotal_domain": hint_for_virustotal_domain,
     "virustotal_ip": hint_for_virustotal_ip,
+    "virustotal_file": hint_for_virustotal_file,
+    "virustotal_resolutions_ip": hint_for_virustotal_resolutions_ip,
     "urlscan_result": hint_for_urlscan_result,
     "urlscan_search": hint_for_urlscan_search,
     "dns_resolve": hint_for_dns_resolve,
