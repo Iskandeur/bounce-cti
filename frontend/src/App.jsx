@@ -2021,49 +2021,79 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             <>
               {/* Working hypothesis (phase-1.5 commit). Surfaced here instead
                   of as a separate graph node — it's analyst context, not
-                  infrastructure. May appear before the full report node. */}
-              {hypothesis && (
-                <details className="hypothesis-card" open style={{
-                  border: '1px solid var(--border)', borderRadius: 6,
-                  padding: '6px 10px', marginBottom: 8, background: 'var(--surface-alt, #1c2128)'
-                }}>
-                  <summary style={{ cursor: 'pointer', fontSize: 12, opacity: 0.85 }}>
-                    <span style={{ color: '#f5a623', fontWeight: 600 }}>Working hypothesis</span>
-                    {hypothesis.category && (
-                      <span style={{ marginLeft: 8 }}>
-                        {String(hypothesis.category).replace(/_/g, ' ')}
-                      </span>
+                  infrastructure. May appear before the full report node.
+                  The agent emits two schemas depending on whether it wrote
+                  the node organically (system_prompt schema:
+                  candidate_category / primary_evidence / plan_to_test) or via
+                  the mechanical phase-1.5 fallback (category / evidence /
+                  what_to_pursue_next). Read both. */}
+              {hypothesis && (() => {
+                const cat = hypothesis.category || hypothesis.candidate_category
+                const altCat = hypothesis.alternate_category
+                const reasonText = hypothesis.reason
+                  || hypothesis.rationale
+                  || hypothesis.summary
+                const evidenceList = Array.isArray(hypothesis.evidence)
+                  ? hypothesis.evidence
+                  : (Array.isArray(hypothesis.primary_evidence)
+                      ? hypothesis.primary_evidence
+                      : [])
+                const nextRaw = hypothesis.what_to_pursue_next
+                  ?? hypothesis.plan_to_test
+                  ?? hypothesis.next_pivots
+                const nextList = Array.isArray(nextRaw)
+                  ? nextRaw
+                  : (typeof nextRaw === 'string' && nextRaw.trim()
+                      ? [nextRaw]
+                      : [])
+                return (
+                  <details className="hypothesis-card" open style={{
+                    border: '1px solid var(--border)', borderRadius: 6,
+                    padding: '6px 10px', marginBottom: 8, background: 'var(--surface-alt, #1c2128)'
+                  }}>
+                    <summary style={{ cursor: 'pointer', fontSize: 12, opacity: 0.85 }}>
+                      <span style={{ color: '#f5a623', fontWeight: 600 }}>Working hypothesis</span>
+                      {cat && (
+                        <span style={{ marginLeft: 8 }}>
+                          {String(cat).replace(/_/g, ' ')}
+                        </span>
+                      )}
+                      {altCat && (
+                        <span style={{ marginLeft: 6, opacity: 0.6 }}>
+                          / {String(altCat).replace(/_/g, ' ')}
+                        </span>
+                      )}
+                      {hypothesis.confidence && (
+                        <span style={{ marginLeft: 6, opacity: 0.7 }}>
+                          ({hypothesis.confidence})
+                        </span>
+                      )}
+                    </summary>
+                    {reasonText && (
+                      <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+                        {String(reasonText)}
+                      </div>
                     )}
-                    {hypothesis.confidence && (
-                      <span style={{ marginLeft: 6, opacity: 0.7 }}>
-                        ({hypothesis.confidence})
-                      </span>
+                    {evidenceList.length > 0 && (
+                      <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
+                        {evidenceList.map((ev, i) => <li key={i}>{String(ev)}</li>)}
+                      </ul>
                     )}
-                  </summary>
-                  {hypothesis.reason && (
-                    <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
-                      {hypothesis.reason}
-                    </div>
-                  )}
-                  {Array.isArray(hypothesis.evidence) && hypothesis.evidence.length > 0 && (
-                    <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
-                      {hypothesis.evidence.map((ev, i) => <li key={i}>{String(ev)}</li>)}
-                    </ul>
-                  )}
-                  {Array.isArray(hypothesis.what_to_pursue_next) && hypothesis.what_to_pursue_next.length > 0 && (
-                    <div style={{ marginTop: 6, fontSize: 12 }}>
-                      <span style={{ opacity: 0.7 }}>Next: </span>
-                      {hypothesis.what_to_pursue_next.map((p, i) => (
-                        <span key={i} style={{
-                          display: 'inline-block', margin: '2px 4px 0 0',
-                          padding: '1px 6px', border: '1px solid var(--border)',
-                          borderRadius: 10, fontSize: 11
-                        }}>{String(p)}</span>
-                      ))}
-                    </div>
-                  )}
-                </details>
-              )}
+                    {nextList.length > 0 && (
+                      <div style={{ marginTop: 6, fontSize: 12 }}>
+                        <span style={{ opacity: 0.7 }}>Next: </span>
+                        {nextList.map((p, i) => (
+                          <span key={i} style={{
+                            display: 'inline-block', margin: '2px 4px 0 0',
+                            padding: '1px 6px', border: '1px solid var(--border)',
+                            borderRadius: 10, fontSize: 11
+                          }}>{String(p)}</span>
+                        ))}
+                      </div>
+                    )}
+                  </details>
+                )
+              })()}
               {/* Budget-extension log (R4): collapsed by default, useful only
                   when investigating why the agent kept pivoting past 60 calls. */}
               {budgetLog.length > 0 && (
