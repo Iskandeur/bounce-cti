@@ -112,7 +112,13 @@ This repo has **automatic deployment via GitHub Actions**.
   if the main phase skipped one (`phase_hypothesis_write`, added 2026-05),
   then injects a follow-up phase that fills mandatory tools and surfaces
   graph-state-aware Phase 3 gaps (`phase_followup`), then ensures a final
-  `investigation_summary` report node (`phase_report_write`). The state
+  `investigation_summary` report node (`phase_report_write`), then runs an
+  autonomous pivot-drain loop (`phase_pivot_drain_<N>`, added 2026-05) that
+  reads the report's own `pivot_suggestions` and the pivot queue, executes
+  them, and recurses for up to `BOUNCE_PIVOT_DRAIN_ROUNDS` rounds (default 3,
+  set to 0 to disable). Each round caps at `BOUNCE_PIVOT_DRAIN_MAX_TURNS`
+  (default 60) and stops early when a round adds fewer than
+  `BOUNCE_PIVOT_DRAIN_CONVERGENCE` (default 3) new nodes. The state
   machine in `PIVOT_MAPPING.md` informs the adaptive logic.
 - **Pivot queue** (`pivot_tasks` table): every `add_node` call auto-enqueues all
   applicable pivots via `pivot_mapping.pivots_for()`. Defused nodes (CDN/parking/
