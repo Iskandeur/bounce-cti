@@ -220,6 +220,60 @@ def _adaptive_followup_targets(inv_id: str) -> list:
             seen_keys.add(key)
             continue
 
+        # URL with a known page_title (from urlscan/dom_fingerprints) → urlscan
+        # title pivot. THIS IS THE KIT-CLUSTER EXPANSION PIVOT — when kits
+        # share an exact <title> string, they're almost always the same
+        # operator. The agent often graphs the title in URL metadata but
+        # never pivots on it (case study 52d2091f2ea2: 37 sibling phishing
+        # domains found ONLY after the user manually asked for an exhaustive
+        # map). Force it mechanically.
+        if ntype == "url":
+            page_title = (md.get("page_title") or md.get("title") or "").strip()
+            if page_title and len(page_title) >= 4 and not was_called(
+                "urlscan_search", f'page.title:"{page_title}"'.lower()
+            ):
+                # Cheap heuristic: skip very generic titles ("Home", "Login")
+                # that would over-fan-out. Anything ≥ 4 chars and not on the
+                # blocklist is worth a pivot.
+                generic = {"home", "login", "index", "page", "site", "untitled",
+                           "404 not found", "403 forbidden", "welcome",
+                           "default web site page", "test page"}
+                if page_title.lower() not in generic:
+                    targets.append((ntype, nvalue,
+                                     [f'urlscan_search("page.title:\\"{page_title}\\"", size=200)'],
+                                     f"page title '{page_title[:40]}' never pivoted via urlscan — "
+                                     f"strongest cluster-expansion signal for kit-templated phishing"))
+                    seen_keys.add(key)
+                    continue
+
+        # title_hash → urlscan title pivot (dom_fingerprints emits these for
+        # phishing kits). Same rationale as the URL page_title rule above,
+        # but for nodes where the canonical fingerprint is the title hash
+        # itself (rare, but emitted by some sources).
+        if ntype == "title_hash":
+            # Title-hash node value is either an SHA1 (hash) or the literal
+            # title string depending on emitter. Prefer metadata.title if
+            # present; otherwise treat the value as the literal title.
+            title = (md.get("title") or md.get("page_title") or nvalue).strip()
+            if title and len(title) >= 4 and not was_called(
+                "urlscan_search", f'page.title:"{title}"'.lower()
+            ):
+                targets.append((ntype, nvalue,
+                                 [f'urlscan_search("page.title:\\"{title}\\"", size=200)'],
+                                 f"title_hash '{title[:40]}' never expanded into sibling cluster"))
+                seen_keys.add(key)
+                continue
+
+        # tracking_id → urlscan tracker pivot (GA / GTM / FB Pixel /
+        # Yandex / Hotjar / Clarity). Same operator typically reuses the
+        # same tracker across kit deployments — strong cluster signal.
+        if ntype == "tracking_id" and not was_called("urlscan_search", nvalue.lower()):
+            targets.append((ntype, nvalue,
+                             [f'urlscan_search("page.html:{nvalue}", size=100)'],
+                             f"tracking ID {nvalue} never pivoted to find sibling pages"))
+            seen_keys.add(key)
+            continue
+
     # All-CDN seed-domain branch (graph-level, after the per-node loop):
     # when every IP node in the graph is CDN-tagged (Cloudflare front in front
     # of the seed), the only way to find the origin is the cert-CN unmask.
@@ -258,8 +312,12 @@ def _adaptive_followup_targets(inv_id: str) -> list:
                                  "required (R14, canonical Cloudflare-defuse)"))
                 seen_keys.add(key_unmask)
 
-    # Cap to 12 — Phase 2 should be focused, not exhaustive
-    return targets[:12]
+    # Cap to 20 — Phase 2 should be focused, but cluster-class hypotheses
+    # (phishing_kit_cluster + smishing_hub + drainer_kit) often surface
+    # 8-15 cert/JARM/favicon/title/tracking_id pivots. 12 was too tight and
+    # caused premature truncation; 20 still bounds the prompt size while
+    # allowing the full cluster fan-out to fit.
+    return targets[:20]
 
 
 def _is_parked(inv_id: str) -> bool:
@@ -731,8 +789,9 @@ Within your first ~8 tool calls, write a working_hypothesis report node:
     "candidate_category": <one of the categories below — pick the best fit>,
     "alternate_category": <optional second guess if confidence is low>,
     "confidence": "low" | "medium" | "high",
+    "reason": "<one short sentence summarising why this category fits, citing the strongest 1-2 graph signals — this is what the analyst sees in the UI hypothesis card>",
     "primary_evidence": ["fact 1 from observations", "fact 2", ...],
-    "plan_to_test": "the 3-5 pivots that would CONFIRM this hypothesis"
+    "plan_to_test": ["pivot 1 that would CONFIRM", "pivot 2", "..."]   # array of 3-5 concrete pivots
   })
 
 Categories (think like an analyst — does the seed fit?):
@@ -754,10 +813,18 @@ The category drives which pivots are HIGHEST-leverage. Quick reference:
   category               → key pivots (in priority order)
   ─────────────────────────────────────────────────────────────────
   phishing_kit_cluster   → crtsh_subdomains, dom_fingerprints (favicon /
-                           tracking IDs), certspotter_serial → favicon /
-                           JARM hunt across scanner DBs
+                           tracking IDs / page_title), certspotter_serial,
+                           urlscan_search("page.title:\"<title>\"") AND
+                           urlscan_search("page.url:/<distinctive-path>/") for
+                           kit-template SIBLINGS — these typically expand a
+                           3-domain cert cluster into 30-50 sibling phishing
+                           pages; STOP only when one full pass adds nothing.
+                           Recurse: every newly-graphed sibling whose title
+                           or favicon differs is itself a fresh pivot.
   smishing_hub           → R14 origin unmask, virustotal_resolutions_domain
-                           (historical), DOM template hash across siblings
+                           (historical), DOM template hash across siblings,
+                           urlscan_search("page.title:\"<title>\"") for kit
+                           cluster expansion (recurse until empty)
   apt_targeted           → whoxy_reverse(email | name), cert SAN cluster,
                            mnemonic_pdns historical, certspotter_issuances.
                            IF the registrant_email returned by RDAP is privacy-masked
@@ -1996,6 +2063,53 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             except Exception:
                 pass
 
+            # Cluster-class hypotheses (phishing_kit, smishing, drainer,
+            # traffer/TDS, fronted C2) all share the same disease: the main
+            # phase finds 1-3 siblings via cert/JARM and stops, leaving the
+            # bulk of the cluster invisible until the analyst manually says
+            # "go further". Detect that case here and inject an explicit
+            # recursive-expansion directive — "every new sibling you graph
+            # is itself a fresh seed for title/favicon/cert pivots, keep
+            # going until next_pivot returns nothing new."
+            cluster_categories = {
+                "phishing_kit_cluster", "phishing_kit", "smishing_hub",
+                "smishing", "traffer_or_tds", "drainer_kit", "fronted_c2",
+            }
+            is_cluster_hypothesis = False
+            try:
+                for n in gs.get_graph(inv_id).get("nodes", []):
+                    if (n.get("type") or "").lower() != "report":
+                        continue
+                    v = (n.get("value") or "").lower()
+                    if v == "working_hypothesis" or v.startswith("working_hypothesis"):
+                        md = n.get("metadata") or {}
+                        cat = (md.get("category") or md.get("candidate_category")
+                               or "").lower()
+                        if cat in cluster_categories:
+                            is_cluster_hypothesis = True
+                        break
+            except Exception:
+                pass
+
+            cluster_directive = ""
+            if is_cluster_hypothesis:
+                cluster_directive = (
+                    "\n\nCLUSTER-EXPANSION DIRECTIVE (your hypothesis is a kit-templated "
+                    "or fan-out cluster):\n"
+                    "  Every page_title, favicon_hash, tracking_id, cert serial, and "
+                    "url-path-template is a CLUSTER-EXPANSION pivot. For each one:\n"
+                    "    1) urlscan_search(\"page.title:\\\"<title>\\\"\", size=200) — siblings using the same kit template\n"
+                    "    2) urlscan_search(\"page.url:/<distinctive-path>/\") — siblings using the same URL path\n"
+                    "    3) shodan_search(\"http.favicon.hash:<hash>\") + netlas_favicon + zoomeye_favicon\n"
+                    "  After EACH urlscan/shodan/netlas hit list, add EVERY distinct sibling domain "
+                    "or IP as a node with a same_template/same_favicon/same_jarm edge. Do NOT "
+                    "summarise the cluster in prose — graph every member.\n"
+                    "  Recurse: each new sibling is itself a fresh seed for title/favicon pivots if "
+                    "it surfaces a NEW title/favicon/path. Stop only when one full pass adds zero "
+                    "new nodes. The default behaviour of stopping after the first batch is what we "
+                    "are explicitly preventing here.\n"
+                )
+
             followup_prompt = (
                 f"Continue the investigation on {seed_value} (type={seed_type}). "
                 f"The graph already has nodes from the main investigation.\n\n"
@@ -2006,12 +2120,19 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 + f"STEP 1: Call get_graph(compact=True) to see what already exists.\n"
                 + mandatory_section
                 + adaptive_block
+                + cluster_directive
                 + "\n\n" + report_instr
                 + steps_block
             )
+            # Phase 2 budget: 30 turns was too tight for cluster-class
+            # hypotheses (phishing_kit_cluster / smishing_hub /
+            # traffer_or_tds) where each adaptive target plus the recursive
+            # expansion (urlscan title pivot → 30+ siblings → graph each as
+            # a node) easily eats 50+ tool calls. 60 turns gives us
+            # headroom without unbounded runaway.
             rc2, saw2, _ = await _run_claude_phase(
                 inv_id, followup_prompt, _FOLLOWUP_SYSTEM_PROMPT, model, env,
-                mcp_cfg_path, phase="followup", max_turns=30
+                mcp_cfg_path, phase="followup", max_turns=60
             )
             _log(inv_id, "phase2_done", {"rc": rc2, "saw_result": saw2})
 
