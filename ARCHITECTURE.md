@@ -57,6 +57,9 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 - `POST   /api/investigations/{id}/stop` — kill the running agent
 - `DELETE /api/investigations/{id}`
 - `POST   /api/investigations/{id}/rerun`
+- `POST   /api/investigations/{src}/merge_into/{dst}` — merge `src` into `dst`
+  (both owned by caller; nodes deduped on `(type, value)`, edges on `(src, dst, relation)`,
+  metadata/tags/sources_seen unioned; `delete_source=true` to consume the source)
 - `POST   /api/investigations/{id}/add_seed` — add a peer-seed to an existing investigation
 - `POST   /api/investigations/{id}/enrich` — run a pivot from an existing node
 - `POST   /api/investigations/{id}/prompt` — custom prompt on top of the current graph

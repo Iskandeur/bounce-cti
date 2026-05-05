@@ -179,6 +179,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // Phase-1.5 hypothesis report node ("working_hypothesis"). Surfaced in the
   // Report tab instead of cluttering the graph as a separate node.
   const [hypothesis, setHypothesis] = useState(null)
+  // When the user clicks the "merge into…" icon on a History row we stash
+  // its inv id here and reveal an inline target-picker. Null = picker hidden.
+  const [mergePickerSrc, setMergePickerSrc] = useState(null)
   // Per-investigation budget-extension log entries (R4). Internal accounting
   // — kept off the graph and shown compactly in the Report tab.
   const [budgetLog, setBudgetLog] = useState([])
@@ -1099,6 +1102,30 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     openInv(id)
   }
 
+  // Merge investigation `srcId` into `dstId`. Backend dedups nodes on
+  // (type, value) and edges on (src, dst, relation), unioning metadata /
+  // tags / sources_seen. The destination's existing report is preserved.
+  const mergeInv = async (srcId, dstId, deleteSource) => {
+    const r = await fetch(`/api/investigations/${encodeURIComponent(srcId)}/merge_into/${encodeURIComponent(dstId)}`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ delete_source: !!deleteSource }),
+      credentials: 'same-origin',
+    })
+    if (!r.ok) {
+      const t = await r.text()
+      alert(`Merge failed: ${t || r.status}`)
+      return
+    }
+    const d = await r.json()
+    setMergePickerSrc(null)
+    await refreshInvs()
+    openInv(dstId)
+    setEvents(e => [
+      `▶ Merge OK — +${d.nodes_added} new, ${d.nodes_merged} deduped, ${d.edges_added} edge(s)${d.source_deleted ? ', source deleted' : ''}.`,
+      ...e,
+    ])
+  }
+
   // Attach a new PEER seed to the currently open investigation. The agent runs
   // the full single-seed workflow for the new IOC on the existing graph and
   // updates the report with per-seed summaries + cross-seed findings.
@@ -1653,9 +1680,71 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                       <button className="icon-btn warning" title="Stop" onClick={e => stopInv(i.id, e)}>■</button>
                     )}
                     <button className="icon-btn" title="Rerun" onClick={e => rerunInv(i.id, e)}>↺</button>
+                    {/* Merge into another of my investigations. Backend dedups
+                        nodes (type, value) and edges (src, dst, relation),
+                        unioning metadata + tags + sources_seen. Disabled while
+                        the source is still running (its graph is half-built). */}
+                    <button
+                      className={`icon-btn${mergePickerSrc === i.id ? ' active' : ''}`}
+                      title={i.status === 'running'
+                        ? 'Stop the investigation before merging'
+                        : 'Merge into another investigation'}
+                      disabled={i.status === 'running'}
+                      onClick={e => {
+                        e.stopPropagation()
+                        setMergePickerSrc(prev => prev === i.id ? null : i.id)
+                      }}
+                    >⇆</button>
                     <button className="icon-btn danger" title="Delete" onClick={e => deleteInv(i.id, e)}>✕</button>
                   </span>
                 </div>
+                {/* Inline target picker. Listing only other invs owned by the
+                    caller (the API is owner-checked too). */}
+                {mergePickerSrc === i.id && (
+                  <div
+                    className="inv-merge-picker"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <span className="inv-merge-label">Merge into:</span>
+                    <select
+                      className="inv-merge-select"
+                      defaultValue=""
+                      onChange={e => {
+                        const dst = e.target.value
+                        if (!dst) return
+                        const dstInv = invs.find(x => x.id === dst)
+                        const srcLabel = i.seed_value || i.id
+                        const dstLabel = dstInv ? (dstInv.seed_value || dstInv.id) : dst
+                        const delSrc = confirm(
+                          `Merge "${srcLabel}" into "${dstLabel}"?\n\n` +
+                          `Click OK to also DELETE the source after merging.\n` +
+                          `Click Cancel to keep the source intact (you can delete it later).`
+                        )
+                        // confirm() returning false here means "keep source",
+                        // not "abort merge" — we always proceed with the merge
+                        // once a target is picked. Aborting would require a
+                        // second prompt and feels clunkier than offering an
+                        // explicit "Cancel" entry on the dropdown.
+                        mergeInv(i.id, dst, delSrc)
+                      }}
+                    >
+                      <option value="" disabled>Pick destination…</option>
+                      {invs
+                        .filter(j => j.id !== i.id)
+                        .map(j => (
+                          <option key={j.id} value={j.id}>
+                            {j.seed_value || j.id}
+                            {((j.seeds || []).length > 1) ? ` (+${j.seeds.length - 1})` : ''}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      className="icon-btn"
+                      title="Cancel"
+                      onClick={() => setMergePickerSrc(null)}
+                    >✕</button>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -2010,6 +2099,23 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     <span className={`threat-badge threat-${(report.threat_assessment || 'unknown').replace(/\s+/g, '_')}`}>
                       {(report.threat_assessment || 'UNKNOWN').toUpperCase()}
                     </span>
+                    {/* The report node is upserted as soon as the agent reaches
+                        STEP 8 in phase 1 — phases 1.5 / 2 / 3 may still be
+                        running and will refine the same node in place. Surface
+                        a "still being refined" hint while inv.status === 'running'
+                        so the analyst doesn't mistake the early draft for the
+                        final report. */}
+                    {(() => {
+                      const inv = invs.find(i => i.id === activeInv)
+                      return inv && inv.status === 'running' ? (
+                        <span
+                          className="report-refining-badge"
+                          title="The agent is still running follow-up phases. The summary will be updated in place."
+                        >
+                          <span className="report-refining-dot" /> being refined…
+                        </span>
+                      ) : null
+                    })()}
                     <button
                       className="btn-sm secondary export-btn"
                       style={{ marginLeft: 'auto' }}

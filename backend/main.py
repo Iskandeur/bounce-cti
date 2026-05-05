@@ -437,6 +437,51 @@ def delete_inv(inv_id: str, user_id: int = Depends(current_user)):
     return {"ok": True}
 
 
+class MergeReq(BaseModel):
+    delete_source: bool = False
+
+
+@app.post("/api/investigations/{src_id}/merge_into/{dst_id}")
+def merge_investigations(src_id: str, dst_id: str,
+                         req: Optional[MergeReq] = None,
+                         user_id: int = Depends(current_user)):
+    """Merge `src_id` into `dst_id`, both owned by the caller.
+
+    Same dedup semantics as the share-link import path: nodes are upserted
+    on `(inv, type, value)`, edges on `(inv, src, dst, relation)`. Metadata,
+    tags, and `sources_seen` are unioned. The destination's existing report
+    node is preserved (the source report is dropped to avoid clobbering the
+    caller's analysis).
+
+    Default behaviour leaves `src_id` intact so the analyst can audit the
+    merge and undo by deleting the destination if needed. Pass
+    `delete_source=true` to remove the source after a successful merge.
+    """
+    if src_id == dst_id:
+        raise HTTPException(status_code=400, detail="source and destination must differ")
+    _require_owner(src_id, user_id)
+    _require_owner(dst_id, user_id)
+    # Refuse to merge a still-running source — its graph is half-built and
+    # the agent might keep adding nodes after the merge, leaving them
+    # orphaned in the source. Stop it first if you really want to merge.
+    src_status = None
+    with gs.conn() as c:
+        row = c.execute("SELECT status FROM investigations WHERE id=?", (src_id,)).fetchone()
+        if row:
+            src_status = row["status"]
+    if src_status == "running":
+        raise HTTPException(status_code=409,
+                            detail="source investigation is still running — stop it before merging")
+    result = gs.merge_into_investigation(src_id, dst_id)
+    if (req and req.delete_source):
+        stop_investigation(src_id)
+        gs.delete_investigation(src_id)
+        result["source_deleted"] = True
+    else:
+        result["source_deleted"] = False
+    return {"id": dst_id, "mode": "merge", **result}
+
+
 class RerunReq(BaseModel):
     model: str = "opus"
 
