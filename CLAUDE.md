@@ -9,7 +9,8 @@ Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submit
 ```
 backend/
   main.py               # FastAPI app (REST + WebSocket + static file serving)
-  agent_runner.py       # Spawns claude -p with MCP config, two-phase workflow, pumps events
+  agent_runner.py       # Spawns claude -p with MCP config, multi-phase workflow
+                        #   (main → hypothesis_write → followup → report_write), pumps events
   graph_store.py        # SQLite schema + CRUD (investigations, nodes, edges, events,
                         #   cache, users, sessions, shares, pivot_tasks)
   config.py             # Env var loading (API keys, paths)
@@ -106,10 +107,13 @@ This repo has **automatic deployment via GitHub Actions**.
 - **Backend serves the frontend**: In production, FastAPI mounts `frontend/dist/` at `/` as static files.
 - **MCP tools only**: The investigation agent communicates exclusively via MCP tools
   (graph + cti servers). Bash/Edit/Write/Read/Glob/Grep/Web* are explicitly disallowed.
-- **Two-phase agent loop** (legacy, being replaced): `agent_runner.py` runs the main
-  investigation, then injects a follow-up phase that fills mandatory tools the agent
-  skipped (e.g. `rdap_ip`, `reverse_dns`) and forces a final report node. The state
-  machine in `PIVOT_MAPPING.md` will eventually replace this.
+- **Multi-phase agent loop**: `agent_runner.py` runs the main investigation
+  (`phase_main`), then mechanically enforces a `working_hypothesis` report node
+  if the main phase skipped one (`phase_hypothesis_write`, added 2026-05),
+  then injects a follow-up phase that fills mandatory tools and surfaces
+  graph-state-aware Phase 3 gaps (`phase_followup`), then ensures a final
+  `investigation_summary` report node (`phase_report_write`). The state
+  machine in `PIVOT_MAPPING.md` informs the adaptive logic.
 - **Pivot queue** (`pivot_tasks` table): every `add_node` call auto-enqueues all
   applicable pivots via `pivot_mapping.pivots_for()`. Defused nodes (CDN/parking/
   sinkhole/dyndns) only enqueue documentation pivots (rdap/dns_resolve); the rest

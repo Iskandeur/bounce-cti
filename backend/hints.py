@@ -326,6 +326,45 @@ def hint_for_urlscan_search(response: dict, query: str) -> list[str]:
     ]
 
 
+def hint_for_reverse_dns(response: dict, ip: str) -> list[str]:
+    """reverse_dns surfaces PTR hostnames. The Contagious-Interview pivot is
+    "reverse_dns(ip) -> hostname X -> dns_resolve(X, 'TXT'/'MX') -> uncovers
+    a sibling apex via SPF include or shared MX". The agent often graphs the
+    PTR result and stops; force the next step explicitly.
+    """
+    if not isinstance(response, dict):
+        return []
+    hosts = response.get("hostnames") or []
+    if not isinstance(hosts, list) or not hosts:
+        return []
+    # Filter out CDN-style PTR records (cloudflare/google/aws default PTRs)
+    interesting: list[str] = []
+    skip_substrings = ("cloudfront", "amazonaws", "googleusercontent",
+                       "fastly", "akamai", "azure-edge", "googleapis",
+                       "cloudflare", "1e100.net", "akamaitechnologies")
+    for h in hosts:
+        if not isinstance(h, str):
+            continue
+        hl = h.lower().rstrip(".")
+        if any(s in hl for s in skip_substrings):
+            continue
+        interesting.append(hl)
+    if not interesting:
+        return []
+    examples = ", ".join(interesting[:3])
+    return [
+        f"PIVOT_HINT: reverse_dns surfaced {len(interesting)} non-CDN hostname(s) "
+        f"on {ip} (top 3: {examples}). For EACH non-CDN hostname (cap 3): "
+        f"(a) add_node(domain, <hostname>) + add_edge(seed_ip→domain, ptr_record); "
+        f"(b) call dns_resolve(<hostname>) — its TXT records often expose unique "
+        f"SPF/Google-site-verification IDs that cross-reference siblings, and "
+        f"its MX records reveal mail providers shared across an actor's front "
+        f"companies (canonical Contagious-Interview / DPRK-front pivot — "
+        f"lianxinxiao.com → blocknovas.com via TXT cross-ref). "
+        f"(c) rdap_domain(<hostname>) for registrar/registrant context."
+    ]
+
+
 def hint_for_dns_resolve(response: dict, domain: str) -> list[str]:
     if not isinstance(response, dict):
         return []
@@ -379,6 +418,7 @@ HINT_DISPATCH = {
     "urlscan_result": hint_for_urlscan_result,
     "urlscan_search": hint_for_urlscan_search,
     "dns_resolve": hint_for_dns_resolve,
+    "reverse_dns": hint_for_reverse_dns,
 }
 
 

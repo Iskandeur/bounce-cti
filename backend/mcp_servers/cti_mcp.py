@@ -26,9 +26,11 @@ async def dns_resolve(domain: str) -> dict:
 
 
 @mcp.tool()
-async def reverse_dns(ip: str) -> list[str]:
-    """PTR lookup for an IP."""
-    return await _src("dns_tools").reverse_dns(ip)
+async def reverse_dns(ip: str) -> dict:
+    """PTR lookup for an IP. Returns {"ip", "hostnames", "count", "_pivot_hints"?}."""
+    hostnames = await _src("dns_tools").reverse_dns(ip)
+    response = {"ip": ip, "hostnames": hostnames, "count": len(hostnames)}
+    return with_hints("reverse_dns", response, ip)
 
 
 @mcp.tool()

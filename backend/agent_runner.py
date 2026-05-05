@@ -220,6 +220,44 @@ def _adaptive_followup_targets(inv_id: str) -> list:
             seen_keys.add(key)
             continue
 
+    # All-CDN seed-domain branch (graph-level, after the per-node loop):
+    # when every IP node in the graph is CDN-tagged (Cloudflare front in front
+    # of the seed), the only way to find the origin is the cert-CN unmask.
+    # R14 in SYSTEM_PROMPT mandates this but is read-and-ignored (Cases 11 + 12
+    # missed it across two consecutive runs). Mechanical enforcement here.
+    seed_domain = None
+    for n in nodes:
+        if (n.get("type") or "").lower() == "domain" and \
+           "seed" in [t.lower() for t in (n.get("tags") or [])]:
+            seed_domain = n.get("value") or ""
+            break
+    if seed_domain:
+        ip_nodes = [n for n in nodes if (n.get("type") or "").lower() == "ip"]
+        if ip_nodes and all("cdn" in [t.lower() for t in (n.get("tags") or [])] for n in ip_nodes):
+            shodan_called_with_cn = any(
+                "ssl.cert.subject.cn" in arg
+                for (tool, arg) in called if tool == "shodan_search"
+            )
+            onyphe_called_with_cn = any(
+                "tls.cert.subject.commonname" in arg
+                for (tool, arg) in called if tool == "onyphe_datascan"
+            )
+            cn_unmask_calls = []
+            if not shodan_called_with_cn:
+                cn_unmask_calls.append(
+                    f"shodan_search(\"ssl.cert.subject.CN:\\\"{seed_domain}\\\"\")"
+                )
+            if not onyphe_called_with_cn:
+                cn_unmask_calls.append(
+                    f"onyphe_datascan(\"tls.cert.subject.commonname:\\\"{seed_domain}\\\"\")"
+                )
+            key_unmask = ("domain", f"{seed_domain.lower()}::cn_unmask")
+            if cn_unmask_calls and key_unmask not in seen_keys:
+                targets.append(("domain", seed_domain, cn_unmask_calls,
+                                 "seed resolves only to CDN — origin unmask via cert CN "
+                                 "required (R14, canonical Cloudflare-defuse)"))
+                seen_keys.add(key_unmask)
+
     # Cap to 12 — Phase 2 should be focused, not exhaustive
     return targets[:12]
 
@@ -1756,6 +1794,70 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
 
     phase1_ok = saw_result or has_report or rc == 0
 
+    # ── Phase 1.5: Mechanical working_hypothesis enforcement ──
+    # The hypothesis-first arc in SYSTEM_PROMPT is read but inconsistently
+    # acted on (9/12 cases skipped it on 2026-05-05). Without the hypothesis
+    # node, the per-category playbooks (apt_targeted sibling-enum,
+    # traffer_or_tds vt_pdns deep-dive, etc.) never trigger. Force the
+    # commit by running a small dedicated prompt phase if absent. Skip on
+    # parked seeds (no useful enrichment possible).
+    def _has_working_hypothesis() -> bool:
+        try:
+            g = gs.get_graph(inv_id)
+            for n in g.get("nodes", []):
+                if (n.get("type") or "").lower() != "report":
+                    continue
+                v = (n.get("value") or "").lower()
+                if v == "working_hypothesis" or v.startswith("working_hypothesis"):
+                    return True
+        except Exception:
+            return False
+        return False
+
+    if phase1_ok and not _is_parked(inv_id) and not _has_working_hypothesis():
+        _log(inv_id, "phase_hypothesis_write_needed", {})
+        hypothesis_prompt = (
+            f"You completed phase 1 of the investigation on seed "
+            f"{seed_type}={seed_value} but did NOT write a "
+            f"working_hypothesis report node. Per the hypothesis-first "
+            f"loop in your system prompt, this is REQUIRED before phase 2 "
+            f"can pursue category-specific pivots.\n\n"
+            f"STEP 1: Call get_graph(compact=True) to see what phase 1 found.\n"
+            f"STEP 2: Pick exactly ONE category from this list, based on the "
+            f"strongest evidence in the graph:\n"
+            f"  - apt_targeted        (state-aligned, named actor, narrow targeting)\n"
+            f"  - commodity_malware   (Amadey/StealC/Lumma/Bumblebee — broad, financial)\n"
+            f"  - traffer_or_tds      (SocGholish/Keitaro/redirector chains)\n"
+            f"  - phishing_kit        (Tycoon/Lighthouse/Storm-1747 PhaaS)\n"
+            f"  - infostealer         (Lumma/Vidar/RedLine/Raccoon)\n"
+            f"  - post_ex_framework   (Cobalt Strike/Sliver/AdaptixC2/Eye Pyramid)\n"
+            f"  - smishing            (USPS/toll/E-ZPass — Smishing Triad)\n"
+            f"  - sinkholed           (LE/Microsoft/DOJ takedown — preserve passive residue)\n"
+            f"  - parked_or_squatted  (no malicious activity, defuse)\n"
+            f"  - unclear             (insufficient evidence — call this honestly)\n\n"
+            f"STEP 3: add_node(\"report\", \"working_hypothesis\", metadata={{\n"
+            f"   \"category\": \"<one of the above>\",\n"
+            f"   \"confidence\": \"low|medium|high\",\n"
+            f"   \"reason\": \"<one sentence citing the strongest 1-2 graph signals>\",\n"
+            f"   \"evidence\": [\"<concrete signal 1>\", \"<concrete signal 2>\"],\n"
+            f"   \"what_to_pursue_next\": [\"<pivot 1>\", \"<pivot 2>\"]\n"
+            f"}}, source=\"agent\", tags=[\"report\", \"hypothesis\"]).\n\n"
+            f"DO NOT call any CTI tool. DO NOT investigate further. Just read "
+            f"the existing graph, pick the category, write the node, return.\n"
+            f"This must be exactly ONE add_node call followed by an end-of-turn."
+        )
+        try:
+            rc_h, saw_h, _ = await _run_claude_phase(
+                inv_id, hypothesis_prompt, _FOLLOWUP_SYSTEM_PROMPT, model,
+                env, mcp_cfg_path, phase="hypothesis_write", max_turns=4,
+            )
+            _log(inv_id, "phase_hypothesis_write_done", {
+                "rc": rc_h, "saw_result": saw_h,
+                "wh_present_after": _has_working_hypothesis(),
+            })
+        except Exception as e:
+            _log(inv_id, "phase_hypothesis_write_error", {"error": str(e)[:300]})
+
     # ── Phase 2: Follow-up for missing mandatory tools + adaptive Phase 3 gaps ──
     if phase1_ok and not _is_parked(inv_id):
         called = _get_called_cti_tools(inv_id)
@@ -1866,13 +1968,42 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                     "Phase-3 gaps below.\n"
                 )
 
+            # Surface the chosen working_hypothesis category to anchor phase 2
+            # pivot decisions. Without this, the agent sometimes ignores the
+            # hypothesis it just committed to.
+            hypothesis_block = ""
+            try:
+                g_pre2_h = gs.get_graph(inv_id)
+                for n in g_pre2_h.get("nodes", []):
+                    if (n.get("type") or "").lower() != "report":
+                        continue
+                    v = (n.get("value") or "").lower()
+                    if v == "working_hypothesis" or v.startswith("working_hypothesis"):
+                        md = n.get("metadata") or {}
+                        cat = md.get("category", "?")
+                        conf = md.get("confidence", "?")
+                        what = md.get("what_to_pursue_next") or []
+                        what_str = "; ".join(str(w) for w in what[:5]) if isinstance(what, list) else str(what)
+                        hypothesis_block = (
+                            f"\nYOUR WORKING HYPOTHESIS (committed in phase 1.5):\n"
+                            f"  category={cat}  confidence={conf}\n"
+                            f"  what_to_pursue_next: {what_str or '(none specified)'}\n"
+                            f"Phase 2 pivot decisions MUST advance this hypothesis. If new "
+                            f"evidence contradicts it, OVERWRITE the working_hypothesis node "
+                            f"with the revised category and reason (do not silently switch).\n"
+                        )
+                        break
+            except Exception:
+                pass
+
             followup_prompt = (
                 f"Continue the investigation on {seed_value} (type={seed_type}). "
                 f"The graph already has nodes from the main investigation.\n\n"
                 f"ALREADY CALLED (DO NOT re-run any of these, their results are "
                 f"already in the graph):\n  "
                 + ", ".join(already_called_list or ["(none)"]) + "\n\n"
-                f"STEP 1: Call get_graph(compact=True) to see what already exists.\n"
+                + hypothesis_block
+                + f"STEP 1: Call get_graph(compact=True) to see what already exists.\n"
                 + mandatory_section
                 + adaptive_block
                 + "\n\n" + report_instr

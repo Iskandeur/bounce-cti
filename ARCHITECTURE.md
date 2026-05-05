@@ -103,10 +103,22 @@ Spawns `claude -p` (Claude Code headless) with:
   `opus-4.7` alias maps to `claude-opus-4-7`
 - `--max-turns` cap
 
-After the main run, a **second phase** is injected automatically when needed:
-it inspects which mandatory tools the agent skipped (e.g. `rdap_ip`,
-`reverse_dns`, `virustotal_communicating_files`) and asks the agent to fill
-them, then ensures a final `report` node exists.
+After the main run, additional phases run automatically:
+
+- **Phase 1.5 — `phase_hypothesis_write`** (added 2026-05): if the main phase
+  did not write a `working_hypothesis` report node, runs a tiny dedicated
+  prompt that forces the agent to commit to a hypothesis category (apt_targeted,
+  commodity_malware, traffer_or_tds, …) before phase 2. Mechanical enforcement
+  of the hypothesis-first arc described in `SYSTEM_PROMPT`.
+- **Phase 2 — `phase_followup`**: inspects which mandatory tools the agent
+  skipped (e.g. `rdap_ip`, `reverse_dns`, `virustotal_communicating_files`),
+  appends graph-state-aware adaptive Phase 3 targets from
+  `_adaptive_followup_targets`, surfaces the chosen working_hypothesis to
+  anchor pivot decisions, and runs the agent again.
+- **Phase 3 — `phase_report_write`**: if no `investigation_summary` report
+  node exists, runs a single-purpose phase to write one (with mechanically-
+  extracted discriminating-marker candidates pre-injected as MUST INCLUDE
+  VERBATIM lines).
 
 The runner also exposes:
 - `run_pivot(...)` — pivot from an existing node (used by `/enrich`)
