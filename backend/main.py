@@ -362,12 +362,27 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
         st0, sv0 = valid[0]
         inv_id = gs.create_investigation(st0, sv0, user_id=user_id, model=model)
         extra_seeds = valid[1:]
+        # Pre-register the extra seeds as orphan seed-tagged nodes so the
+        # listing panel shows the full multi-seed count immediately, instead
+        # of only revealing them after each run_add_seed cycle finishes.
+        # We use gs.add_node directly (not the MCP wrapper) so no pivots are
+        # auto-enqueued — that work happens later in run_add_seed. The
+        # `pending_seed` tag marks them as not-yet-investigated; run_add_seed
+        # upserts and the agent's normal "seed" workflow takes over.
+        for _st, _sv in extra_seeds:
+            gs.add_node(inv_id, _st, _sv, metadata={}, source="batch",
+                        tags=["seed", "pending_seed"])
 
         async def _combined_chain(_iid=inv_id, _primary=(st0, sv0), _extras=extra_seeds):
             import json as _json, time as _time
             await run_investigation(_iid, _primary[0], _primary[1], model=model)
             for _st, _sv in _extras:
                 gs.set_status(_iid, "running")
+                # Clear the pending_seed marker now that this seed is being
+                # actively investigated. The node was pre-registered above so
+                # the listing panel could show the full seed count from t=0.
+                from .graph_store import _node_id as _nid
+                gs.set_node_tag(_iid, _nid(_iid, _st, _sv), "pending_seed", on=False)
                 with gs.conn() as c:
                     payload = {"kind": "status_change", "status": "running",
                                "add_seed_type": _st, "add_seed_value": _sv}
