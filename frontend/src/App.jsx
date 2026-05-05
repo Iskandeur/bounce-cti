@@ -176,6 +176,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [selected, setSelected] = useState(null)
   const [events, setEvents] = useState([])
   const [report, setReport] = useState(null)
+  // Phase-1.5 hypothesis report node ("working_hypothesis"). Surfaced in the
+  // Report tab instead of cluttering the graph as a separate node.
+  const [hypothesis, setHypothesis] = useState(null)
+  // When the user clicks the "merge into…" icon on a History row we stash
+  // its inv id here and reveal an inline target-picker. Null = picker hidden.
+  const [mergePickerSrc, setMergePickerSrc] = useState(null)
+  // Per-investigation budget-extension log entries (R4). Internal accounting
+  // — kept off the graph and shown compactly in the Report tab.
+  const [budgetLog, setBudgetLog] = useState([])
   const [copied, setCopied] = useState(false)
   const [nodeValues, setNodeValues] = useState(new Map())
   const [filterTypes, setFilterTypes] = useState(new Set())
@@ -198,7 +207,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [nodeCount, setNodeCount] = useState(0)
   const [graphSearch, setGraphSearch] = useState('')
   const [searchMatches, setSearchMatches] = useState(0)
-  const [batchCombined, setBatchCombined] = useState(false)
+  const [batchCombined, setBatchCombined] = useState(true)
   // Live edit state for the Node tab's user_note input. We keep a draft so
   // typing doesn't write on every keystroke, and reset it whenever the
   // selected node changes (a fresh node = a fresh empty draft).
@@ -720,7 +729,20 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     }).run()
   }, [])
 
+  // The agent emits two flavours of internal "report" node that aren't
+  // meant for the graph canvas: working_hypothesis (phase-1.5 category
+  // commit) and budget_extension_<N> (R4 audit log). Both have useful
+  // metadata, but rendering them as separate graph nodes clutters the
+  // layout — they belong in the Report side-panel.
+  const isAuxReportNode = (n) => {
+    if (!n || n.type !== 'report') return false
+    const v = String(n.value || '').toLowerCase()
+    return v === 'working_hypothesis' || v.startsWith('working_hypothesis')
+        || v.startsWith('budget_extension')
+  }
+
   const addCyNode = useCallback((n) => {
+    if (isAuxReportNode(n)) return
     const cy = cyRef.current
     // For hash nodes, prefer a human-readable filename for the label;
     // a raw sha256 truncated to 28 chars is useless. Fall back to a short
@@ -773,9 +795,30 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     }
   }, [])
 
+  // Pull aux-report nodes (working_hypothesis, budget_extension_<N>) out of
+  // a snapshot or single event and stash them in side-panel state so they
+  // never reach cytoscape but stay accessible to the analyst.
+  const captureAuxReport = (n) => {
+    if (!n || n.type !== 'report') return
+    const v = String(n.value || '').toLowerCase()
+    if (v === 'working_hypothesis' || v.startsWith('working_hypothesis')) {
+      if (n.metadata) setHypothesis({ ...n.metadata, _ts: n.created_at })
+    } else if (v.startsWith('budget_extension')) {
+      const m = String(n.value || '').match(/budget_extension[_-]?(\d+)/i)
+      const round = m ? Number(m[1]) : null
+      setBudgetLog(prev => {
+        // Dedup by value; keep newest metadata for the same round.
+        const others = prev.filter(b => b.value !== n.value)
+        return [...others, { value: n.value, round, ts: n.created_at, metadata: n.metadata || {} }]
+          .sort((a, b) => (a.round ?? 0) - (b.round ?? 0))
+      })
+    }
+  }
+
   const handleEvent = useCallback((evt) => {
     if (evt.kind === 'snapshot') {
       evt.graph.nodes.forEach(n => addCyNode(n))
+      evt.graph.nodes.forEach(captureAuxReport)
       evt.graph.edges.forEach(e => addCyEdge(e))
       // Auto-load report if present in snapshot
       const reportNode = evt.graph.nodes.find(n => n.type === 'report' && n.value === 'investigation_summary')
@@ -783,6 +826,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       relayout()
     } else if (evt.kind === 'node_added' || evt.kind === 'node_updated') {
       addCyNode(evt.node)
+      captureAuxReport(evt.node)
       // Auto-refresh report when the report node is updated (e.g. after custom prompt)
       if (evt.node.type === 'report' && evt.node.value === 'investigation_summary' && evt.node.metadata) {
         setReport(evt.node.metadata)
@@ -812,6 +856,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setActiveInv(id)
     setSelected(null)
     setReport(null)
+    setHypothesis(null)
+    setBudgetLog([])
     setEvents([])
     setAgentNotes([])
     setNodeValues(new Map())
@@ -1032,6 +1078,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       setActiveInv(null)
       setSelected(null)
       setReport(null)
+      setHypothesis(null)
+      setBudgetLog([])
       setEvents([])
       setNodeValues(new Map())
       setExistingTypes(new Set())
@@ -1052,6 +1100,30 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     await fetch(`/api/investigations/${id}/rerun`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ model }) })
     await refreshInvs()
     openInv(id)
+  }
+
+  // Merge investigation `srcId` into `dstId`. Backend dedups nodes on
+  // (type, value) and edges on (src, dst, relation), unioning metadata /
+  // tags / sources_seen. The destination's existing report is preserved.
+  const mergeInv = async (srcId, dstId, deleteSource) => {
+    const r = await fetch(`/api/investigations/${encodeURIComponent(srcId)}/merge_into/${encodeURIComponent(dstId)}`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ delete_source: !!deleteSource }),
+      credentials: 'same-origin',
+    })
+    if (!r.ok) {
+      const t = await r.text()
+      alert(`Merge failed: ${t || r.status}`)
+      return
+    }
+    const d = await r.json()
+    setMergePickerSrc(null)
+    await refreshInvs()
+    openInv(dstId)
+    setEvents(e => [
+      `▶ Merge OK — +${d.nodes_added} new, ${d.nodes_merged} deduped, ${d.edges_added} edge(s)${d.source_deleted ? ', source deleted' : ''}.`,
+      ...e,
+    ])
   }
 
   // Attach a new PEER seed to the currently open investigation. The agent runs
@@ -1608,9 +1680,71 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                       <button className="icon-btn warning" title="Stop" onClick={e => stopInv(i.id, e)}>■</button>
                     )}
                     <button className="icon-btn" title="Rerun" onClick={e => rerunInv(i.id, e)}>↺</button>
+                    {/* Merge into another of my investigations. Backend dedups
+                        nodes (type, value) and edges (src, dst, relation),
+                        unioning metadata + tags + sources_seen. Disabled while
+                        the source is still running (its graph is half-built). */}
+                    <button
+                      className={`icon-btn${mergePickerSrc === i.id ? ' active' : ''}`}
+                      title={i.status === 'running'
+                        ? 'Stop the investigation before merging'
+                        : 'Merge into another investigation'}
+                      disabled={i.status === 'running'}
+                      onClick={e => {
+                        e.stopPropagation()
+                        setMergePickerSrc(prev => prev === i.id ? null : i.id)
+                      }}
+                    >⇆</button>
                     <button className="icon-btn danger" title="Delete" onClick={e => deleteInv(i.id, e)}>✕</button>
                   </span>
                 </div>
+                {/* Inline target picker. Listing only other invs owned by the
+                    caller (the API is owner-checked too). */}
+                {mergePickerSrc === i.id && (
+                  <div
+                    className="inv-merge-picker"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <span className="inv-merge-label">Merge into:</span>
+                    <select
+                      className="inv-merge-select"
+                      defaultValue=""
+                      onChange={e => {
+                        const dst = e.target.value
+                        if (!dst) return
+                        const dstInv = invs.find(x => x.id === dst)
+                        const srcLabel = i.seed_value || i.id
+                        const dstLabel = dstInv ? (dstInv.seed_value || dstInv.id) : dst
+                        const delSrc = confirm(
+                          `Merge "${srcLabel}" into "${dstLabel}"?\n\n` +
+                          `Click OK to also DELETE the source after merging.\n` +
+                          `Click Cancel to keep the source intact (you can delete it later).`
+                        )
+                        // confirm() returning false here means "keep source",
+                        // not "abort merge" — we always proceed with the merge
+                        // once a target is picked. Aborting would require a
+                        // second prompt and feels clunkier than offering an
+                        // explicit "Cancel" entry on the dropdown.
+                        mergeInv(i.id, dst, delSrc)
+                      }}
+                    >
+                      <option value="" disabled>Pick destination…</option>
+                      {invs
+                        .filter(j => j.id !== i.id)
+                        .map(j => (
+                          <option key={j.id} value={j.id}>
+                            {j.seed_value || j.id}
+                            {((j.seeds || []).length > 1) ? ` (+${j.seeds.length - 1})` : ''}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      className="icon-btn"
+                      title="Cancel"
+                      onClick={() => setMergePickerSrc(null)}
+                    >✕</button>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -1885,6 +2019,77 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           {/* ── Report tab ── */}
           {rightTab === 'report' && (
             <>
+              {/* Working hypothesis (phase-1.5 commit). Surfaced here instead
+                  of as a separate graph node — it's analyst context, not
+                  infrastructure. May appear before the full report node. */}
+              {hypothesis && (
+                <details className="hypothesis-card" open style={{
+                  border: '1px solid var(--border)', borderRadius: 6,
+                  padding: '6px 10px', marginBottom: 8, background: 'var(--surface-alt, #1c2128)'
+                }}>
+                  <summary style={{ cursor: 'pointer', fontSize: 12, opacity: 0.85 }}>
+                    <span style={{ color: '#f5a623', fontWeight: 600 }}>Working hypothesis</span>
+                    {hypothesis.category && (
+                      <span style={{ marginLeft: 8 }}>
+                        {String(hypothesis.category).replace(/_/g, ' ')}
+                      </span>
+                    )}
+                    {hypothesis.confidence && (
+                      <span style={{ marginLeft: 6, opacity: 0.7 }}>
+                        ({hypothesis.confidence})
+                      </span>
+                    )}
+                  </summary>
+                  {hypothesis.reason && (
+                    <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+                      {hypothesis.reason}
+                    </div>
+                  )}
+                  {Array.isArray(hypothesis.evidence) && hypothesis.evidence.length > 0 && (
+                    <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
+                      {hypothesis.evidence.map((ev, i) => <li key={i}>{String(ev)}</li>)}
+                    </ul>
+                  )}
+                  {Array.isArray(hypothesis.what_to_pursue_next) && hypothesis.what_to_pursue_next.length > 0 && (
+                    <div style={{ marginTop: 6, fontSize: 12 }}>
+                      <span style={{ opacity: 0.7 }}>Next: </span>
+                      {hypothesis.what_to_pursue_next.map((p, i) => (
+                        <span key={i} style={{
+                          display: 'inline-block', margin: '2px 4px 0 0',
+                          padding: '1px 6px', border: '1px solid var(--border)',
+                          borderRadius: 10, fontSize: 11
+                        }}>{String(p)}</span>
+                      ))}
+                    </div>
+                  )}
+                </details>
+              )}
+              {/* Budget-extension log (R4): collapsed by default, useful only
+                  when investigating why the agent kept pivoting past 60 calls. */}
+              {budgetLog.length > 0 && (
+                <details className="budget-log-card" style={{
+                  border: '1px solid var(--border)', borderRadius: 6,
+                  padding: '4px 10px', marginBottom: 8, fontSize: 12, opacity: 0.85
+                }}>
+                  <summary style={{ cursor: 'pointer' }}>
+                    Budget extensions ({budgetLog.length})
+                  </summary>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                    {budgetLog.map((b, i) => (
+                      <li key={i}>
+                        <strong>round {b.round ?? '?'}</strong>
+                        {typeof b.metadata.calls_so_far !== 'undefined' && (
+                          <> — {b.metadata.calls_so_far} calls</>
+                        )}
+                        {typeof b.metadata.discriminating_fingerprints_last5 !== 'undefined' && (
+                          <>, +{b.metadata.discriminating_fingerprints_last5} fingerprints</>
+                        )}
+                        {b.metadata.reason && <div style={{ opacity: 0.75 }}>{String(b.metadata.reason)}</div>}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
               {!report && (
                 <p className="hint">Click the ★ report node for the full investigation summary.</p>
               )}
@@ -1894,6 +2099,23 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     <span className={`threat-badge threat-${(report.threat_assessment || 'unknown').replace(/\s+/g, '_')}`}>
                       {(report.threat_assessment || 'UNKNOWN').toUpperCase()}
                     </span>
+                    {/* The report node is upserted as soon as the agent reaches
+                        STEP 8 in phase 1 — phases 1.5 / 2 / 3 may still be
+                        running and will refine the same node in place. Surface
+                        a "still being refined" hint while inv.status === 'running'
+                        so the analyst doesn't mistake the early draft for the
+                        final report. */}
+                    {(() => {
+                      const inv = invs.find(i => i.id === activeInv)
+                      return inv && inv.status === 'running' ? (
+                        <span
+                          className="report-refining-badge"
+                          title="The agent is still running follow-up phases. The summary will be updated in place."
+                        >
+                          <span className="report-refining-dot" /> being refined…
+                        </span>
+                      ) : null
+                    })()}
                     <button
                       className="btn-sm secondary export-btn"
                       style={{ marginLeft: 'auto' }}

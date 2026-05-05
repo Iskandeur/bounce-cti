@@ -362,12 +362,27 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
         st0, sv0 = valid[0]
         inv_id = gs.create_investigation(st0, sv0, user_id=user_id, model=model)
         extra_seeds = valid[1:]
+        # Pre-register the extra seeds as orphan seed-tagged nodes so the
+        # listing panel shows the full multi-seed count immediately, instead
+        # of only revealing them after each run_add_seed cycle finishes.
+        # We use gs.add_node directly (not the MCP wrapper) so no pivots are
+        # auto-enqueued — that work happens later in run_add_seed. The
+        # `pending_seed` tag marks them as not-yet-investigated; run_add_seed
+        # upserts and the agent's normal "seed" workflow takes over.
+        for _st, _sv in extra_seeds:
+            gs.add_node(inv_id, _st, _sv, metadata={}, source="batch",
+                        tags=["seed", "pending_seed"])
 
         async def _combined_chain(_iid=inv_id, _primary=(st0, sv0), _extras=extra_seeds):
             import json as _json, time as _time
             await run_investigation(_iid, _primary[0], _primary[1], model=model)
             for _st, _sv in _extras:
                 gs.set_status(_iid, "running")
+                # Clear the pending_seed marker now that this seed is being
+                # actively investigated. The node was pre-registered above so
+                # the listing panel could show the full seed count from t=0.
+                from .graph_store import _node_id as _nid
+                gs.set_node_tag(_iid, _nid(_iid, _st, _sv), "pending_seed", on=False)
                 with gs.conn() as c:
                     payload = {"kind": "status_change", "status": "running",
                                "add_seed_type": _st, "add_seed_value": _sv}
@@ -420,6 +435,51 @@ def delete_inv(inv_id: str, user_id: int = Depends(current_user)):
     stop_investigation(inv_id)  # kill agent if running before deleting
     gs.delete_investigation(inv_id)
     return {"ok": True}
+
+
+class MergeReq(BaseModel):
+    delete_source: bool = False
+
+
+@app.post("/api/investigations/{src_id}/merge_into/{dst_id}")
+def merge_investigations(src_id: str, dst_id: str,
+                         req: Optional[MergeReq] = None,
+                         user_id: int = Depends(current_user)):
+    """Merge `src_id` into `dst_id`, both owned by the caller.
+
+    Same dedup semantics as the share-link import path: nodes are upserted
+    on `(inv, type, value)`, edges on `(inv, src, dst, relation)`. Metadata,
+    tags, and `sources_seen` are unioned. The destination's existing report
+    node is preserved (the source report is dropped to avoid clobbering the
+    caller's analysis).
+
+    Default behaviour leaves `src_id` intact so the analyst can audit the
+    merge and undo by deleting the destination if needed. Pass
+    `delete_source=true` to remove the source after a successful merge.
+    """
+    if src_id == dst_id:
+        raise HTTPException(status_code=400, detail="source and destination must differ")
+    _require_owner(src_id, user_id)
+    _require_owner(dst_id, user_id)
+    # Refuse to merge a still-running source — its graph is half-built and
+    # the agent might keep adding nodes after the merge, leaving them
+    # orphaned in the source. Stop it first if you really want to merge.
+    src_status = None
+    with gs.conn() as c:
+        row = c.execute("SELECT status FROM investigations WHERE id=?", (src_id,)).fetchone()
+        if row:
+            src_status = row["status"]
+    if src_status == "running":
+        raise HTTPException(status_code=409,
+                            detail="source investigation is still running — stop it before merging")
+    result = gs.merge_into_investigation(src_id, dst_id)
+    if (req and req.delete_source):
+        stop_investigation(src_id)
+        gs.delete_investigation(src_id)
+        result["source_deleted"] = True
+    else:
+        result["source_deleted"] = False
+    return {"id": dst_id, "mode": "merge", **result}
 
 
 class RerunReq(BaseModel):

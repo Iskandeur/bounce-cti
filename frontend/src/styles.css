@@ -290,6 +290,41 @@ button.secondary:hover {
   color: var(--warning);
   background: #e3b34112;
 }
+.icon-btn.active {
+  border-color: #58a6ff;
+  color: #58a6ff;
+  background: #58a6ff15;
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Inline merge picker ─────────────────────────────────────────────────── */
+.inv-merge-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-top: 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+.inv-merge-label {
+  color: var(--on-dim);
+}
+.inv-merge-select {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-2);
+  color: var(--on-surface);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+  font-size: 11px;
+}
 
 /* ── Event log ───────────────────────────────────────────────────────────── */
 .event-log {
@@ -495,6 +530,35 @@ button.secondary:hover {
   background: var(--surface-2);
   color: var(--on-dim);
   border-color: var(--outline);
+}
+
+/* ── Report refining badge ───────────────────────────────────────────────── */
+/* Shown next to the threat badge while inv.status === 'running' AND a
+   summary already exists. The report is upserted in phase 1 then refined
+   by phases 1.5/2/3, so an early-looking summary may still get richer. */
+.report-refining-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: #58a6ff15;
+  color: #58a6ff;
+  border: 1px solid #58a6ff55;
+}
+.report-refining-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #58a6ff;
+  animation: report-refining-pulse 1.4s ease-in-out infinite;
+}
+@keyframes report-refining-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.7); }
 }
 
 /* ── Finding card ────────────────────────────────────────────────────────── */
