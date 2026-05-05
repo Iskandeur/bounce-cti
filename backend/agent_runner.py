@@ -2265,6 +2265,152 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
         except Exception as e:
             _log(inv_id, "phase3_report_write_error", {"error": str(e)[:300]})
 
+    # ── Phase 4: Autonomous pivot drain ──
+    # The agent's report.metadata.pivot_suggestions is its own to-do list —
+    # historically it sat there waiting for the analyst to manually click
+    # "pivot" on each suggestion. Case study: prod inv 650c6884768c reached
+    # 324 nodes via 39 manual pivots + 27 manual prompts; the autonomous
+    # run on the same seed stopped at ≤40 nodes. This phase drains the
+    # backlog the way the analyst would: read pivot_suggestions, queue,
+    # gaps_report → execute the highest-leverage pivots → loop until a
+    # round adds nothing new (or MAX_ROUNDS rounds, whichever comes first).
+    #
+    # Bounded by:
+    #   - MAX_ROUNDS rounds (hard cap so we don't run forever)
+    #   - max_turns per round (caps API spend per round)
+    #   - convergence: delta_nodes < CONVERGENCE_THRESHOLD ⇒ stop
+    # Skipped on parked seeds and when phase 1 didn't run.
+    PIVOT_DRAIN_MAX_ROUNDS = int(os.environ.get("BOUNCE_PIVOT_DRAIN_ROUNDS", "3"))
+    PIVOT_DRAIN_MAX_TURNS = int(os.environ.get("BOUNCE_PIVOT_DRAIN_MAX_TURNS", "60"))
+    PIVOT_DRAIN_CONVERGENCE = int(os.environ.get("BOUNCE_PIVOT_DRAIN_CONVERGENCE", "3"))
+
+    if (phase1_ok and not _is_parked(inv_id)
+            and PIVOT_DRAIN_MAX_ROUNDS > 0):
+        _log(inv_id, "phase_pivot_drain_starting", {
+            "max_rounds": PIVOT_DRAIN_MAX_ROUNDS,
+            "max_turns_per_round": PIVOT_DRAIN_MAX_TURNS,
+            "convergence_threshold": PIVOT_DRAIN_CONVERGENCE,
+        })
+
+        for round_idx in range(PIVOT_DRAIN_MAX_ROUNDS):
+            try:
+                g_before = gs.get_graph(inv_id)
+                n_before = len(g_before.get("nodes", []))
+                e_before = len(g_before.get("edges", []))
+            except Exception:
+                n_before = 0
+                e_before = 0
+
+            # Pull current pivot_suggestions out of the report node — these
+            # are the agent's own analyst-style next-step list. Trim to a
+            # manageable size per round.
+            pivot_sug_lines = []
+            report_md_now = {}
+            try:
+                for n in gs.get_graph(inv_id).get("nodes", []):
+                    if (n.get("type") or "").lower() == "report" and \
+                       (n.get("value") or "").lower() == "investigation_summary":
+                        report_md_now = n.get("metadata") or {}
+                        break
+                ps = report_md_now.get("pivot_suggestions") or []
+                if isinstance(ps, list):
+                    for p in ps[:8]:
+                        if isinstance(p, str) and p.strip():
+                            pivot_sug_lines.append(p.strip())
+                        elif isinstance(p, dict):
+                            # Some reports nest as {op, target, reason}
+                            parts = [str(p.get(k)) for k in ("op", "target", "reason")
+                                     if p.get(k)]
+                            if parts:
+                                pivot_sug_lines.append(" — ".join(parts))
+            except Exception:
+                pivot_sug_lines = []
+
+            sug_block = ""
+            if pivot_sug_lines:
+                sug_block = (
+                    "\n\nYOUR OWN PIVOT SUGGESTIONS (you wrote these in the report — "
+                    "execute them now, do NOT just rewrite them):\n"
+                    + "\n".join(f"  • {p}" for p in pivot_sug_lines)
+                    + "\n"
+                )
+
+            drain_prompt = (
+                f"AUTONOMOUS PIVOT DRAIN — round {round_idx + 1}/{PIVOT_DRAIN_MAX_ROUNDS}\n\n"
+                f"You finished the main investigation on seed "
+                f"{seed_type}={seed_value}. The analyst is NOT going to manually "
+                f"click 'pivot' on each suggestion — your job is to drain your "
+                f"own backlog autonomously until the graph stops growing.\n\n"
+                f"STEP 1 (assess): Call get_graph(compact=True), get_report(), "
+                f"queue_status(), and gaps_report() to see what's left.\n\n"
+                f"STEP 2 (execute, in priority order):\n"
+                f"  (a) Every entry in your report's pivot_suggestions that names "
+                f"a specific IOC — run the named tool(s) on the named value.\n"
+                f"  (b) For each ip/domain/cert/jarm/favicon_hash/title_hash node "
+                f"that exists but has NOT been enriched with the type-appropriate "
+                f"chain, run that chain now: ip → rdap_ip+abuseipdb_check+"
+                f"criminalip_ip+virustotal_ip+onyphe_ip+virustotal_resolutions_ip+"
+                f"shodan_host+threatfox_search; domain → rdap_domain+"
+                f"virustotal_domain+threatfox_search+otx_domain+onyphe_domain; "
+                f"cert with serial → certspotter_serial+crtsh_serial; "
+                f"jarm → shodan_search+onyphe_datascan+netlas_jarm+zoomeye_jarm+"
+                f"urlscan_search('hash:<jarm>'); favicon_hash → shodan_search("
+                f"'http.favicon.hash:<h>')+netlas_favicon+zoomeye_favicon+"
+                f"onyphe_datascan('favicon:<h>'); title_hash → urlscan_search("
+                f"'page.title:\"<title>\"', size=200) for kit-template siblings.\n"
+                f"  (c) For every value in metadata.discriminating_markers NOT "
+                f"yet swept across all four scanner DBs, do the multi-source "
+                f"sweep so each marker has at minimum 2 source corroborations.\n\n"
+                f"STEP 3 (graph everything): Every new IOC returned MUST become a "
+                f"node + edge with the canonical relation (same_cert / same_jarm "
+                f"/ same_favicon / same_registrant / same_template / co_resolves). "
+                f"Do NOT summarise unmade pivots in prose — graph the cluster.\n\n"
+                f"STEP 4 (refresh the report at the end of the round): re-call "
+                f"add_node(report, \"investigation_summary\", metadata={{...}}) "
+                f"with the expanded ioc_list, refreshed pivot_suggestions, and "
+                f"any new key_findings/discriminating_markers. The report is a "
+                f"singleton — upsert it, do NOT create a second one.\n\n"
+                f"BUDGET this round: ≈ {PIVOT_DRAIN_MAX_TURNS} tool calls. STOP "
+                f"early if every remaining pivot would only return defused / "
+                f"already-graphed values. The next round will pick up where you "
+                f"left off if you didn't finish.\n"
+                + sug_block
+            )
+
+            try:
+                rc4, saw4, _ = await _run_claude_phase(
+                    inv_id, drain_prompt, _FOLLOWUP_SYSTEM_PROMPT, model, env,
+                    mcp_cfg_path, phase=f"pivot_drain_{round_idx + 1}",
+                    max_turns=PIVOT_DRAIN_MAX_TURNS,
+                )
+            except Exception as e:
+                _log(inv_id, "phase_pivot_drain_error",
+                     {"round": round_idx + 1, "error": str(e)[:300]})
+                break
+
+            try:
+                g_after = gs.get_graph(inv_id)
+                n_after = len(g_after.get("nodes", []))
+                e_after = len(g_after.get("edges", []))
+            except Exception:
+                n_after = n_before
+                e_after = e_before
+
+            delta_n = n_after - n_before
+            delta_e = e_after - e_before
+            _log(inv_id, "phase_pivot_drain_round_done", {
+                "round": round_idx + 1,
+                "rc": rc4, "saw_result": saw4,
+                "n_before": n_before, "n_after": n_after, "delta_n": delta_n,
+                "e_before": e_before, "e_after": e_after, "delta_e": delta_e,
+            })
+
+            if delta_n < PIVOT_DRAIN_CONVERGENCE:
+                _log(inv_id, "phase_pivot_drain_converged",
+                     {"round": round_idx + 1, "delta_n": delta_n,
+                      "convergence_threshold": PIVOT_DRAIN_CONVERGENCE})
+                break
+
     # ── Final status ──
     try:
         g = gs.get_graph(inv_id)
