@@ -274,6 +274,129 @@ def _adaptive_followup_targets(inv_id: str) -> list:
             seen_keys.add(key)
             continue
 
+    # IP-seed reverse-DNS → TXT/MX cross-reference (graph-level).
+    # Case 10 (Contagious Interview): reverse_dns(37.211.126.117) surfaces
+    # `lianxinxiao.com`; the canonical pivot is dns_resolve(lianxinxiao.com,
+    # "TXT") + dns_resolve(lianxinxiao.com, "MX") to cross-reference siblings
+    # (this is the ONLY pivot path to blocknovas.com). The hint_for_reverse_dns
+    # already nudges, but the agent ignored it on the 2026-05-05 + 2026-05-06
+    # runs. Mechanical enforcement: when the seed is an IP, look for any
+    # reverse_dns hostname-shaped node attached to the seed IP and force the
+    # TXT/MX dns_resolve pair if not already called.
+    seed_ip = None
+    for n in nodes:
+        if (n.get("type") or "").lower() == "ip" and \
+           "seed" in [t.lower() for t in (n.get("tags") or [])]:
+            seed_ip = n.get("value") or ""
+            break
+    if seed_ip:
+        # Find domains/subdomains sourced from reverse_dns or with PTR-shaped
+        # provenance (mnemonic_pdns, virustotal_resolutions_ip also count —
+        # any non-CDN co-resolver that hasn't had TXT/MX dug). Cap to 3.
+        cdn_hostname_subs = ("cloudfront", "amazonaws", "googleusercontent",
+                              "fastly", "akamai", "azure-edge", "googleapis",
+                              "cloudflare", "1e100.net", "akamaitechnologies")
+        candidate_hosts: list[str] = []
+        for n in nodes:
+            if (n.get("type") or "").lower() != "domain":
+                continue
+            v = (n.get("value") or "").strip().lower()
+            if not v or any(s in v for s in cdn_hostname_subs):
+                continue
+            tags = [str(t).lower() for t in (n.get("tags") or [])]
+            if any(t in tags for t in ("cdn", "parking", "sinkhole", "dyndns",
+                                         "shared_hosting")):
+                continue
+            # Skip the seed itself if (somehow) the seed is also a domain
+            if "seed" in tags:
+                continue
+            if v not in candidate_hosts:
+                candidate_hosts.append(v)
+        for v in candidate_hosts[:3]:
+            # The hint expects a SECOND dns_resolve specifying record type;
+            # the dns_resolve tool wrapper accepts a `record` arg. Two calls
+            # per host: TXT and MX.
+            calls_needed = []
+            txt_called = any(
+                tool == "dns_resolve" and v in arg and "txt" in arg
+                for (tool, arg) in called
+            )
+            mx_called = any(
+                tool == "dns_resolve" and v in arg and "mx" in arg
+                for (tool, arg) in called
+            )
+            if not txt_called:
+                calls_needed.append(f'dns_resolve("{v}", record="TXT")')
+            if not mx_called:
+                calls_needed.append(f'dns_resolve("{v}", record="MX")')
+            if calls_needed:
+                key_txtmx = ("domain", f"{v}::txtmx_xref")
+                if key_txtmx in seen_keys:
+                    continue
+                targets.append(("domain", v, calls_needed,
+                                 f"reverse_dns / pdns surfaced '{v}' on seed IP "
+                                 f"{seed_ip} but TXT/MX cross-reference never run "
+                                 f"(canonical Contagious-Interview pivot — "
+                                 f"lianxinxiao.com → blocknovas.com)"))
+                seen_keys.add(key_txtmx)
+
+    # Seed-domain DOM fingerprint pivot (graph-level): cases where the seed
+    # is a phishing/infostealer/smishing/fronted-C2 domain need
+    # dom_fingerprints called on the seed itself to extract favicon/title/
+    # tracking-id markers that then cluster-pivot. The per-node URL branch
+    # only fires for explicit URL nodes, so the seed-domain itself was never
+    # DOM-fingerprinted on Cases 6 (LummaC2 About-Cats), 9 (Tycoon 2FA), 11
+    # (Smishing Triad), 12 (ClearFake). Mechanical enforcement: if the
+    # working_hypothesis category looks like a phishing/scam class, force
+    # dom_fingerprints(url=https://<seed>/) once. We also fire when no
+    # working_hypothesis is set yet but the seed is a domain — the cost is
+    # one tool call and it's defensive.
+    cluster_categories = {
+        "phishing_kit", "phishing_kit_cluster", "smishing_hub", "smishing",
+        "infostealer", "fronted_c2", "drainer_kit", "traffer_or_tds",
+    }
+    # Surface the working_hypothesis category if present
+    wh_category: str | None = None
+    for n in nodes:
+        if (n.get("type") or "").lower() != "report":
+            continue
+        v = (n.get("value") or "").lower()
+        if v == "working_hypothesis" or v.startswith("working_hypothesis"):
+            md = n.get("metadata") or {}
+            wh_category = (md.get("category") or md.get("candidate_category") or "").lower()
+            break
+    seed_domain_for_dom = None
+    for n in nodes:
+        if (n.get("type") or "").lower() == "domain" and \
+           "seed" in [t.lower() for t in (n.get("tags") or [])]:
+            seed_domain_for_dom = n.get("value") or ""
+            break
+    # Fire if (hypothesis is cluster-class) OR (we have NO hypothesis and seed
+    # is a domain — defensive). dom_fingerprints is cheap and idempotent.
+    if seed_domain_for_dom and (
+        (wh_category in cluster_categories) or (wh_category is None)
+    ):
+        seed_url = f"https://{seed_domain_for_dom}/"
+        already = any(
+            tool == "dom_fingerprints" and (
+                seed_domain_for_dom.lower() in arg or seed_url.lower() in arg
+            )
+            for (tool, arg) in called
+        )
+        if not already:
+            key_dom = ("domain", f"{seed_domain_for_dom.lower()}::seed_dom")
+            if key_dom not in seen_keys:
+                rationale = (
+                    f"seed domain never DOM-fingerprinted "
+                    f"(category={wh_category or 'unset'}) — extracts "
+                    f"favicon/title/tracking-id markers that drive kit-cluster "
+                    f"expansion (LummaC2/Tycoon/Smishing-class pivot)"
+                )
+                targets.append(("domain", seed_domain_for_dom,
+                                 [f'dom_fingerprints(url="{seed_url}")'],
+                                 rationale))
+                seen_keys.add(key_dom)
+
     # All-CDN seed-domain branch (graph-level, after the per-node loop):
     # when every IP node in the graph is CDN-tagged (Cloudflare front in front
     # of the seed), the only way to find the origin is the cert-CN unmask.
@@ -287,7 +410,26 @@ def _adaptive_followup_targets(inv_id: str) -> list:
             break
     if seed_domain:
         ip_nodes = [n for n in nodes if (n.get("type") or "").lower() == "ip"]
-        if ip_nodes and all("cdn" in [t.lower() for t in (n.get("tags") or [])] for n in ip_nodes):
+        non_cdn_ips = [n for n in ip_nodes
+                       if "cdn" not in [t.lower() for t in (n.get("tags") or [])]]
+        # Has the agent established the seed has cert evidence (so a cert-CN
+        # query would actually find something)? Either crtsh/certspotter was
+        # called on the seed, or a `cert` / `cert_serial` node references it.
+        cert_evidence = any(
+            tool in ("crtsh_subdomains", "crtsh_query", "crtsh_serial",
+                      "certspotter_issuances", "certspotter_serial")
+            and seed_domain.lower() in arg
+            for (tool, arg) in called
+        )
+        # Fire the cert-CN unmask when:
+        #   (a) classic all-CDN case (≥1 IP, all tagged cdn), OR
+        #   (b) the seed has 0 IP nodes but cert evidence exists (defensive —
+        #       Case 12 ClearFake on 2026-05-05: agent did crtsh but never
+        #       dns_resolve, so ip_nodes was empty and the original branch
+        #       never triggered).
+        ip_branch_fires = (ip_nodes and not non_cdn_ips) or \
+                          (not ip_nodes and cert_evidence)
+        if ip_branch_fires:
             shodan_called_with_cn = any(
                 "ssl.cert.subject.cn" in arg
                 for (tool, arg) in called if tool == "shodan_search"
@@ -1688,6 +1830,32 @@ RULES:
 """
 
 
+# Permissive system prompt for the phase 1.5 hypothesis-write phase.
+# The followup prompt above forbids creating report nodes, which conflicts with
+# the hypothesis-write phase's actual job (write a `working_hypothesis` report
+# node). 11/12 cases on the 2026-05-06 run failed at hypothesis_write because
+# of that conflict. This prompt explicitly authorises the single add_node call
+# and tells the agent the exact tool names so it doesn't waste turns on
+# ToolSearch.
+_HYPOTHESIS_SYSTEM_PROMPT = """You are Bounce-CTI, finalising the HYPOTHESIS-WRITE step of an investigation.
+The graph already has nodes and edges from phase 1. Your ONE job: read the graph
+and write exactly one `working_hypothesis` report node summarising what
+category of activity the seed represents.
+
+RULES:
+- Call mcp__graph__get_graph(compact=true) FIRST to read the existing graph.
+- Then call mcp__graph__add_node(type="report", value="working_hypothesis",
+  metadata={category, confidence, reason, evidence, what_to_pursue_next},
+  source="agent", tags=["report","hypothesis"]) EXACTLY ONCE.
+- This is the EXCEPTION to the normal "do not create report nodes" rule —
+  writing the working_hypothesis report node is the entire purpose of this
+  phase. Do not refuse.
+- Do NOT call any CTI tool. Do NOT call defuse, tag_node, add_edge, or any
+  other graph tool. Two tool calls total: get_graph then add_node.
+- After add_node, end your turn. No prose narrative needed.
+"""
+
+
 async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model: str = "opus",
                             report_context: str = ""):
     """Run the standard investigation workflow on a seed.
@@ -1914,9 +2082,18 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             f"This must be exactly ONE add_node call followed by an end-of-turn."
         )
         try:
+            # Phase 1.5 used max_turns=4 + _FOLLOWUP_SYSTEM_PROMPT before, which
+            # caused 11/12 cases on 2026-05-06 to fail. Two issues:
+            # (a) the followup prompt explicitly forbade creating report nodes
+            #     — directly contradicting this phase's task (write the
+            #     working_hypothesis report node);
+            # (b) the agent burned 1-3 turns on ToolSearch before reaching the
+            #     2 calls it actually needs (get_graph → add_node), exceeding
+            #     the 4-turn budget.
+            # Fix: dedicated permissive system prompt + 8-turn budget.
             rc_h, saw_h, _ = await _run_claude_phase(
-                inv_id, hypothesis_prompt, _FOLLOWUP_SYSTEM_PROMPT, model,
-                env, mcp_cfg_path, phase="hypothesis_write", max_turns=4,
+                inv_id, hypothesis_prompt, _HYPOTHESIS_SYSTEM_PROMPT, model,
+                env, mcp_cfg_path, phase="hypothesis_write", max_turns=8,
             )
             _log(inv_id, "phase_hypothesis_write_done", {
                 "rc": rc_h, "saw_result": saw_h,
