@@ -1,12 +1,10 @@
 # bounce-cti
 
 > **Copyright (c) 2026 Alexandre Pinoteau · All rights reserved.**
-> Licensed under the [PolyForm Noncommercial License 1.0.0](./LICENSE).
-> You may use, study, and modify this project for **non-commercial** purposes
-> (personal, academic, research, hobby). **Any commercial use — including
-> internal use at a for-profit company — requires a separate commercial
-> license from the author.** Please open a GitHub issue or reach out to
-> arrange one.
+> Source-available for personal study and non-commercial individual use.
+> Any organizational, institutional, governmental, or commercial use
+> requires a written license — see [LICENSE](./LICENSE) and
+> [COMMERCIAL.md](./COMMERCIAL.md).
 
 Autonomous CTI investigation tool. Feed it a domain, IP, file hash, URL, JARM
 fingerprint, or ASN, and a Claude Code agent pivots through ~50 public-source
