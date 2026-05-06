@@ -55,8 +55,8 @@ Send an email with the following information:
 - **Timeline** — when do you want to start, target duration.
 - **Contact** — name, role, email, phone (optional).
 
-📧 **[TON EMAIL]**
-🔗 **[TON LINKEDIN]**
+📧 **alexandre.pinoteau@protonmail.com**
+🔗 **https://www.linkedin.com/in/p1n0t34u/**
 
 I aim to reply within 5 working days.
 
