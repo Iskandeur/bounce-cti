@@ -501,6 +501,20 @@ def delete_inv(inv_id: str, user_id: int = Depends(current_user)):
     return {"ok": True}
 
 
+class RenameReq(BaseModel):
+    title: Optional[str] = None
+
+
+@app.patch("/api/investigations/{inv_id}")
+def rename_inv(inv_id: str, req: RenameReq, user_id: int = Depends(current_user)):
+    """Rename an investigation. Empty title clears it (UI falls back to seed)."""
+    _require_owner(inv_id, user_id)
+    ok = gs.rename_investigation(inv_id, req.title)
+    if not ok:
+        raise HTTPException(status_code=404, detail="not found")
+    return {"ok": True, "title": (req.title or "").strip()[:120] or None}
+
+
 class MergeReq(BaseModel):
     delete_source: bool = False
 

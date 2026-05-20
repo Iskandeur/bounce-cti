@@ -56,6 +56,7 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 - `GET    /api/investigations/{id}/graph`
 - `POST   /api/investigations/{id}/stop` — kill the running agent
 - `DELETE /api/investigations/{id}`
+- `PATCH  /api/investigations/{id}` — rename (`{title}`); empty/omitted title clears it, falling back to the seed value in the UI
 - `POST   /api/investigations/{id}/rerun`
 - `POST   /api/investigations/{id}/resume` — pick up an investigation halted by a Claude-subscription quota error (425 while still in cooldown)
 - `GET    /api/quota` — Claude-subscription quota state for the host account (`{exhausted, exhausted_until, message, last_seen}`); the frontend polls it to render a global banner + per-investigation Resume button
@@ -144,7 +145,7 @@ SQLite-backed store. Tables:
 
 | Table            | Columns (essentials)                                                                                                          |
 |------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `quota_reset_at` (epoch when a Claude-subscription cooldown lifts) |
+| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `quota_reset_at` (epoch when a Claude-subscription cooldown lifts), `title` (optional analyst-supplied rename; falls back to `seed_value` in the UI) |
 | `nodes`          | `id`, `investigation_id`, `type`, `value`, `metadata` (JSON), `tags` (JSON), `confidence`, `source`, `created_at`, UNIQUE(inv,type,value) |
 | `edges`          | `id`, `investigation_id`, `src`, `dst`, `relation`, `evidence`, `source`, `confidence`, `created_at`, UNIQUE(inv,src,dst,relation) |
 | `events`         | `id` AUTOINCREMENT, `investigation_id`, `kind`, `payload` (JSON), `created_at` — full agent stream + state changes            |
