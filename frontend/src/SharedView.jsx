@@ -124,7 +124,20 @@ export default function SharedView({ token }) {
           },
         },
       ],
-      layout: { name: 'cose-bilkent', animate: false, randomize: true, nodeRepulsion: 12000 },
+      layout: {
+        name: 'cose-bilkent',
+        animate: false,
+        randomize: true,
+        nodeRepulsion: 12000,
+        idealEdgeLength: 140,
+        edgeElasticity: 0.45,
+        gravity: 0.15,
+        gravityRangeCompound: 1.2,
+        nestingFactor: 0.1,
+        numIter: 2500,
+        tile: true,
+        nodeDimensionsIncludeLabels: true,
+      },
     })
 
     // Hydrate elements from the payload.
@@ -147,7 +160,20 @@ export default function SharedView({ token }) {
     }))
     cyRef.current.add(nodes)
     cyRef.current.add(edges)
-    cyRef.current.layout({ name: 'cose-bilkent', animate: false, randomize: true, nodeRepulsion: 12000 }).run()
+    cyRef.current.layout({
+      name: 'cose-bilkent',
+      animate: false,
+      randomize: true,
+      nodeRepulsion: 12000,
+      idealEdgeLength: 140,
+      edgeElasticity: 0.45,
+      gravity: 0.15,
+      gravityRangeCompound: 1.2,
+      nestingFactor: 0.1,
+      numIter: 2500,
+      tile: true,
+      nodeDimensionsIncludeLabels: true,
+    }).run()
 
     cyRef.current.on('tap', 'node', evt => {
       const d = evt.target.data()
@@ -329,9 +355,11 @@ export default function SharedView({ token }) {
               {tab === 'report' && (
                 report ? (
                   <>
-                    <span className={`threat-badge threat-${(report.threat_assessment || 'unknown').replace(/\s+/g, '_')}`}>
-                      {(report.threat_assessment || 'UNKNOWN').toUpperCase()}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span className={`threat-badge threat-${(report.threat_assessment || 'unknown').replace(/\s+/g, '_')}`}>
+                        {(report.threat_assessment || 'UNKNOWN').toUpperCase()}
+                      </span>
+                    </div>
                     {report.summary && (
                       <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--on-surface)' }}>
                         {iocString(report.summary)}
@@ -396,30 +424,125 @@ export default function SharedView({ token }) {
                   <p className="hint">Tapez un nœud du graphe pour l’inspecter.</p>
                 )
               )}
-              {tab === 'timeline' && (
-                events.length === 0 ? (
-                  <p className="hint">Pas d’événement dans la timeline.</p>
-                ) : (
+              {tab === 'timeline' && (() => {
+                // Distill the raw event stream into something readable:
+                // - agent_assistant events become either a "reasoning" note
+                //   (when the agent emits a text block) or a grouped list of
+                //   tool calls (when it emits tool_use blocks). The default
+                //   `evt.kind` rendering was useless — every assistant turn
+                //   just said "agent_assistant".
+                // - lifecycle events (start / status / exit) get friendly labels.
+                const items = []
+                for (const evt of events) {
+                  const ts = evt._ts || 0
+                  const tsStr = ts ? new Date(ts * 1000).toLocaleTimeString() : ''
+                  if (evt.kind === 'agent_assistant') {
+                    const content = (evt.msg || evt.data || {})?.message?.content || []
+                    const texts = content.filter(b => b.type === 'text').map(b => b.text).filter(Boolean)
+                    const tools = content.filter(b => b.type === 'tool_use')
+                    if (texts.length) {
+                      const full = texts.join(' ').trim()
+                      if (full.length > 5) {
+                        items.push({ kind: 'reasoning', ts, tsStr, text: full.slice(0, 300) })
+                      }
+                    }
+                    if (tools.length) {
+                      // Collapse consecutive tool batches inside the same
+                      // assistant message into one timeline group.
+                      const prev = items[items.length - 1]
+                      const chips = tools.map(t => {
+                        const short = t.name.replace(/^mcp__cti__/, '').replace(/^mcp__graph__/, '')
+                        const inputStr = JSON.stringify(t.input || {}).slice(0, 120)
+                        return { name: short, detail: inputStr }
+                      })
+                      if (prev && prev.kind === 'tools' && ts - prev.ts < 2) {
+                        prev.tools.push(...chips)
+                      } else {
+                        items.push({ kind: 'tools', ts, tsStr, tools: chips })
+                      }
+                    }
+                  } else if (evt.kind === 'agent_starting') {
+                    items.push({ kind: 'status', ts, tsStr, label: '▶ agent démarré' })
+                  } else if (evt.kind === 'agent_exit') {
+                    const m = evt.msg || {}
+                    const phase = m.phase || ''
+                    const rc = m.rc ?? '?'
+                    items.push({
+                      kind: 'status', ts, tsStr,
+                      label: phase ? `■ fin (${phase}) rc=${rc}` : `■ fin rc=${rc}`,
+                    })
+                  } else if (evt.kind === 'status_change') {
+                    const m = evt.msg || {}
+                    const status = (typeof m === 'string' ? m : (m.status || '')) || '?'
+                    items.push({ kind: 'status', ts, tsStr, label: `● statut : ${status}` })
+                  } else if (evt.kind === 'node_tagged') {
+                    items.push({ kind: 'tag', ts, tsStr, label: `+ tag ${evt.tag || ''}`.trim() })
+                  }
+                }
+                if (items.length === 0) {
+                  return <p className="hint">Pas d’événement dans la timeline.</p>
+                }
+                return (
                   <div className="timeline-list">
-                    {events.slice(0, 200).map((evt, i) => (
-                      <div key={i} className="timeline-entry timeline-mod">
-                        <div className="timeline-line">
-                          <span className="timeline-dot" style={{ background: '#79c0ff' }} />
-                          {i < events.length - 1 && <span className="timeline-connector" />}
-                        </div>
-                        <div className="timeline-content">
-                          <div className="timeline-header">
-                            <span className="timeline-time">
-                              {evt._ts ? new Date(evt._ts * 1000).toLocaleTimeString() : ''}
-                            </span>
-                            <span className="timeline-type">{evt.kind}</span>
+                    {items.slice(0, 300).map((it, i) => {
+                      const isLast = i === items.length - 1
+                      if (it.kind === 'reasoning') {
+                        return (
+                          <div key={i} className="timeline-entry timeline-note">
+                            <div className="timeline-line">
+                              <span className="timeline-dot timeline-dot-note" />
+                              {!isLast && <span className="timeline-connector" />}
+                            </div>
+                            <div className="timeline-content">
+                              <div className="timeline-header">
+                                <span className="timeline-time">{it.tsStr}</span>
+                              </div>
+                              <div className="timeline-note-text">{it.text}</div>
+                            </div>
+                          </div>
+                        )
+                      }
+                      if (it.kind === 'tools') {
+                        return (
+                          <div key={i} className="timeline-entry timeline-tool-group">
+                            <div className="timeline-line">
+                              <span className="timeline-dot timeline-dot-tool" />
+                              {!isLast && <span className="timeline-connector" />}
+                            </div>
+                            <div className="timeline-content">
+                              <div className="timeline-header">
+                                <span className="timeline-time">{it.tsStr}</span>
+                              </div>
+                              <div className="timeline-tools">
+                                {it.tools.map((t, j) => (
+                                  <span key={j} className="timeline-tool-chip" title={t.detail}>
+                                    {t.name}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+                      // status / tag rows
+                      return (
+                        <div key={i} className="timeline-entry timeline-mod">
+                          <div className="timeline-line">
+                            <span className="timeline-dot timeline-dot-mod" style={{ background: '#79c0ff' }} />
+                            {!isLast && <span className="timeline-connector" />}
+                          </div>
+                          <div className="timeline-content">
+                            <div className="timeline-header">
+                              <span className="timeline-time">{it.tsStr}</span>
+                              <span className="timeline-mod-label">{it.label}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )
-              )}
+              })()}
             </div>
           </aside>
         )}

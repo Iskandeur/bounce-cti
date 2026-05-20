@@ -2474,8 +2474,11 @@ button.secondary:hover {
 }
 .shared-import-btn {
   width: auto;
-  padding: 8px 16px;
-  font-size: 13px;
+  padding: 7px 14px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  border-radius: var(--radius-sm);
 }
 .shared-import-target {
   width: auto;
