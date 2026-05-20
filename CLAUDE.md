@@ -2,7 +2,7 @@
 
 ## What this is
 
-Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submits a seed (domain / IP / hash / URL / JARM / ASN), the backend spawns a headless `claude -p` agent that queries ~40 public CTI source tools via MCP, builds an infrastructure graph in SQLite, and streams it live to a React + Cytoscape frontend over WebSocket. Investigations are scoped to PIN-authenticated users, can be shared via signed links, and can be exported as PDF or STIX 2.1.
+Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submits a seed (domain / IP / hash / URL / JARM / ASN), the backend spawns a headless `claude -p` agent that queries ~50 public CTI source tools via MCP (commercial scanners + abuse feeds + the OpenCTI community knowledge graph), builds an infrastructure graph in SQLite, and streams it live to a React + Cytoscape frontend over WebSocket. Investigations are scoped to PIN-authenticated users, can be shared via signed links, and can be exported as PDF or STIX 2.1.
 
 ## Project layout
 
@@ -40,6 +40,9 @@ backend/
                         #     SHA1, tracking IDs, form actions, wallets, JS hashes)
                         #   Phase 3: abuseipdb, certspotter, netlas, whoxy,
                         #     zoomeye, criminalip, openphish
+                        #   Community KG: opencti (GraphQL, read-only —
+                        #     score, malware-family labels, actor/campaign
+                        #     attribution, ATT&CK + linked report titles)
                         #   Shared: http_client
 frontend/
   src/

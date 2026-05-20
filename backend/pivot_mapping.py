@@ -42,6 +42,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("mnemonic_pdns", 3, None, False),
         ("certspotter_issuances", 3, "certspotter", False),
         ("dom_fingerprints", 3, None, False),
+        ("opencti_lookup_indicator", 3, "opencti", False),
     ],
     "ip": [
         ("rdap_ip", 1, None, True),
@@ -58,16 +59,19 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("urlhaus_host", 4, None, False),
         ("abuseipdb_check", 3, "abuseipdb", False),
         ("criminalip_ip", 3, "criminalip", False),
+        ("opencti_lookup_indicator", 3, "opencti", False),
     ],
     "hash": [
         ("virustotal_file", 1, "vt", False),
         ("otx_file", 2, "otx", False),
         ("malwarebazaar_hash", 2, None, False),
+        ("opencti_lookup_indicator", 3, "opencti", False),
     ],
     "url": [
         ("urlscan_search", 2, None, False),
         ("wayback", 3, None, False),
         ("dom_fingerprints", 2, None, False),
+        ("opencti_lookup_indicator", 3, "opencti", False),
     ],
     "jarm": [
         ("onyphe_datascan", 2, "onyphe", False),
