@@ -7,8 +7,58 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 from .config import CLAUDE_BIN
 from . import graph_store as gs
+
+
+# ── Claude-subscription quota detection ───────────────────────────────────
+# Claude Code emits a marker of the form "Claude AI usage limit reached|<epoch>"
+# when the subscription's rolling window is exhausted, plus a handful of
+# free-text variants. We scan stream-json events and stderr for any of these
+# and capture the reset epoch so the UI can show "resumes in HH:MM:SS".
+_QUOTA_RESET_RE = re.compile(
+    r'Claude\s+(?:AI\s+)?usage\s+limit\s+reached\s*\|\s*(\d{10,})',
+    re.IGNORECASE,
+)
+_QUOTA_KEYWORDS = [
+    re.compile(r'Claude\s+(?:AI\s+)?usage\s+limit\s+reached', re.IGNORECASE),
+    re.compile(r'usage\s+limit\s+reached', re.IGNORECASE),
+    re.compile(r'5[- ]?hour\s+(?:usage\s+)?limit', re.IGNORECASE),
+    re.compile(r'\bplan\s+limit\b', re.IGNORECASE),
+    re.compile(r'quota\s+exceeded', re.IGNORECASE),
+    re.compile(r'rate\s+limit\s+reached', re.IGNORECASE),
+    re.compile(r'too\s+many\s+requests', re.IGNORECASE),
+]
+
+
+def _detect_quota_error(text: str) -> tuple[bool, Optional[float], str]:
+    """Inspect a chunk of text (CLI stream-json field, stderr line, …) and
+    return (hit, reset_at_epoch_or_None, matched_phrase). hit=True means the
+    text looks like a Claude-subscription quota exhaustion."""
+    if not text:
+        return (False, None, "")
+    m = _QUOTA_RESET_RE.search(text)
+    if m:
+        try:
+            return (True, float(m.group(1)), m.group(0))
+        except ValueError:
+            return (True, None, m.group(0))
+    for pat in _QUOTA_KEYWORDS:
+        m = pat.search(text)
+        if m:
+            return (True, None, m.group(0))
+    return (False, None, "")
+
+
+def _scan_event_for_quota(evt) -> tuple[bool, Optional[float], str]:
+    """Walk a stream-json event payload (typically a dict) and look for a
+    quota-exhaustion marker in any string field."""
+    try:
+        blob = json.dumps(evt)
+    except (TypeError, ValueError):
+        blob = str(evt)
+    return _detect_quota_error(blob)
 
 
 # Global registry of running agent processes, keyed by investigation id.
@@ -36,6 +86,45 @@ def _log(inv_id: str, kind: str, msg):
     with gs.conn() as c:
         c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
                   (inv_id, kind, json.dumps({"kind": kind, "msg": msg}), time.time()))
+
+
+def _finalise_quota_halt(inv_id: str, quota: dict) -> None:
+    """Mark an investigation as halted by a Claude-subscription quota error.
+    Stores the reset epoch on the investigation row, flips status to
+    `quota_exceeded`, and emits a status_change event so the websocket
+    clients refresh the sidebar + show the Resume affordance."""
+    reset_at = quota.get("reset_at") if isinstance(quota, dict) else None
+    msg = (quota.get("message") if isinstance(quota, dict) else "") or \
+        "Claude subscription quota reached"
+    try:
+        gs.set_quota_reset_at(inv_id, reset_at)
+    except Exception:
+        pass
+    gs.set_status(inv_id, "quota_exceeded")
+    try:
+        with gs.conn() as c:
+            payload = {
+                "kind": "status_change", "status": "quota_exceeded",
+                "quota_reset_at": reset_at, "quota_message": str(msg)[:200],
+            }
+            c.execute(
+                "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                (inv_id, "status_change", json.dumps(payload), time.time()),
+            )
+    except Exception:
+        pass
+
+
+def quota_block_active() -> tuple[bool, Optional[float], Optional[str]]:
+    """Return (blocked, reset_at, message) — True when a prior agent run
+    reported a Claude usage-limit error and the reset epoch hasn't passed.
+    Used by API entry points to refuse fresh spawns while we're cooling
+    down, instead of burning more failed `claude -p` invocations."""
+    try:
+        s = gs.get_quota_state()
+    except Exception:
+        return (False, None, None)
+    return (bool(s.get("exhausted")), s.get("exhausted_until"), s.get("message"))
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -1674,7 +1763,12 @@ def _build_env(inv_id: str) -> dict:
 async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                             model: str, env: dict, mcp_cfg_path: Path,
                             phase: str = "main", max_turns: int = 120) -> tuple:
-    """Run a single claude -p invocation. Returns (rc, saw_result, has_report)."""
+    """Run a single claude -p invocation.
+
+    Returns (rc, saw_result, has_report, quota). `quota` is a dict
+    {"hit": bool, "reset_at": float|None, "message": str} — when hit is True
+    the Claude subscription was exhausted; callers should abort downstream
+    phases and surface a resume affordance to the user."""
     claude_path = shutil.which(CLAUDE_BIN) or CLAUDE_BIN
     _log(inv_id, f"phase_{phase}_starting", {"prompt_preview": prompt[:200]})
 
@@ -1714,10 +1808,40 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
 
     _running_procs[inv_id] = proc
 
+    quota_state = {"hit": False, "reset_at": None, "message": ""}
+
+    def _note_quota(hit: bool, reset_at, msg: str, source: str):
+        if not hit or quota_state["hit"]:
+            return
+        quota_state["hit"] = True
+        quota_state["reset_at"] = reset_at
+        quota_state["message"] = msg
+        # Persist the global state so other endpoints can refuse new spawns
+        # until the reset epoch passes.
+        try:
+            gs.set_quota_exhausted(reset_at, msg)
+            gs.set_quota_reset_at(inv_id, reset_at)
+        except Exception:
+            pass
+        _log(inv_id, "quota_exceeded", {
+            "phase": phase, "source": source,
+            "reset_at": reset_at, "message": msg[:300],
+        })
+        # Kill the subprocess — no point letting it spin its remaining turns
+        # against an account that will only return more errors.
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
     async def pump_stderr():
         assert proc.stderr is not None
         async for line in proc.stderr:
-            _log(inv_id, "agent_stderr", line.decode(errors="replace").rstrip())
+            decoded = line.decode(errors="replace").rstrip()
+            _log(inv_id, "agent_stderr", decoded)
+            hit, reset_at, marker = _detect_quota_error(decoded)
+            if hit:
+                _note_quota(True, reset_at, marker or decoded, "stderr")
 
     saw_result = {"v": False}
 
@@ -1732,8 +1856,14 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                 _log(inv_id, "agent_" + evt.get("type", "msg"), evt)
                 if evt.get("type") == "result":
                     saw_result["v"] = True
+                hit, reset_at, marker = _scan_event_for_quota(evt)
+                if hit:
+                    _note_quota(True, reset_at, marker, "stream")
             except Exception:
                 _log(inv_id, "agent_stdout", text[:2000])
+                hit, reset_at, marker = _detect_quota_error(text)
+                if hit:
+                    _note_quota(True, reset_at, marker or text[:200], "stdout")
 
     async def watchdog():
         """Guard against subprocesses that don't close stdout after finishing.
@@ -1808,8 +1938,12 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
         has_report = False
 
     _running_procs.pop(inv_id, None)
-    _log(inv_id, f"phase_{phase}_exit", {"rc": rc, "saw_result": saw_result["v"], "has_report": has_report})
-    return (rc, saw_result["v"], has_report)
+    _log(inv_id, f"phase_{phase}_exit", {
+        "rc": rc, "saw_result": saw_result["v"], "has_report": has_report,
+        "quota_hit": quota_state["hit"],
+        "quota_reset_at": quota_state["reset_at"],
+    })
+    return (rc, saw_result["v"], has_report, quota_state)
 
 
 # Shorter system prompt for follow-up phase — just graph schema + rules, no full workflow
@@ -2022,10 +2156,23 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
     _log(inv_id, "agent_starting", {"cwd": str(ROOT), "mcp_config": str(mcp_cfg_path)})
 
     # ── Phase 1: Main investigation ──
-    rc, saw_result, has_report = await _run_claude_phase(
+    # Gate against a known cooldown — if a previous run already hit the
+    # subscription limit and we're still inside the window, refuse to spawn
+    # the agent (it would only burn another error).
+    blocked, reset_at, msg = quota_block_active()
+    if blocked:
+        _log(inv_id, "agent_skipped_quota", {"reset_at": reset_at, "message": msg})
+        _finalise_quota_halt(inv_id, {"reset_at": reset_at, "message": msg})
+        return
+
+    rc, saw_result, has_report, quota = await _run_claude_phase(
         inv_id, user_prompt, SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="main"
     )
+
+    if quota["hit"]:
+        _finalise_quota_halt(inv_id, quota)
+        return
 
     phase1_ok = saw_result or has_report or rc == 0
 
@@ -2091,7 +2238,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             #     2 calls it actually needs (get_graph → add_node), exceeding
             #     the 4-turn budget.
             # Fix: dedicated permissive system prompt + 8-turn budget.
-            rc_h, saw_h, _ = await _run_claude_phase(
+            rc_h, saw_h, _, quota_h = await _run_claude_phase(
                 inv_id, hypothesis_prompt, _HYPOTHESIS_SYSTEM_PROMPT, model,
                 env, mcp_cfg_path, phase="hypothesis_write", max_turns=8,
             )
@@ -2099,6 +2246,9 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 "rc": rc_h, "saw_result": saw_h,
                 "wh_present_after": _has_working_hypothesis(),
             })
+            if quota_h["hit"]:
+                _finalise_quota_halt(inv_id, quota_h)
+                return
         except Exception as e:
             _log(inv_id, "phase_hypothesis_write_error", {"error": str(e)[:300]})
 
@@ -2307,11 +2457,14 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             # expansion (urlscan title pivot → 30+ siblings → graph each as
             # a node) easily eats 50+ tool calls. 60 turns gives us
             # headroom without unbounded runaway.
-            rc2, saw2, _ = await _run_claude_phase(
+            rc2, saw2, _, quota2 = await _run_claude_phase(
                 inv_id, followup_prompt, _FOLLOWUP_SYSTEM_PROMPT, model, env,
                 mcp_cfg_path, phase="followup", max_turns=60
             )
             _log(inv_id, "phase2_done", {"rc": rc2, "saw_result": saw2})
+            if quota2["hit"]:
+                _finalise_quota_halt(inv_id, quota2)
+                return
 
             # Check what was actually called now
             called_after = _get_called_cti_tools(inv_id)
@@ -2431,7 +2584,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             + markers_block
         )
         try:
-            rc3, saw3, _ = await _run_claude_phase(
+            rc3, saw3, _, quota3 = await _run_claude_phase(
                 inv_id, report_prompt, _FOLLOWUP_SYSTEM_PROMPT, model, env,
                 mcp_cfg_path, phase="report_write", max_turns=6,
             )
@@ -2439,6 +2592,9 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 "rc": rc3, "saw_result": saw3,
                 "report_written": _has_investigation_summary(),
             })
+            if quota3["hit"]:
+                _finalise_quota_halt(inv_id, quota3)
+                return
         except Exception as e:
             _log(inv_id, "phase3_report_write_error", {"error": str(e)[:300]})
 
@@ -2555,11 +2711,14 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             )
 
             try:
-                rc4, saw4, _ = await _run_claude_phase(
+                rc4, saw4, _, quota4 = await _run_claude_phase(
                     inv_id, drain_prompt, _FOLLOWUP_SYSTEM_PROMPT, model, env,
                     mcp_cfg_path, phase=f"pivot_drain_{round_idx + 1}",
                     max_turns=PIVOT_DRAIN_MAX_TURNS,
                 )
+                if quota4["hit"]:
+                    _finalise_quota_halt(inv_id, quota4)
+                    return
             except Exception as e:
                 _log(inv_id, "phase_pivot_drain_error",
                      {"round": round_idx + 1, "error": str(e)[:300]})
@@ -2603,6 +2762,31 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
     # Emit a terminal event so the frontend's WebSocket loop can refresh
     # the sidebar status without needing a manual page reload.
     _log(inv_id, "agent_exit", {"rc": rc, "status": final_status, "has_report": has_report})
+
+
+async def resume_investigation(inv_id: str, model: str = "opus"):
+    """Pick a previously-halted investigation back up after the Claude
+    subscription quota has reset.
+
+    The graph is preserved — phase-level idempotency (has_working_hypothesis,
+    has_investigation_summary, get_graph-aware prompts) means phases that
+    already completed before the halt will be skipped, and the pivot-drain
+    loop will continue from the current node set."""
+    with gs.conn() as c:
+        row = c.execute(
+            "SELECT seed_type, seed_value FROM investigations WHERE id=?",
+            (inv_id,),
+        ).fetchone()
+    if not row:
+        return
+    # Clear the halt markers before retrying so the pre-spawn quota gate
+    # doesn't immediately bounce us back.
+    gs.set_quota_reset_at(inv_id, None)
+    gs.clear_quota_state()
+    gs.set_status(inv_id, "running")
+    _log(inv_id, "agent_resume", {"seed_type": row["seed_type"],
+                                  "seed_value": row["seed_value"], "model": model})
+    await run_investigation(inv_id, row["seed_type"], row["seed_value"], model=model)
 
 
 # ── Pivot-specific system prompt ──────────────────────────────────────────
@@ -2855,10 +3039,21 @@ async def run_add_seed(inv_id: str, seed_type: str, seed_value: str, model: str 
                                     "phase": "add_seed",
                                     "seed_type": seed_type, "seed_value": seed_value})
 
-    rc, saw_result, has_report = await _run_claude_phase(
+    blocked, reset_at, msg = quota_block_active()
+    if blocked:
+        _log(inv_id, "agent_skipped_quota", {"reset_at": reset_at, "message": msg,
+                                             "phase": "add_seed"})
+        _finalise_quota_halt(inv_id, {"reset_at": reset_at, "message": msg})
+        return
+
+    rc, saw_result, has_report, quota = await _run_claude_phase(
         inv_id, user_prompt, _ADD_SEED_SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="add_seed", max_turns=80,
     )
+
+    if quota["hit"]:
+        _finalise_quota_halt(inv_id, quota)
+        return
 
     final_status = "done" if (saw_result or rc == 0) else f"error rc={rc}"
     gs.set_status(inv_id, final_status)
@@ -2964,10 +3159,21 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
     _log(inv_id, "agent_starting", {"cwd": str(ROOT), "mcp_config": str(mcp_cfg_path), "phase": "pivot",
                                     "pivot_seed_type": seed_type, "pivot_seed_value": seed_value})
 
-    rc, saw_result, has_report = await _run_claude_phase(
+    blocked, reset_at, msg = quota_block_active()
+    if blocked:
+        _log(inv_id, "agent_skipped_quota", {"reset_at": reset_at, "message": msg,
+                                             "phase": "pivot"})
+        _finalise_quota_halt(inv_id, {"reset_at": reset_at, "message": msg})
+        return
+
+    rc, saw_result, has_report, quota = await _run_claude_phase(
         inv_id, user_prompt, _PIVOT_SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="pivot", max_turns=40
     )
+
+    if quota["hit"]:
+        _finalise_quota_halt(inv_id, quota)
+        return
 
     # Final status — pivot is considered successful as long as the agent ran
     # (saw_result or rc==0). A pivot does not necessarily add a brand-new report;
@@ -3140,10 +3346,21 @@ async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus",
                                     "phase": "custom_prompt",
                                     "prompt_preview": prompt_text[:200]})
 
-    rc, saw_result, has_report = await _run_claude_phase(
+    blocked, reset_at, msg = quota_block_active()
+    if blocked:
+        _log(inv_id, "agent_skipped_quota", {"reset_at": reset_at, "message": msg,
+                                             "phase": "custom_prompt"})
+        _finalise_quota_halt(inv_id, {"reset_at": reset_at, "message": msg})
+        return
+
+    rc, saw_result, has_report, quota = await _run_claude_phase(
         inv_id, user_prompt, _CUSTOM_PROMPT_SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="custom_prompt", max_turns=60,
     )
+
+    if quota["hit"]:
+        _finalise_quota_halt(inv_id, quota)
+        return
 
     final_status = "done" if (saw_result or rc == 0) else f"error rc={rc}"
     gs.set_status(inv_id, final_status)

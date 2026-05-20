@@ -290,6 +290,15 @@ button.secondary:hover {
   color: var(--warning);
   background: #e3b34112;
 }
+.icon-btn.primary {
+  color: #79c0ff;
+  border-color: #79c0ff44;
+}
+.icon-btn.primary:hover {
+  border-color: #79c0ff;
+  color: #c8e1ff;
+  background: #79c0ff15;
+}
 .icon-btn.active {
   border-color: #58a6ff;
   color: #58a6ff;
@@ -1293,6 +1302,31 @@ button.secondary:hover {
   to { transform: rotate(360deg); }
 }
 .server-down-text { letter-spacing: 0.01em; }
+
+/* ── Claude-subscription quota banner ────────────────────────────────────── */
+/* Same slot/animation as the service-restart banner, but amber-tinted to
+   distinguish "external rate limit, wait it out" from "server restarting". */
+.quota-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: linear-gradient(90deg, #3a2400 0%, #4a3000 50%, #3a2400 100%);
+  color: #ffcb6b;
+  border-bottom: 1px solid #d2992266;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  animation: server-down-slide 240ms ease-out;
+}
+.quota-banner-icon { font-size: 14px; }
+.quota-banner-text strong { color: #ffe9b3; }
 
 /* ── Admin model list ────────────────────────────────────────────────────── */
 .admin-model-grid {

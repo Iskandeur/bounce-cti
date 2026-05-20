@@ -18,7 +18,10 @@ from typing import Optional
 
 from . import graph_store as gs
 from . import auth
-from .agent_runner import run_investigation, run_pivot, run_add_seed, run_custom_prompt, stop_investigation
+from .agent_runner import (
+    run_investigation, run_pivot, run_add_seed, run_custom_prompt,
+    stop_investigation, resume_investigation, quota_block_active,
+)
 from .refang import refang
 
 app = FastAPI(title="Bounce-CTI")
@@ -106,6 +109,25 @@ def _client_ip(request: Request) -> str:
     if xff:
         return xff.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def _require_quota_available():
+    """Refuse to spawn a new Claude agent if the subscription is in a known
+    cooldown window. Returns 429 with the reset epoch so the frontend can show
+    a countdown + Resume affordance instead of silently failing."""
+    blocked, reset_at, msg = quota_block_active()
+    if blocked:
+        retry_after = max(1, int((reset_at or 0) - time.time())) if reset_at else 60
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "claude_quota_exhausted",
+                "message": msg or "Claude subscription quota reached",
+                "reset_at": reset_at,
+                "retry_after_seconds": retry_after,
+            },
+            headers={"Retry-After": str(retry_after)},
+        )
 
 
 def _set_session_cookie(response: Response, token: str):
@@ -304,6 +326,7 @@ class StartReq(BaseModel):
 
 @app.post("/api/investigations")
 async def start(req: StartReq, user_id: int = Depends(current_user)):
+    _require_quota_available()
     model = _check_model(user_id, req.model)
     seed_type = req.seed_type
     if seed_type == "auto":
@@ -338,6 +361,7 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
     then each additional IOC is launched as a pivot on that same graph
     so the agent can find cross-IOC links.
     """
+    _require_quota_available()
     model = _check_model(user_id, req.model)
     items = req.items[:50]
     valid = []
@@ -415,6 +439,46 @@ def graph(inv_id: str, user_id: int = Depends(current_user)):
     return gs.get_graph(inv_id)
 
 
+@app.get("/api/quota")
+def get_quota(user_id: int = Depends(current_user)):
+    """Report the Claude-subscription quota state for the host account.
+
+    The frontend polls this to show a global banner + countdown when bounce
+    is in a cooldown window after a `claude -p` invocation returned a usage
+    limit error. `exhausted_until` is a unix epoch (seconds).
+    """
+    return gs.get_quota_state()
+
+
+@app.post("/api/investigations/{inv_id}/resume")
+async def resume_inv(inv_id: str, user_id: int = Depends(current_user)):
+    """Resume a `quota_exceeded` investigation once the cooldown is over.
+
+    The graph is preserved (phases self-skip when their work is already done),
+    and the pivot-drain loop picks up where it stopped. Returns 425 if the
+    reset epoch hasn't passed yet so the user has to wait."""
+    _require_owner(inv_id, user_id)
+    blocked, reset_at, msg = quota_block_active()
+    if blocked:
+        retry_after = max(1, int((reset_at or 0) - time.time())) if reset_at else 60
+        raise HTTPException(
+            status_code=425,
+            detail={"error": "still_in_cooldown", "reset_at": reset_at,
+                    "retry_after_seconds": retry_after, "message": msg},
+            headers={"Retry-After": str(retry_after)},
+        )
+    with gs.conn() as c:
+        row = c.execute(
+            "SELECT seed_type, seed_value, model FROM investigations WHERE id=?",
+            (inv_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="not found")
+    model = _check_model(user_id, row["model"] or DEFAULT_MODEL)
+    asyncio.create_task(resume_investigation(inv_id, model=model))
+    return {"ok": True}
+
+
 @app.post("/api/investigations/{inv_id}/stop")
 def stop_inv(inv_id: str, user_id: int = Depends(current_user)):
     _require_owner(inv_id, user_id)
@@ -489,6 +553,7 @@ class RerunReq(BaseModel):
 @app.post("/api/investigations/{inv_id}/rerun")
 async def rerun(inv_id: str, req: RerunReq = RerunReq(), user_id: int = Depends(current_user)):
     _require_owner(inv_id, user_id)
+    _require_quota_available()
     with gs.conn() as c:
         row = c.execute("SELECT seed_type, seed_value FROM investigations WHERE id=?", (inv_id,)).fetchone()
     if not row:
@@ -524,6 +589,7 @@ async def add_seed(inv_id: str, req: AddSeedReq, user_id: int = Depends(current_
     links automatically via the (inv,type,value) upsert in add_node.
     """
     _require_owner(inv_id, user_id)
+    _require_quota_available()
     seed_type = req.seed_type if req.seed_type != "auto" else detect_seed_type(req.seed_value)
     if seed_type not in ALLOWED_SEED_TYPES:
         raise HTTPException(status_code=400, detail=f"unknown seed_type: {seed_type}")
@@ -545,6 +611,7 @@ async def add_seed(inv_id: str, req: AddSeedReq, user_id: int = Depends(current_
 @app.post("/api/investigations/{inv_id}/enrich")
 async def enrich(inv_id: str, req: EnrichReq, user_id: int = Depends(current_user)):
     _require_owner(inv_id, user_id)
+    _require_quota_available()
     if req.seed_type not in ALLOWED_SEED_TYPES:
         raise HTTPException(status_code=400, detail=f"unknown seed_type: {req.seed_type}")
     sv = _clean_seed(req.seed_type, req.seed_value)
@@ -579,6 +646,7 @@ class CustomPromptReq(BaseModel):
 @app.post("/api/investigations/{inv_id}/prompt")
 async def custom_prompt(inv_id: str, req: CustomPromptReq, user_id: int = Depends(current_user)):
     _require_owner(inv_id, user_id)
+    _require_quota_available()
     prompt_text = (req.prompt or "").strip()
     if not prompt_text:
         raise HTTPException(status_code=400, detail="prompt required")
@@ -728,6 +796,7 @@ async def from_pdf(
     user_id: int = Depends(current_user),
 ):
     """Spin up a fresh investigation seeded from a CTI report PDF."""
+    _require_quota_available()
     model = _check_model(user_id, model)
     iocs, text, _blob = _read_pdf_iocs(file)
     seeds = iocs[:PDF_MAX_SEEDS]
@@ -785,6 +854,7 @@ async def add_pdf_seeds(
     add-seed pivots — useful when an analyst is mid-investigation and a
     fresh write-up lands."""
     _require_owner(inv_id, user_id)
+    _require_quota_available()
     model = _check_model(user_id, model)
     iocs, text, _blob = _read_pdf_iocs(file)
     seeds = iocs[:PDF_MAX_SEEDS]

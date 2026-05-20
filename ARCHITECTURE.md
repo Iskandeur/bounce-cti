@@ -57,6 +57,8 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 - `POST   /api/investigations/{id}/stop` — kill the running agent
 - `DELETE /api/investigations/{id}`
 - `POST   /api/investigations/{id}/rerun`
+- `POST   /api/investigations/{id}/resume` — pick up an investigation halted by a Claude-subscription quota error (425 while still in cooldown)
+- `GET    /api/quota` — Claude-subscription quota state for the host account (`{exhausted, exhausted_until, message, last_seen}`); the frontend polls it to render a global banner + per-investigation Resume button
 - `POST   /api/investigations/{src}/merge_into/{dst}` — merge `src` into `dst`
   (both owned by caller; nodes deduped on `(type, value)`, edges on `(src, dst, relation)`,
   metadata/tags/sources_seen unioned; `delete_source=true` to consume the source)
@@ -142,7 +144,7 @@ SQLite-backed store. Tables:
 
 | Table            | Columns (essentials)                                                                                                          |
 |------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`                                                   |
+| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `quota_reset_at` (epoch when a Claude-subscription cooldown lifts) |
 | `nodes`          | `id`, `investigation_id`, `type`, `value`, `metadata` (JSON), `tags` (JSON), `confidence`, `source`, `created_at`, UNIQUE(inv,type,value) |
 | `edges`          | `id`, `investigation_id`, `src`, `dst`, `relation`, `evidence`, `source`, `confidence`, `created_at`, UNIQUE(inv,src,dst,relation) |
 | `events`         | `id` AUTOINCREMENT, `investigation_id`, `kind`, `payload` (JSON), `created_at` — full agent stream + state changes            |
@@ -151,12 +153,14 @@ SQLite-backed store. Tables:
 | `sessions`       | `token` (PK), `user_id`, `expires_at`                                                                                         |
 | `shares`         | `token` (PK), `investigation_id`, `created_by`, `created_at`, `sections` (JSON), `expires_at`, `revoked`, `label`             |
 | `pivot_tasks`    | `id`, `investigation_id`, `node_type`, `node_value`, `pivot_op`, `priority`, `status` (pending\|running\|done\|skipped\|failed), `skip_reason`, `result_summary`, `attempts`, `enqueued_at`, `started_at`, `completed_at`, UNIQUE(inv,node_type,node_value,pivot_op) |
+| `quota_state`    | single-row table (`id=1`): `exhausted_until` (epoch), `message`, `last_seen` — Claude-subscription cooldown shared across the host account |
 
 Node IDs are SHA1 hashes of `(investigation_id, type, value)` (lower-cased) —
 so upserts are idempotent.
 
 `init_db()` runs idempotent migrations: it `_ensure_column`s `user_id`/`model`/
-`is_admin`/`allowed_models`/`label` for upgrades from earlier schemas.
+`quota_reset_at` on `investigations` and `is_admin`/`allowed_models`/`label`
+on `users` for upgrades from earlier schemas.
 
 ### `backend/auth.py`
 - HMAC-SHA256 of the PIN with a per-deploy secret stored in `data/secret.key`

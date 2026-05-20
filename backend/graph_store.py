@@ -101,6 +101,12 @@ CREATE INDEX IF NOT EXISTS idx_shares_user ON shares(created_by);
 CREATE INDEX IF NOT EXISTS idx_pivot_tasks_inv_status ON pivot_tasks(investigation_id, status);
 CREATE INDEX IF NOT EXISTS idx_pivot_tasks_inv_priority ON pivot_tasks(investigation_id, priority, enqueued_at);
 CREATE INDEX IF NOT EXISTS idx_pivot_tasks_inv_node ON pivot_tasks(investigation_id, node_type, node_value);
+CREATE TABLE IF NOT EXISTS quota_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    exhausted_until REAL,
+    message TEXT,
+    last_seen REAL
+);
 """
 
 
@@ -134,6 +140,7 @@ def init_db():
         # Migrations: add columns to pre-existing tables before creating indexes
         _ensure_column(c, "investigations", "user_id", "user_id INTEGER")
         _ensure_column(c, "investigations", "model", "model TEXT")
+        _ensure_column(c, "investigations", "quota_reset_at", "quota_reset_at REAL")
         # users table may pre-date is_admin/allowed_models
         if c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone():
             _ensure_column(c, "users", "is_admin", "is_admin INTEGER NOT NULL DEFAULT 0")
@@ -156,6 +163,65 @@ def create_investigation(seed_type: str, seed_value: str, user_id: Optional[int]
 def set_status(inv_id: str, status: str):
     with conn() as c:
         c.execute("UPDATE investigations SET status=? WHERE id=?", (status, inv_id))
+
+
+def set_quota_reset_at(inv_id: str, reset_at: Optional[float]):
+    """Stamp (or clear) the Claude-subscription reset time on an investigation
+    that was halted by a quota error. Set to None to clear."""
+    with conn() as c:
+        c.execute("UPDATE investigations SET quota_reset_at=? WHERE id=?",
+                  (reset_at, inv_id))
+
+
+# ── Global Claude-subscription quota state ────────────────────────────────
+# Single-row table tracking when the Claude account hosting bounce-cti was
+# last seen as rate-limited and when the limit resets. Used to gate fresh
+# agent spawns and to surface a banner in the UI.
+def set_quota_exhausted(reset_at: Optional[float], message: str = ""):
+    """Record that the Claude subscription is exhausted until `reset_at`
+    (unix epoch). `reset_at=None` clears the exhausted flag."""
+    now = time.time()
+    with conn() as c:
+        c.execute(
+            "INSERT INTO quota_state(id, exhausted_until, message, last_seen) "
+            "VALUES (1, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET exhausted_until=excluded.exhausted_until, "
+            "message=excluded.message, last_seen=excluded.last_seen",
+            (reset_at, message[:500] if message else None, now),
+        )
+
+
+def clear_quota_state():
+    """Forget any prior quota-exhausted record (e.g. after the reset time)."""
+    with conn() as c:
+        c.execute("DELETE FROM quota_state WHERE id = 1")
+
+
+def get_quota_state() -> dict:
+    """Return `{exhausted, exhausted_until, message, last_seen}`.
+
+    `exhausted` is True only while now < exhausted_until. If the reset time
+    has passed, the row is auto-cleared so callers don't see stale flags."""
+    now = time.time()
+    with conn() as c:
+        row = c.execute(
+            "SELECT exhausted_until, message, last_seen FROM quota_state WHERE id = 1"
+        ).fetchone()
+    if not row:
+        return {"exhausted": False, "exhausted_until": None,
+                "message": None, "last_seen": None}
+    eu = row["exhausted_until"]
+    if eu is not None and eu <= now:
+        # The reset time has passed; clean up so we stop blocking new runs.
+        clear_quota_state()
+        return {"exhausted": False, "exhausted_until": None,
+                "message": row["message"], "last_seen": row["last_seen"]}
+    return {
+        "exhausted": eu is not None and eu > now,
+        "exhausted_until": eu,
+        "message": row["message"],
+        "last_seen": row["last_seen"],
+    }
 
 
 def get_investigation_owner(inv_id: str) -> Optional[int]:
