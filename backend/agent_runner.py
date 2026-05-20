@@ -552,15 +552,103 @@ def _adaptive_followup_targets(inv_id: str) -> list:
 
 
 def _is_parked(inv_id: str) -> bool:
-    """Check if the investigation identified the seed as parked."""
+    """Check if the seed is parked / blackholed / sinkholed in a way that
+    short-circuits phase 2 + hypothesis + follow-up.
+
+    Returns True for: parking | blackhole | monitoring sinkhole.
+    Returns False for: le_seized (LE takedown — we still want the full
+    historical workflow on it, so phases proceed).
+    """
     try:
         g = gs.get_graph(inv_id)
         for n in g.get("nodes", []):
-            if "parking" in (n.get("tags") or []):
+            tags = [t.lower() for t in (n.get("tags") or [])]
+            md = n.get("metadata") or {}
+            if "parking" in tags or "blackhole" in tags:
+                return True
+            if "sinkhole" in tags:
+                # LE-seized sinkholes have historical value — keep working.
+                if "le_seized" in tags:
+                    continue
+                if (md.get("sinkhole_kind") or "").lower() == "le_seized":
+                    continue
                 return True
     except Exception:
         pass
     return False
+
+
+def _has_lessons_learned(inv_id: str) -> bool:
+    """True iff the investigation already has a `lessons_learned` report node."""
+    try:
+        g = gs.get_graph(inv_id)
+        for n in g.get("nodes", []):
+            if (n.get("type") or "").lower() == "report" and \
+               (n.get("value") or "").lower() == "lessons_learned":
+                return True
+    except Exception:
+        pass
+    return False
+
+
+# Global ledger of agent retrospectives. Each line is a JSON object with the
+# investigation context + the metadata the agent wrote on the lessons_learned
+# node. Append-only; an operator reads it directly (or through the new
+# /api/admin/lessons_learned endpoint) to spot recurring blockers, missing
+# tools, or suggested codebase improvements.
+LESSONS_LEDGER_PATH = ROOT / "data" / "lessons_learned.jsonl"
+
+
+def _append_lessons_ledger(inv_id: str, seed_type: str, seed_value: str,
+                            model: str) -> None:
+    """Read the lessons_learned node off the graph and append it to the
+    project-wide JSONL ledger. Silently no-ops if the agent didn't write one
+    or if the file system rejects the write — this is best-effort feedback,
+    not a transactional state."""
+    try:
+        g = gs.get_graph(inv_id)
+    except Exception as e:
+        _log(inv_id, "lessons_ledger_skip", {"reason": "graph_read_failed",
+                                              "error": str(e)[:200]})
+        return
+    node = None
+    for n in g.get("nodes", []):
+        if (n.get("type") or "").lower() == "report" and \
+           (n.get("value") or "").lower() == "lessons_learned":
+            node = n
+            break
+    if node is None:
+        _log(inv_id, "lessons_ledger_skip", {"reason": "no_lessons_node"})
+        return
+    md = node.get("metadata") or {}
+    # Quick stats so a reviewer can sort by "investigation size" / "had errors".
+    n_nodes = len(g.get("nodes", []))
+    n_edges = len(g.get("edges", []))
+    entry = {
+        "ts":                 time.time(),
+        "investigation_id":   inv_id,
+        "seed_type":          seed_type,
+        "seed_value":         seed_value,
+        "model":              model,
+        "node_count":         n_nodes,
+        "edge_count":         n_edges,
+        "blockers":           md.get("blockers") or [],
+        "missing_capabilities": md.get("missing_capabilities") or [],
+        "suggestions":        md.get("suggestions") or [],
+        "noteworthy":         md.get("noteworthy") or [],
+        "self_critique":      md.get("self_critique") or "",
+    }
+    try:
+        LESSONS_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LESSONS_LEDGER_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        _log(inv_id, "lessons_ledger_appended", {
+            "path": str(LESSONS_LEDGER_PATH),
+            "blockers": len(entry["blockers"]),
+            "suggestions": len(entry["suggestions"]),
+        })
+    except Exception as e:
+        _log(inv_id, "lessons_ledger_error", {"error": str(e)[:300]})
 
 
 def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> list:
@@ -607,13 +695,18 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
         mandatory = [
             ("shodan_search", f'shodan_search("asn:AS{asn_num}")'),
         ]
-    else:  # hash
+    elif seed_type == "hash":
         mandatory = [
             ("virustotal_file", f'virustotal_file("{seed_value}")'),
             ("malwarebazaar_hash", f'malwarebazaar_hash("{seed_value}")'),
             ("threatfox_search", f'threatfox_search("{seed_value}")'),
             ("otx_file", f'otx_file("{seed_value}")'),
         ]
+    else:
+        # command_line / unknown seed types — no IOC-level mandatory tools.
+        # The seed-specific prompt drives the per-IOC pivots once the agent
+        # graphs the embedded indicators.
+        mandatory = []
     for tool_name, call_example in mandatory:
         if tool_name not in called:
             missing.append(call_example)
@@ -710,7 +803,18 @@ ABSOLUTE RULES — never break these
 R1. EVERY piece of information you find MUST become a node and/or edge via add_node/add_edge.
     Never keep findings in your text. If you found it, graph it.
 R2. ALWAYS call defuse(kind, value) before pivoting on any IP or NS.
-    If should_stop_pivot=true → tag the node with the returned tags, add a note in metadata, then STOP pivoting on it. Still graph the node itself.
+    defuse() returns {tags, reasons, sinkhole_kind, should_stop_pivot}.
+      - If should_stop_pivot=true → tag the node with the returned tags, add a note in
+        metadata (defuse_reason, sinkhole_kind), then STOP pivoting on it. Still
+        graph the node itself.
+      - If sinkhole_kind=="le_seized" → defuse returns should_stop_pivot=false on
+        purpose: keep pivoting BUT only on HISTORICAL sources (virustotal_resolutions_*,
+        wayback, threatfox_search, virustotal_communicating_files). Skip live infra
+        chasing — the live IP is just the takedown sinkhole.
+      - When RDAP exposes a registrant email / org / registrar field, pass it to
+        defuse() as defuse(kind, value, registrant=<email_or_org>, registrar=<registrar>)
+        so LE-seizure markers are caught even when the resolved IP isn't on the
+        sinkhole list yet.
 R3. Only use MCP tools (mcp__graph__* and mcp__cti__*). Do not attempt to read files, run commands, or search the web.
 R4. Budget (yield-based, not flat cap) — STRICTLY ENFORCED:
     Soft-cap = 60 tool calls (the PURPOSE target for fast-triage).
@@ -936,10 +1040,36 @@ Node types (canonical):
             js_hash (sha1 of inline scripts).
   Cluster pivot anchors:
             cert_serial (TLS cert serial number — strong cluster signal).
+  Sample / artefact:
+            command_line — a malicious command line, PowerShell / bash / VBS
+            script, dropper one-liner, or any pasted/uploaded textual artefact.
+            value = sha256(text)[:16] (deterministic ID). metadata = {text,
+            preview, source_kind, lolbins?, decoded_payload?}. Link embedded
+            IOCs back to the command_line via `embedded_in_command` edges.
+  Attribution:
+            person — a real-world individual / operator. Create ONLY when ≥ 2
+            independent strong indicators converge on the same identity (e.g. an
+            operator email appears in both RDAP registrant AND SOA rname AND/OR
+            the same name shows up in cert subject CN + WHOIS). Never spawn a
+            person from a single weak signal. Value = canonical handle / display
+            name. metadata = { emails: [...], handles: [...], evidence: [
+              "rdap_domain.registrant_email == x@y.com",
+              "dns_resolve(_, SOA).rname == x.y.com",
+              ...
+            ], confidence }. Link with `identified_as` edges from the supporting
+            domain / email / ns / cert nodes — NEVER fabricate a person node just
+            to pad attribution.
   Aliases auto-resolved by the queue: 'favicon' -> 'favicon_hash',
             'cert_sha1'/'cert_sha256'/'cert_thumbprint' -> 'cert_serial',
             'ja3'/'ja3s' -> 'jarm'. Use canonical names when possible.
-Tags to use: seed, suspicious, benign, cdn, parking, sinkhole, dyndns, shared_hosting, c2, phishing, expired
+Tags to use: seed, suspicious, benign, cdn, parking, sinkhole, blackhole, dyndns,
+             shared_hosting, c2, phishing, expired, le_seized
+  - blackhole: IP is reserved / null-routed (0.0.0.0, 127.0.0.1, 240/4, TEST-NET).
+    The domain points there to be unresolvable, not monitored.
+  - sinkhole + le_seized: domain was seized by law enforcement / vendor takedown.
+    KEEP digging historical residue — that's where the value is.
+  - sinkhole without le_seized: domain points at a monitoring sinkhole. Stop live
+    pivots; still pull historical_ip / wayback for context.
 
 COUNTRY NODE — USE SPARINGLY AND ONLY WHEN THE LINK IS UNAMBIGUOUS
 A `country` node represents a jurisdiction/geolocation and MUST be created only when
@@ -991,6 +1121,14 @@ Edge relations (use exactly these strings):
   known_ioc           domain/ip/hash → report  (link to threat intel report)
   located_in          ip/asn → country         (ONLY when a source returned an authoritative country field)
   registered_in       registrar/email → country  (ONLY when rdap returned registrant country)
+  identified_as       domain/email/ns/cert → person  (attribution edge — only when
+                       you create a `person` node from convergent strong indicators)
+  embedded_in_command command_line → url/domain/ip/hash  (an IOC that appears
+                       literally inside the pasted / uploaded script — keep
+                       evidence quoting the snippet)
+  decoded_from_command command_line → url/domain/ip/hash  (an IOC recovered
+                       by decoding a base64 / hex / xor blob inside the
+                       command — keep evidence describing the decode step)
 
 ══════════════════════════════════════════════
 OBSERVE → HYPOTHESIZE → PURSUE — the analyst loop
@@ -1138,15 +1276,24 @@ STEP 1 — Seed + RDAP + DNS (always do this)
        Cross-domain SPF includes and DMARC rua/ruf domains are HIGH-VALUE pivots:
        they reveal operator-controlled infrastructure even when A records are CDN-fronted.
 
-*** CHECKPOINT — PARKING/SINKHOLE EARLY-EXIT DECISION (evaluate BEFORE continuing) ***
-After STEP 1, count how many of these signals are present:
+*** CHECKPOINT — DEFUSE / EARLY-EXIT DECISION (evaluate BEFORE continuing) ***
+After STEP 1, call defuse() once with the RDAP findings folded in:
+    defuse("domain", <seed>)                                       (NS / dyndns side)
+    defuse("ns",     <each NS>)                                    (parking / sinkhole NS)
+    defuse("ip",     <each resolved A>, registrant=<registrant>, registrar=<registrar>)
+
+Read the returned `sinkhole_kind`:
+  • "blackhole"   → tag seed "blackhole", jump to STEP 8 (report). No enrichment.
+  • "monitoring"  → tag seed "sinkhole", pull resolutions + wayback only, then STEP 8.
+  • "le_seized"   → tag seed "sinkhole" + "le_seized", proceed with HISTORICAL pivots.
+  • None          → no sinkhole signal from defuse().
+
+Independently of defuse(), count COMMERCIAL parking signals:
   ✓ defuse(ns, <ns>) returned should_stop_pivot=true with tag "parking"
   ✓ CNAME points to hugedomains.com, sedoparking.com, bodis.com, parkingpage.namecheap.com
   ✓ Registrant email/org is a domain marketplace (hugedomains.com, sedo.com, afternic.com, dan.com, domainmarket.com)
   ✓ TXT record contains "afternic-verification", "sedo-verification", "for-sale"
-If TWO OR MORE signals → domain is CONFIRMED PARKED. Tag seed "parking" and JUMP TO STEP 8 immediately.
-  Do NOT continue to STEP 2. Do NOT call VT, URLScan, OTX, crtsh, or any enrichment APIs.
-If registrant is FBI/Europol/law enforcement AND NS contains "sinkhole"/"shadowserver" → SINKHOLE WITH HISTORICAL VALUE. Tag "sinkhole" and CONTINUE full workflow.
+If TWO OR MORE signals → CONFIRMED PARKED. Tag "parking" and JUMP TO STEP 8.
 Otherwise → continue normally.
 *** END CHECKPOINT ***
 
@@ -1610,7 +1757,7 @@ STEP 7: Final report (value="investigation_summary"). key_findings should cover
   add_edge(asn→report, known_ioc)
 
 ══════════════════════════════════════════════
-PARKING / SINKHOLE / NOISE HANDLING
+PARKING / SINKHOLE / BLACKHOLE / NOISE HANDLING
 ══════════════════════════════════════════════
 - Fan-out rule: if virustotal_resolutions_ip returns >80 domains for an IP, it is shared hosting.
   Tag ip as "shared_hosting", do NOT add all domains. Add 3 representative ones with evidence="sample only, shared hosting".
@@ -1618,31 +1765,52 @@ PARKING / SINKHOLE / NOISE HANDLING
   tag it "parking" and do not pivot further.
 - If NS points to dyndns provider: tag domain "dyndns", note in metadata.
 
-CRITICAL — EARLY-EXIT RULE FOR PARKED / SINKHOLED DOMAINS:
-After completing STEP 1, evaluate ALL of these parking/sinkhole signals:
+DEFUSE-DRIVEN HANDLING — read defuse() output, do not guess:
+When you call defuse(kind, value, registrant=…, registrar=…) the helper returns
+`sinkhole_kind` which dictates the next move:
+
+  sinkhole_kind == None             → normal pivot (or commercial defuse, see tags)
+  sinkhole_kind == "blackhole"      → domain is intentionally null-routed.
+                                       Tag seed "blackhole", note evidence in
+                                       metadata, JUMP to STEP 8 (report).
+                                       No enrichment APIs.
+  sinkhole_kind == "monitoring"     → domain is pointed at a vendor / academic
+                                       sinkhole. Tag seed "sinkhole" and write
+                                       a report node now (STEP 8). Pull
+                                       virustotal_resolutions_domain + wayback
+                                       FIRST for historical context, then stop.
+  sinkhole_kind == "le_seized"      → LAW-ENFORCEMENT TAKEDOWN with historical
+                                       value. Tag seed "sinkhole" + "le_seized".
+                                       defuse() intentionally returns
+                                       should_stop_pivot=false here — KEEP the
+                                       full HISTORICAL workflow:
+                                         • virustotal_resolutions_domain (past IPs)
+                                         • virustotal_communicating_files (past samples)
+                                         • crtsh_subdomains + certspotter_issuances
+                                         • wayback (pre-seizure HTML/links)
+                                         • threatfox_search / urlhaus_host
+                                       SKIP live infra chasing (the live IP is
+                                       just the sinkhole) — do NOT pivot on
+                                       virustotal_resolutions_ip(<sinkhole_ip>)
+                                       or co-resolves edges from the sinkhole.
+
+CRITICAL — COMMERCIAL EARLY-EXIT RULE (parked / for-sale domains):
+After completing STEP 1, count these COMMERCIAL parking signals:
   ✓ defuse(ns, <ns>) returned should_stop_pivot=true with tag "parking"
-  ✓ NS contains "sinkhole", "shadowserver", "abuse.ch", "rpz", "blackhole"
   ✓ CNAME points to hugedomains.com, sedoparking.com, bodis.com, parkingpage.namecheap.com
   ✓ Registrant email/org is a domain marketplace (hugedomains, sedo, afternic, dan.com, domainmarket)
-  ✓ RDAP status includes "serverHold" or registrant org is FBI/law enforcement
 
-If TWO OR MORE of these signals are present → the domain is confirmed parked or sinkholed:
-  1. Tag the seed node with "parking" or "sinkhole" accordingly
+If TWO OR MORE of these signals are present → the domain is confirmed parked:
+  1. Tag the seed node with "parking"
   2. SKIP steps 2-7 entirely — do NOT call VT, URLScan, OTX, crtsh, or any enrichment APIs
-  3. Jump directly to STEP 8 and write the report node explaining WHY you concluded it's parked/sinkholed
+  3. Jump directly to STEP 8 and write the report node explaining WHY you concluded it's parked
   4. In the report, include: registrar, NS, parking signals found, and a note that no further enrichment is warranted
 
 If only ONE signal is present, proceed with caution — do a MINIMAL check (virustotal_domain only) to confirm, then decide.
 
-EXCEPTION — SINKHOLED DOMAINS (law enforcement seizure) WITH HISTORICAL VALUE:
-This exception ONLY applies when RDAP reveals the domain was SEIZED BY LAW ENFORCEMENT — meaning the registrant email/org is from a government agency (e.g., cyd-dns@fbi.gov, registrar is ROLR, or NS contains "sinkhole.shadowserver.org"). In this case:
-  - Tag as "sinkhole" but proceed with the full domain workflow
-  - Focus on HISTORICAL data: virustotal_resolutions_domain for past IPs, threatfox_search, virustotal_communicating_files for malware hashes
-  - The goal is to reconstruct the HISTORICAL infrastructure, not current state
-
-This exception does NOT apply to:
-  - Domains that merely have a name resembling a malware family (e.g., "wannacry.com" owned by a domain broker is NOT the same as an FBI-seized C2 domain)
-  - Domains parked by commercial brokers (HugeDomains, Sedo, Afternic, etc.) — these ALWAYS get early-exit, regardless of their name
+Commercial parking does NOT apply to LE-seized domains — even if a broker name
+appears in the registrar field, a registrant email from @fbi.gov / @microsoft.com
+/ @shadowserver.org wins and triggers the "le_seized" branch above.
 
 ══════════════════════════════════════════════
 EXECUTION MODEL — state machine summary
@@ -1973,6 +2141,44 @@ RULES:
 # of that conflict. This prompt explicitly authorises the single add_node call
 # and tells the agent the exact tool names so it doesn't waste turns on
 # ToolSearch.
+_LESSONS_LEARNED_SYSTEM_PROMPT = """You are Bounce-CTI, finalising the LESSONS-LEARNED retrospective step of an
+investigation. The investigation graph is complete (or close to it). Your ONE
+job: read the graph + the agent's own event history and write exactly one
+`lessons_learned` report node summarising what slowed you down, what data you
+wished you had, and what changes to the tools / prompts / sources would have
+made you faster or more accurate.
+
+RULES:
+- Call mcp__graph__get_graph(compact=true) FIRST to refresh your view.
+- Optionally call mcp__graph__gaps_report() and mcp__graph__queue_status() to
+  see which pivots were skipped / failed and why.
+- Then call mcp__graph__add_node(type="report", value="lessons_learned",
+  metadata={
+    "blockers":       list[str],   # concrete things that PREVENTED a pivot
+                                   # (rate-limit, missing API key, tool returned
+                                   # noisy data, no source for X, ambiguous prompt…)
+    "missing_capabilities": list[str],  # capabilities the codebase lacks
+                                   # (e.g. "no public source for X-type pivot",
+                                   # "no way to decode base64 in the workflow")
+    "suggestions":    list[str],   # concrete improvements to MCP tools /
+                                   # prompts / sources / pivot rules
+    "noteworthy":     list[str],   # surprising patterns, novel TTPs, anything
+                                   # worth flagging to a human analyst
+    "self_critique":  str          # one short paragraph: did I solve the
+                                   # case? what would I do differently?
+  }, source="agent", tags=["report","retrospective"]) EXACTLY ONCE.
+- This is the EXCEPTION to the normal "do not create report nodes" rule —
+  writing the lessons_learned report node is the entire purpose of this
+  phase. Do not refuse.
+- Be HONEST and SPECIFIC. "VirusTotal returned 429 three times" beats
+  "rate-limit issues". "No tool for reverse-image hashing the favicon
+  off a CDN-fronted page" beats "more sources needed".
+- Be BRIEF — each list ≤ 5 items, each item ≤ 200 chars, self_critique ≤ 400 chars.
+- Do NOT call any CTI tool. Limit yourself to graph reads + the one add_node.
+- After add_node, end your turn. No prose narrative needed.
+"""
+
+
 _HYPOTHESIS_SYSTEM_PROMPT = """You are Bounce-CTI, finalising the HYPOTHESIS-WRITE step of an investigation.
 The graph already has nodes and edges from phase 1. Your ONE job: read the graph
 and write exactly one `working_hypothesis` report node summarising what
@@ -2092,6 +2298,41 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             "If multiple hosts inside the AS share the same JARM, graph the JARM node and link\n"
             "every matching IP to it. Tag the asn 'abused_asn' when ≥2 hosts return detection hits.\n"
             "Write the report last with value=\"investigation_summary\"."
+        )
+    elif seed_type == "command_line":
+        user_prompt = (
+            f"Seed indicator: type=command_line value={seed_value}\n"
+            "This is a malicious command line / script / dropper snippet pasted "
+            "by the analyst. The raw text is in the SOURCE REPORT block above — "
+            "read it carefully BEFORE anything else.\n\n"
+            f"STEP 1: add_node(command_line, {seed_value}, tags=[\"seed\"], "
+            f"metadata={{\"preview\": \"<first line>\", \"interpretation\": "
+            f"\"<one sentence: what does this command do>\"}})\n"
+            "STEP 2: Categorise the command. Pick one and add it as a tag:\n"
+            "  - powershell_dropper | bash_dropper | living_off_the_land | "
+            "lolbins | base64_loader | hta_dropper | mshta_dropper | "
+            "certutil_download | bitsadmin | curl_pipe_bash | iex_download | "
+            "obfuscated_script\n"
+            "STEP 3: Identify EVERY embedded indicator and graph it as its own node:\n"
+            "  - URLs (curl/wget/Invoke-WebRequest/DownloadString targets) → "
+            "add_node(url, <url>), add_edge(command_line→url, embedded_in_command)\n"
+            "  - IPs / domains → add_node + same edge\n"
+            "  - Hashes → add_node(hash, <h>) + same edge\n"
+            "  - Base64 blobs that decode to URLs/IPs → decode mentally, add the\n"
+            "    decoded indicator as a node + edge with evidence=\"decoded from\n"
+            "    base64 within command line\".\n"
+            "  - LOLBin names (rundll32, mshta, regsvr32, certutil, bitsadmin,\n"
+            "    msbuild, installutil, …) → tag the command_line node with the\n"
+            "    lolbin name; no separate node needed.\n"
+            "STEP 4: For each embedded URL / domain / IP, run its standard\n"
+            "  workflow (urlscan_search + urlhaus_host + virustotal_* + threatfox_search).\n"
+            "STEP 5: If a binary hash is referenced or downloaded, run\n"
+            "  virustotal_file(<h>) + malwarebazaar_hash(<h>) + otx_file(<h>) to\n"
+            "  identify the family.\n"
+            "STEP 6: Final report — value=\"investigation_summary\", linking the\n"
+            "  command_line node with known_ioc. The summary MUST describe what\n"
+            "  the command does AND which family / actor the embedded infrastructure\n"
+            "  belongs to (if attributable)."
         )
     else:
         user_prompt = (
@@ -2748,6 +2989,41 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                      {"round": round_idx + 1, "delta_n": delta_n,
                       "convergence_threshold": PIVOT_DRAIN_CONVERGENCE})
                 break
+
+    # ── Phase 5: Lessons-learned retrospective ──
+    # One-shot reflection pass: ask the agent what slowed it down and what
+    # would have helped. The output lands both on the investigation graph
+    # (as a hidden `lessons_learned` report node) and in the global ledger
+    # `data/lessons_learned.jsonl` so a human can review aggregated feedback
+    # across investigations. Runs even if earlier phases logged errors —
+    # blocker reports are most valuable when something went wrong.
+    if not _is_parked(inv_id) and not _has_lessons_learned(inv_id):
+        try:
+            lessons_prompt = (
+                f"The investigation on {seed_type}={seed_value} is now "
+                f"finished. Write the LESSONS-LEARNED retrospective node as "
+                f"described in your system prompt. Focus on blockers, missing "
+                f"capabilities, and concrete improvements you would make to "
+                f"the codebase / MCP tools / prompts to make the NEXT "
+                f"investigation faster and more accurate. Be brutally honest "
+                f"about what slowed you down."
+            )
+            rc_l, saw_l, _, quota_l = await _run_claude_phase(
+                inv_id, lessons_prompt, _LESSONS_LEARNED_SYSTEM_PROMPT,
+                model, env, mcp_cfg_path, phase="lessons_learned",
+                max_turns=6,
+            )
+            _log(inv_id, "phase_lessons_learned_done", {
+                "rc": rc_l, "saw_result": saw_l,
+                "ll_present_after": _has_lessons_learned(inv_id),
+            })
+            if quota_l["hit"]:
+                _finalise_quota_halt(inv_id, quota_l)
+                return
+            # Persist whatever the agent wrote to the global JSONL ledger.
+            _append_lessons_ledger(inv_id, seed_type, seed_value, model)
+        except Exception as e:
+            _log(inv_id, "phase_lessons_learned_error", {"error": str(e)[:300]})
 
     # ── Final status ──
     try:

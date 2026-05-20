@@ -245,6 +245,39 @@ def admin_impersonate(target_id: int, response: Response, admin_id: int = Depend
     return {"ok": True, "user_id": target_id}
 
 
+@app.get("/api/admin/lessons_learned")
+def admin_lessons_learned(limit: int = 200, _: int = Depends(current_admin)):
+    """Return the most recent lessons-learned entries emitted by the agent at
+    the end of investigations. Backed by `data/lessons_learned.jsonl`.
+
+    ``limit`` caps the response size (default 200, max 1000)."""
+    import json as _json
+    from .agent_runner import LESSONS_LEDGER_PATH
+    limit = max(1, min(int(limit or 200), 1000))
+    if not LESSONS_LEDGER_PATH.exists():
+        return {"entries": [], "total": 0}
+    # Read the last `limit` lines without slurping the whole file. The ledger
+    # is JSONL so we can scan line-by-line; even at 10k entries it stays small.
+    lines: list[str] = []
+    try:
+        with LESSONS_LEDGER_PATH.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    lines.append(line)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"could not read ledger: {e}")
+    tail = lines[-limit:]
+    entries: list[dict] = []
+    for ln in tail:
+        try:
+            entries.append(_json.loads(ln))
+        except Exception:
+            continue
+    entries.reverse()  # newest first
+    return {"entries": entries, "total": len(lines)}
+
+
 # ── Core routes (all scoped to user_id) ────────────────────────────────────
 def _require_owner(inv_id: str, user_id: int):
     owner = gs.get_investigation_owner(inv_id)
@@ -261,7 +294,7 @@ def list_models(user_id: int = Depends(current_user)):
     return {"models": models, "default": default}
 
 
-ALLOWED_SEED_TYPES = {"domain", "ip", "hash", "url", "jarm", "asn"}
+ALLOWED_SEED_TYPES = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line"}
 
 import re
 
@@ -900,6 +933,114 @@ async def add_pdf_seeds(
         "filename": file.filename,
         "extracted_iocs": iocs,
         "seeds_queued": len(seeds),
+    }
+
+
+# ── Sample / command-line import ──────────────────────────────────────────
+# Accepts either a binary upload (malware.exe, dropper script, archive…) or
+# a pasted command line / script. Hashes binaries (the hash becomes the seed
+# IOC), extracts IOCs from scripts (each becomes an add-seed), and creates a
+# command_line context node so the agent reads the raw text via report_context.
+
+@app.post("/api/investigations/from_sample")
+async def from_sample(
+    file: UploadFile | None = File(default=None),
+    text: str = Form(default=""),
+    model: str = Form("sonnet"),
+    user_id: int = Depends(current_user),
+):
+    """Spin up a fresh investigation from a malware sample upload OR a
+    pasted command line / script.
+
+    Provide EXACTLY ONE of:
+      - `file`: any uploaded binary or text file (executable, dropper, script…)
+      - `text`: a pasted command line or script snippet
+    """
+    _require_quota_available()
+    model = _check_model(user_id, model)
+    from . import sample_import as si
+
+    blob: bytes | None = None
+    filename: str | None = None
+    if file is not None and (file.filename or ""):
+        blob = file.file.read()
+        filename = file.filename
+        if len(blob) > si.SAMPLE_MAX_BYTES:
+            raise HTTPException(status_code=413,
+                detail=f"file too large (>{si.SAMPLE_MAX_BYTES // (1024*1024)} MB)")
+        if len(blob) == 0:
+            raise HTTPException(status_code=400, detail="empty file")
+
+    if (blob is None or len(blob) == 0) and not text.strip():
+        raise HTTPException(status_code=400,
+            detail="provide either a file upload or a non-empty `text` field")
+    if blob is not None and text.strip():
+        # Avoid implicit precedence rules — refuse instead of guessing.
+        raise HTTPException(status_code=400,
+            detail="provide EITHER a file OR text, not both")
+
+    try:
+        result = si.handle_file_upload(blob, filename) if blob is not None \
+                 else si.handle_text_paste(text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    primary = result["primary"]
+    extras  = result["extras"][:si.SAMPLE_MAX_SEEDS - 1]   # primary counts
+    context_node = result["context_node"]
+    report_text  = result["report_text"]
+    hashes       = result["hashes"]
+
+    inv_id = gs.create_investigation(primary["type"], primary["value"],
+                                     user_id=user_id, model=model)
+    # Stamp the seed node with the rich metadata up-front so the UI shows the
+    # original filename / sha1 / md5 BEFORE the agent fires.
+    gs.add_node(inv_id, primary["type"], primary["value"],
+                metadata=primary.get("metadata") or {}, source="user", tags=["seed"])
+    # Pre-register the command_line context node when we have one. The agent
+    # also receives the raw text via report_context, but graphing it now means
+    # the UI shows it immediately and embedded_in_command edges have a target.
+    if context_node:
+        gs.add_node(inv_id, context_node["type"], context_node["value"],
+                    metadata=context_node.get("metadata") or {},
+                    source="user", tags=["seed_context"])
+
+    # Audit trail (mirrors what from_pdf does).
+    gs.cache_set(f"sample_source:{inv_id}", {
+        "filename": filename,
+        "file_type": result["file_type"],
+        "hashes": hashes,
+        "extracted_iocs": [primary] + extras,
+        "text_excerpt": (report_text or "")[:50_000],
+        "uploaded_at": time.time(),
+    })
+
+    async def _chain():
+        import json as _json
+        await run_investigation(
+            inv_id, primary["type"], primary["value"], model=model,
+            report_context=report_text or "",
+        )
+        for it in extras:
+            gs.set_status(inv_id, "running")
+            with gs.conn() as c:
+                payload = {"kind": "status_change", "status": "running",
+                           "add_seed_type": it["type"], "add_seed_value": it["value"]}
+                c.execute(
+                    "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                    (inv_id, "status_change", _json.dumps(payload), time.time()),
+                )
+            await run_add_seed(inv_id, it["type"], it["value"], model=model)
+
+    asyncio.create_task(_chain())
+    return {
+        "id": inv_id,
+        "filename": filename,
+        "file_type": result["file_type"],
+        "hashes": hashes,
+        "primary": {"type": primary["type"], "value": primary["value"]},
+        "extracted_iocs": extras,
+        "seeds_queued": 1 + len(extras),
     }
 
 

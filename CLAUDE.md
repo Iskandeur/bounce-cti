@@ -15,9 +15,14 @@ backend/
                         #   cache, users, sessions, shares, pivot_tasks, quota_state)
   config.py             # Env var loading (API keys, paths)
   auth.py               # PIN-based auth, sessions, admin bootstrap + impersonation
-  defuse_lists.py       # CDN/parking/sinkhole/dyndns noise filters
+  defuse_lists.py       # CDN/parking/sinkhole/blackhole/dyndns noise filters
+                        #   + LE-takedown registrant markers (sinkhole_kind)
   refang.py             # Defang→fang IOC normalisation (evil[.]com → evil.com)
   pdf_import.py         # Extract IOCs from an uploaded CTI report PDF
+  sample_import.py      # Handle uploaded malware sample (any binary or script)
+                        #   + pasted command-line / script — hashes binaries,
+                        #   extracts IOCs from scripts, builds the command_line
+                        #   context node + report_context for the agent
   pdf_report.py         # Render an investigation as a downloadable PDF
   stix_export.py        # Render an investigation as a STIX 2.1 bundle
   key_pool.py           # API key rotation pool: round-robin, cooldown on 429,
@@ -123,6 +128,12 @@ This repo has **automatic deployment via GitHub Actions**.
   (default 60) and stops early when a round adds fewer than
   `BOUNCE_PIVOT_DRAIN_CONVERGENCE` (default 3) new nodes. The state
   machine in `PIVOT_MAPPING.md` informs the adaptive logic.
+  Finally, a short **lessons-learned retrospective** phase
+  (`phase_lessons_learned`) asks the agent to enumerate blockers, missing
+  capabilities, and concrete codebase improvements it would make. The
+  result lands on a hidden `lessons_learned` report node and is appended
+  to `data/lessons_learned.jsonl`, exposed via
+  `GET /api/admin/lessons_learned` for review.
 - **Pivot queue** (`pivot_tasks` table): every `add_node` call auto-enqueues all
   applicable pivots via `pivot_mapping.pivots_for()`. Defused nodes (CDN/parking/
   sinkhole/dyndns) only enqueue documentation pivots (rdap/dns_resolve); the rest

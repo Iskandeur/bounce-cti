@@ -76,6 +76,13 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 
 - `POST /api/investigations/from_pdf` — extract IOCs from PDF, seed a new investigation
 - `POST /api/investigations/{id}/from_pdf` — append IOCs from a PDF as add-seeds
+- `POST /api/investigations/from_sample` — multipart: either `file` (executable
+  / dropper / archive / script — hashed locally, sha256 becomes the seed
+  IOC) or `text` (a malicious command line / script — IOCs extracted as
+  seeds, raw text graphed as a `command_line` context node + fed to the
+  agent as `report_context`). Exactly one of the two must be supplied.
+- `GET /api/admin/lessons_learned?limit=N` — admin-only feed of agent
+  retrospectives backed by `data/lessons_learned.jsonl`
 
 **Sharing**
 
@@ -125,6 +132,18 @@ After the main run, additional phases run automatically:
   node exists, runs a single-purpose phase to write one (with mechanically-
   extracted discriminating-marker candidates pre-injected as MUST INCLUDE
   VERBATIM lines).
+- **Phase 4 — `phase_pivot_drain_<N>`**: autonomous pivot-drain loop (see
+  CLAUDE.md "Multi-phase agent loop"). Up to `BOUNCE_PIVOT_DRAIN_ROUNDS`
+  rounds, each capped at `BOUNCE_PIVOT_DRAIN_MAX_TURNS`, with a
+  convergence stop when a round adds < `BOUNCE_PIVOT_DRAIN_CONVERGENCE`
+  net-new nodes.
+- **Phase 5 — `phase_lessons_learned`**: short retrospective. The agent
+  reads the graph + `gaps_report()` + `queue_status()` and writes a
+  single hidden `lessons_learned` report node listing blockers, missing
+  capabilities, suggestions, noteworthy patterns, and a one-paragraph
+  self-critique. The runner then appends that entry to
+  `data/lessons_learned.jsonl` (the project-wide ledger surfaced through
+  `GET /api/admin/lessons_learned`).
 
 The runner also exposes:
 - `run_pivot(...)` — pivot from an existing node (used by `/enrich`)
@@ -185,8 +204,15 @@ MCP server exposing graph write/read tools + the autonomy engine to the agent:
 - `get_graph(compact: bool = False)` — full or compact (slim metadata) snapshot
 - `get_node(type, value)` — fetch one node's full metadata
 - `get_report()` — fetch the current `report` node payload (if any)
-- `defuse(kind, value)` — CDN/parking/sinkhole/dyndns check; returns
-  `should_stop_pivot` + a tag suggestion
+- `defuse(kind, value, registrant?, registrar?)` — CDN / parking / sinkhole /
+  blackhole / dyndns check. Returns `{tags, reasons, sinkhole_kind, should_stop_pivot}`.
+  `sinkhole_kind` is one of `blackhole` (null-routed reserved IPs — 0.0.0.0,
+  127/8, 240/4, TEST-NET), `monitoring` (vendor / academic sinkhole IPs and NS
+  patterns: Shadowserver, Spamhaus, abuse.ch, Microsoft DCU, …), or `le_seized`
+  (RDAP registrant / registrar string matches a law-enforcement / vendor
+  takedown handler such as `@fbi.gov`, `@microsoft.com`, `ROLR`). LE-seized
+  domains return `should_stop_pivot=false` on purpose so the agent keeps
+  mining historical residue. Lists live in `backend/defuse_lists.py`.
 
 **Autonomy engine** (drains `pivot_tasks`, drives convergence)
 - `next_pivot()` — pop highest-priority pending task, atomically marks `running`
@@ -288,14 +314,24 @@ convergence check), per-node fan-out caps (`MAX_HIGH_PRIO_PER_NODE=8`,
 `MAX_LOW_PRIO_PER_NODE=4`), per-hop cap (`MAX_NEW_NODES_PER_HOP=30`), and
 `discriminating_marker(type, tags, metadata)` — the predicate used by the
 convergence criterion (jarm, favicon_hash, cert_serial, tracking_id,
-wallet_address, email, plus non-CDN ip/domain/ns/asn).
+wallet_address, email, **person**, plus non-CDN/non-blackhole ip/domain/ns/asn).
 
 ### `backend/defuse_lists.py`
 Hardcoded lists for noise filtering:
 - CDN IP ranges (Cloudflare, Fastly, Akamai, CloudFront, GCP)
-- Parking nameservers (Sedo, Bodis, DAN, ParkingCrew…)
+- Parking nameservers + parking CNAMEs + parking registrant orgs
 - DynDNS TLDs (DuckDNS, No-IP, DDNS.net…)
-- Known sinkhole IPs
+- Known sinkhole IPs (Shadowserver, Microsoft DCU, OpenDNS, Spamhaus,
+  abuse.ch, Team Cymru, FBI/DoJ historical landings)
+- Known sinkhole NS substrings (`.shadowserver.org`, `.spamhaus.org`,
+  `.abuse.ch`, `sinkhole.*`, `rpz.*`, `blackhole.*`, Microsoft DCU NS, …)
+- Blackhole IPs + ranges (`0.0.0.0`, `127/8`, `240/4`, TEST-NET-1/2/3, …)
+  — distinct from monitoring sinkholes: these mean the domain has been
+  intentionally null-routed rather than handed to a monitoring vendor.
+- LE registrant patterns (`@fbi.gov`, `@microsoft.com`, `@shadowserver.org`,
+  `Registrar of Last Resort`, …) — when present in the RDAP registrant /
+  registrar field, `defuse_check(..., registrant=…, registrar=…)` flags
+  `sinkhole_kind="le_seized"`, keeping the historical workflow active.
 
 ### `backend/refang.py`
 Defang→fang IOC normalisation (`evil[.]com` → `evil.com`,
@@ -307,6 +343,25 @@ ever sees live values.
 Extracts text + IOCs from a CTI report PDF (regex + refang). Used by the
 `/api/investigations/from_pdf` endpoints to bootstrap an investigation from
 a vendor write-up.
+
+### `backend/sample_import.py`
+Handles the malware-sample / command-line ingestion path
+(`/api/investigations/from_sample`). Two flavours:
+
+- ``handle_file_upload(blob, filename)`` — hashes the uploaded binary
+  (SHA256/SHA1/MD5 + size), sniffs the container type (PE/ELF/Mach-O/zip/
+  pdf/gzip/7z/rar/script/text via magic bytes + filename heuristics), and
+  when the file decodes as text, also extracts embedded IOCs and produces
+  a `command_line` context node. The SHA256 is the primary seed; embedded
+  IOCs are queued as add-seeds.
+- ``handle_text_paste(text)`` — refangs + IOC-extracts the pasted snippet
+  (reuses ``pdf_import.extract_iocs``), graphs the raw text on a
+  `command_line` node, and seeds the investigation with the strongest
+  extracted IOC. If no IOCs are present, the `command_line` node IS the
+  seed and the raw text is passed to the agent as ``report_context``.
+
+Neither helper persists the binary on disk — only hashes, metadata, and up
+to ``SCRIPT_TEXT_MAX`` of decoded text are retained.
 
 ### `backend/pdf_report.py`
 Renders an investigation as a downloadable PDF (DejaVu Sans TTF for full
