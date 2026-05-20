@@ -1124,26 +1124,6 @@ button.secondary:hover {
 }
 .admin-btn:hover { color: var(--primary); border-color: var(--primary); background: rgba(88, 166, 255, 0.06); }
 
-/* ── Batch mode toggle (sidebar) ─────────────────────────────────────────── */
-.batch-toggle {
-  font-size: 10px;
-  padding: 3px 10px;
-  margin-left: auto;
-  background: transparent;
-  color: var(--on-dim);
-  border: 1px solid var(--outline);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
-}
-.batch-toggle:hover { color: var(--primary); border-color: var(--primary); }
-.batch-toggle.active {
-  color: var(--primary);
-  border-color: var(--primary);
-  background: rgba(88, 166, 255, 0.1);
-}
 .batch-textarea {
   width: 100%;
   resize: vertical;
@@ -1449,32 +1429,6 @@ button.secondary:hover {
 }
 .admin-checkbox span {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-}
-
-/* ── Auto-detect IOC row ──────────────────────────────────────────────── */
-.auto-detect-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.auto-detect-row input {
-  flex: 1;
-}
-.detected-type {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--primary);
-  background: var(--primary-dim);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  white-space: nowrap;
-  letter-spacing: 0.5px;
-  min-width: 50px;
-  text-align: center;
-}
-.seed-type-override {
-  font-size: 12px;
-  opacity: 0.7;
 }
 
 /* ── Custom prompt ───────────────────────────────────────────────────── */
@@ -2127,7 +2081,6 @@ button.secondary:hover {
   input:not(.graph-search-input),
   select,
   textarea,
-  .auto-detect-row input,
   .add-seed-form input,
   .add-seed-form select,
   .custom-prompt-input,
@@ -2169,11 +2122,9 @@ button.secondary:hover {
   /* Inline action buttons that aren't primary CTAs shouldn't grow to the
      full 40px touch height — they're meant to read as small toggles next
      to a section label, not as standalone buttons. */
-  .batch-toggle,
   .icon-btn {
     min-height: auto;
   }
-  .batch-toggle { padding: 4px 10px; font-size: 11px; }
 
   /* Generic utility: hide non-essential UI on phones. */
   .hide-on-mobile { display: none !important; }
@@ -2282,7 +2233,7 @@ button.secondary:hover {
   color: #a8d8ff;
 }
 
-/* ── Segmented control (Single / Batch / PDF tabs) ──────────────────── */
+/* ── Segmented control (IOC / PDF tabs) ─────────────────────────────── */
 .seg-control {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2293,7 +2244,6 @@ button.secondary:hover {
   padding: 3px;
   margin-bottom: 8px;
 }
-.seg-control-3 { grid-template-columns: 1fr 1fr 1fr; }
 .seg-option {
   width: auto;
   display: inline-flex;

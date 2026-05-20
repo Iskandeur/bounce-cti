@@ -57,7 +57,16 @@ def add_node(type: str, value: str, metadata: dict | None = None,
 
     type: one of domain, ip, hash, url, cert, asn, email, registrar, ns,
           favicon_hash, jarm, ja3, cert_serial, tracking_id, form_action,
-          wallet_address, js_hash, title_hash, report
+          wallet_address, js_hash, title_hash, person, report
+
+          person: create ONLY when multiple strong, convergent indicators
+            point at the same individual / operator (e.g. the same operator
+            email surfaces in both RDAP and SOA, OR an identity is named
+            directly in DNS TXT / WHOIS organisation / certificate subject).
+            Never spawn a person node from a single weak signal. Value should
+            be the canonical display name or handle (e.g. "John Doe" or
+            "@operator-handle"); put the corroborating emails / handles /
+            sources in metadata={emails:[], handles:[], evidence:[]}.
     value: the node identifier (e.g. the domain string)
     metadata: free-form dict (whois, geo, ports, etc.)
     confidence: 0..1
@@ -179,13 +188,29 @@ def get_report() -> dict:
 
 
 @mcp.tool()
-def defuse(kind: str, value: str) -> dict:
-    """Check if an indicator is a CDN/parking/sinkhole/dyndns. ALWAYS call before pivoting on an IP or NS.
+def defuse(kind: str, value: str,
+           registrant: str | None = None,
+           registrar: str | None = None) -> dict:
+    """Check if an indicator is a CDN / parking / sinkhole / blackhole / dyndns.
+    ALWAYS call before pivoting on an IP or NS.
 
     kind: ip | domain | ns
-    Returns {tags, reasons, should_stop_pivot}.
+    registrant / registrar: optional RDAP-side strings (e.g. registrant email,
+      org, or `registrar` field). When supplied, they are matched against the
+      LE-takedown handler list (FBI/DOJ/Europol/Microsoft DCU/Shadowserver/
+      Spamhaus/...). A match marks the indicator `sinkhole_kind="le_seized"`
+      so the agent KEEPS pivoting for historical residue rather than early-exiting.
+
+    Returns:
+      {
+        tags:              list[str]   # cdn | parking | sinkhole | blackhole | dyndns
+        reasons:           list[str]   # one human line per signal
+        sinkhole_kind:     str | None  # le_seized | monitoring | blackhole | None
+        should_stop_pivot: bool        # True for commercial defuse + monitoring sinkholes.
+                                       # False for LE seizures (mine historical residue).
+      }
     """
-    return defuse_check(kind, value)
+    return defuse_check(kind, value, registrant=registrant, registrar=registrar)
 
 
 # ── Pivot queue / autonomy engine tools ────────────────────────────────

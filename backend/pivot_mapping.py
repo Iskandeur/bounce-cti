@@ -191,11 +191,14 @@ def discriminating_marker(node_type: str, tags: list[str] | None,
 
     # Always discriminating
     if node_type in ("jarm", "favicon_hash", "cert_serial", "tracking_id",
-                      "wallet_address", "email"):
+                      "wallet_address", "email", "person"):
         return True
 
-    # Defused tags neutralise the marker
-    bad_tags = {"cdn", "parking", "sinkhole", "dyndns"}
+    # Defused tags neutralise the marker. `blackhole` joins the list — a
+    # null-routed IP cannot identify infrastructure. `sinkhole` stays here
+    # too (sinkhole IPs are shared by hundreds of historical victims, so
+    # they don't fingerprint a single operator on their own).
+    bad_tags = {"cdn", "parking", "sinkhole", "blackhole", "dyndns"}
     if any(t in bad_tags for t in tags):
         return False
 

@@ -185,8 +185,15 @@ MCP server exposing graph write/read tools + the autonomy engine to the agent:
 - `get_graph(compact: bool = False)` — full or compact (slim metadata) snapshot
 - `get_node(type, value)` — fetch one node's full metadata
 - `get_report()` — fetch the current `report` node payload (if any)
-- `defuse(kind, value)` — CDN/parking/sinkhole/dyndns check; returns
-  `should_stop_pivot` + a tag suggestion
+- `defuse(kind, value, registrant?, registrar?)` — CDN / parking / sinkhole /
+  blackhole / dyndns check. Returns `{tags, reasons, sinkhole_kind, should_stop_pivot}`.
+  `sinkhole_kind` is one of `blackhole` (null-routed reserved IPs — 0.0.0.0,
+  127/8, 240/4, TEST-NET), `monitoring` (vendor / academic sinkhole IPs and NS
+  patterns: Shadowserver, Spamhaus, abuse.ch, Microsoft DCU, …), or `le_seized`
+  (RDAP registrant / registrar string matches a law-enforcement / vendor
+  takedown handler such as `@fbi.gov`, `@microsoft.com`, `ROLR`). LE-seized
+  domains return `should_stop_pivot=false` on purpose so the agent keeps
+  mining historical residue. Lists live in `backend/defuse_lists.py`.
 
 **Autonomy engine** (drains `pivot_tasks`, drives convergence)
 - `next_pivot()` — pop highest-priority pending task, atomically marks `running`
@@ -288,14 +295,24 @@ convergence check), per-node fan-out caps (`MAX_HIGH_PRIO_PER_NODE=8`,
 `MAX_LOW_PRIO_PER_NODE=4`), per-hop cap (`MAX_NEW_NODES_PER_HOP=30`), and
 `discriminating_marker(type, tags, metadata)` — the predicate used by the
 convergence criterion (jarm, favicon_hash, cert_serial, tracking_id,
-wallet_address, email, plus non-CDN ip/domain/ns/asn).
+wallet_address, email, **person**, plus non-CDN/non-blackhole ip/domain/ns/asn).
 
 ### `backend/defuse_lists.py`
 Hardcoded lists for noise filtering:
 - CDN IP ranges (Cloudflare, Fastly, Akamai, CloudFront, GCP)
-- Parking nameservers (Sedo, Bodis, DAN, ParkingCrew…)
+- Parking nameservers + parking CNAMEs + parking registrant orgs
 - DynDNS TLDs (DuckDNS, No-IP, DDNS.net…)
-- Known sinkhole IPs
+- Known sinkhole IPs (Shadowserver, Microsoft DCU, OpenDNS, Spamhaus,
+  abuse.ch, Team Cymru, FBI/DoJ historical landings)
+- Known sinkhole NS substrings (`.shadowserver.org`, `.spamhaus.org`,
+  `.abuse.ch`, `sinkhole.*`, `rpz.*`, `blackhole.*`, Microsoft DCU NS, …)
+- Blackhole IPs + ranges (`0.0.0.0`, `127/8`, `240/4`, TEST-NET-1/2/3, …)
+  — distinct from monitoring sinkholes: these mean the domain has been
+  intentionally null-routed rather than handed to a monitoring vendor.
+- LE registrant patterns (`@fbi.gov`, `@microsoft.com`, `@shadowserver.org`,
+  `Registrar of Last Resort`, …) — when present in the RDAP registrant /
+  registrar field, `defuse_check(..., registrant=…, registrar=…)` flags
+  `sinkhole_kind="le_seized"`, keeping the historical workflow active.
 
 ### `backend/refang.py`
 Defang→fang IOC normalisation (`evil[.]com` → `evil.com`,
