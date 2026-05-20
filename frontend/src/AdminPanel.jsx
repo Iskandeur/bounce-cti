@@ -197,6 +197,9 @@ export default function AdminPanel({ onClose, selfId, onImpersonate }) {
           )}
         </div>
 
+        {/* Lessons-learned ledger — agent retrospectives from past runs */}
+        <LessonsLearnedSection />
+
         {/* Users list */}
         <div className="admin-section">
           <div className="admin-section-title">
@@ -362,6 +365,107 @@ function UserRow({ user, selfId, allModels, expanded, onToggle, onDelete, onImpe
               </button>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ── LessonsLearnedSection ─────────────────────────────────────────────────
+// The agent emits a lessons_learned report node at the end of each
+// investigation. The backend appends it to data/lessons_learned.jsonl and
+// exposes the last N entries via /api/admin/lessons_learned. This section
+// renders the feed so the operator can spot recurring blockers and
+// improvement suggestions across investigations.
+function LessonsLearnedSection() {
+  const [entries, setEntries] = useState(null)
+  const [total, setTotal] = useState(0)
+  const [err, setErr] = useState('')
+  const [open, setOpen] = useState(false)
+
+  const load = async () => {
+    setErr('')
+    try {
+      const r = await fetch('/api/admin/lessons_learned?limit=200',
+                            { credentials: 'same-origin' })
+      if (!r.ok) { setErr(`HTTP ${r.status}`); return }
+      const d = await r.json()
+      setEntries(d.entries || [])
+      setTotal(d.total || 0)
+    } catch (e) {
+      setErr(String(e.message || e))
+    }
+  }
+
+  useEffect(() => { if (open && entries === null) load() }, [open])
+
+  return (
+    <div className="admin-section">
+      <div className="admin-section-title" style={{ cursor: 'pointer' }}
+           onClick={() => setOpen(o => !o)}>
+        {open ? '▾' : '▸'} Lessons learned (agent feedback)
+        {entries !== null && <span style={{ opacity: 0.6, marginLeft: 6, fontWeight: 400 }}>· {total} total</span>}
+      </div>
+      {open && (
+        <div className="lessons-pane">
+          {err && <div className="auth-error">{err}</div>}
+          {entries === null && !err && <div style={{ opacity: 0.6 }}>Loading…</div>}
+          {entries && entries.length === 0 && (
+            <div style={{ opacity: 0.6 }}>
+              No retrospectives yet — they're written automatically at the end of each investigation.
+            </div>
+          )}
+          {entries && entries.map((e, i) => (
+            <LessonsEntry key={i} entry={e} />
+          ))}
+          {entries && (
+            <button className="auth-btn secondary" style={{ marginTop: 6 }}
+                    onClick={load}>Refresh</button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+function LessonsEntry({ entry }) {
+  const [expanded, setExpanded] = useState(false)
+  const summary = [
+    entry.blockers?.length && `${entry.blockers.length} blocker${entry.blockers.length > 1 ? 's' : ''}`,
+    entry.suggestions?.length && `${entry.suggestions.length} suggestion${entry.suggestions.length > 1 ? 's' : ''}`,
+    entry.missing_capabilities?.length && `${entry.missing_capabilities.length} missing cap${entry.missing_capabilities.length > 1 ? 's' : ''}`,
+  ].filter(Boolean).join(' · ') || 'no items'
+  return (
+    <div className="lessons-entry">
+      <div className="lessons-header" onClick={() => setExpanded(x => !x)}>
+        <span className="lessons-seed">
+          <span className="lessons-type">{entry.seed_type}</span>{' '}
+          <span className="lessons-value">{entry.seed_value}</span>
+        </span>
+        <span className="lessons-meta">
+          {entry.node_count}n / {entry.edge_count}e · {fmtRelative(entry.ts)} · {summary}
+        </span>
+      </div>
+      {expanded && (
+        <div className="lessons-body">
+          {entry.self_critique && (
+            <div className="lessons-block">
+              <div className="lessons-block-title">Self-critique</div>
+              <div className="lessons-text">{entry.self_critique}</div>
+            </div>
+          )}
+          {['blockers', 'missing_capabilities', 'suggestions', 'noteworthy'].map(k => (
+            (entry[k] && entry[k].length > 0) && (
+              <div key={k} className="lessons-block">
+                <div className="lessons-block-title">{k.replace('_', ' ')}</div>
+                <ul className="lessons-list">
+                  {entry[k].map((item, j) => <li key={j}>{item}</li>)}
+                </ul>
+              </div>
+            )
+          ))}
         </div>
       )}
     </div>

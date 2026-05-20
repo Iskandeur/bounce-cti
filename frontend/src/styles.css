@@ -2233,7 +2233,94 @@ button.secondary:hover {
   color: #a8d8ff;
 }
 
-/* ── Segmented control (IOC / PDF tabs) ─────────────────────────────── */
+/* ── Lessons-learned panel (admin) ─────────────────────────────────── */
+.lessons-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  overflow: auto;
+  padding: 2px;
+}
+.lessons-entry {
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.lessons-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.lessons-header:hover { background: var(--surface); }
+.lessons-seed { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
+.lessons-type {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--on-dim);
+  letter-spacing: 0.4px;
+}
+.lessons-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+.lessons-meta {
+  font-size: 10px;
+  color: var(--on-dim);
+  flex-shrink: 0;
+}
+.lessons-body {
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.lessons-block-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--on-dim);
+  margin-bottom: 2px;
+}
+.lessons-text {
+  color: var(--on-surface);
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+.lessons-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--on-surface);
+  line-height: 1.5;
+}
+.lessons-list li { margin-bottom: 2px; }
+
+/* ── Sample mode (executable upload + paste textarea) ───────────────── */
+.sample-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sample-or {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--on-dim);
+  text-align: center;
+  padding: 2px 0;
+}
+
+/* ── Segmented control (IOC / Sample / PDF tabs) ─────────────────────── */
 .seg-control {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2244,6 +2331,7 @@ button.secondary:hover {
   padding: 3px;
   margin-bottom: 8px;
 }
+.seg-control-3 { grid-template-columns: 1fr 1fr 1fr; }
 .seg-option {
   width: auto;
   display: inline-flex;

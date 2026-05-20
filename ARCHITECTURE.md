@@ -76,6 +76,13 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 
 - `POST /api/investigations/from_pdf` — extract IOCs from PDF, seed a new investigation
 - `POST /api/investigations/{id}/from_pdf` — append IOCs from a PDF as add-seeds
+- `POST /api/investigations/from_sample` — multipart: either `file` (executable
+  / dropper / archive / script — hashed locally, sha256 becomes the seed
+  IOC) or `text` (a malicious command line / script — IOCs extracted as
+  seeds, raw text graphed as a `command_line` context node + fed to the
+  agent as `report_context`). Exactly one of the two must be supplied.
+- `GET /api/admin/lessons_learned?limit=N` — admin-only feed of agent
+  retrospectives backed by `data/lessons_learned.jsonl`
 
 **Sharing**
 
@@ -125,6 +132,18 @@ After the main run, additional phases run automatically:
   node exists, runs a single-purpose phase to write one (with mechanically-
   extracted discriminating-marker candidates pre-injected as MUST INCLUDE
   VERBATIM lines).
+- **Phase 4 — `phase_pivot_drain_<N>`**: autonomous pivot-drain loop (see
+  CLAUDE.md "Multi-phase agent loop"). Up to `BOUNCE_PIVOT_DRAIN_ROUNDS`
+  rounds, each capped at `BOUNCE_PIVOT_DRAIN_MAX_TURNS`, with a
+  convergence stop when a round adds < `BOUNCE_PIVOT_DRAIN_CONVERGENCE`
+  net-new nodes.
+- **Phase 5 — `phase_lessons_learned`**: short retrospective. The agent
+  reads the graph + `gaps_report()` + `queue_status()` and writes a
+  single hidden `lessons_learned` report node listing blockers, missing
+  capabilities, suggestions, noteworthy patterns, and a one-paragraph
+  self-critique. The runner then appends that entry to
+  `data/lessons_learned.jsonl` (the project-wide ledger surfaced through
+  `GET /api/admin/lessons_learned`).
 
 The runner also exposes:
 - `run_pivot(...)` — pivot from an existing node (used by `/enrich`)
@@ -324,6 +343,25 @@ ever sees live values.
 Extracts text + IOCs from a CTI report PDF (regex + refang). Used by the
 `/api/investigations/from_pdf` endpoints to bootstrap an investigation from
 a vendor write-up.
+
+### `backend/sample_import.py`
+Handles the malware-sample / command-line ingestion path
+(`/api/investigations/from_sample`). Two flavours:
+
+- ``handle_file_upload(blob, filename)`` — hashes the uploaded binary
+  (SHA256/SHA1/MD5 + size), sniffs the container type (PE/ELF/Mach-O/zip/
+  pdf/gzip/7z/rar/script/text via magic bytes + filename heuristics), and
+  when the file decodes as text, also extracts embedded IOCs and produces
+  a `command_line` context node. The SHA256 is the primary seed; embedded
+  IOCs are queued as add-seeds.
+- ``handle_text_paste(text)`` — refangs + IOC-extracts the pasted snippet
+  (reuses ``pdf_import.extract_iocs``), graphs the raw text on a
+  `command_line` node, and seeds the investigation with the strongest
+  extracted IOC. If no IOCs are present, the `command_line` node IS the
+  seed and the raw text is passed to the agent as ``report_context``.
+
+Neither helper persists the binary on disk — only hashes, metadata, and up
+to ``SCRIPT_TEXT_MAX`` of decoded text are retained.
 
 ### `backend/pdf_report.py`
 Renders an investigation as a downloadable PDF (DejaVu Sans TTF for full

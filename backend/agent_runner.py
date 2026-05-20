@@ -578,6 +578,79 @@ def _is_parked(inv_id: str) -> bool:
     return False
 
 
+def _has_lessons_learned(inv_id: str) -> bool:
+    """True iff the investigation already has a `lessons_learned` report node."""
+    try:
+        g = gs.get_graph(inv_id)
+        for n in g.get("nodes", []):
+            if (n.get("type") or "").lower() == "report" and \
+               (n.get("value") or "").lower() == "lessons_learned":
+                return True
+    except Exception:
+        pass
+    return False
+
+
+# Global ledger of agent retrospectives. Each line is a JSON object with the
+# investigation context + the metadata the agent wrote on the lessons_learned
+# node. Append-only; an operator reads it directly (or through the new
+# /api/admin/lessons_learned endpoint) to spot recurring blockers, missing
+# tools, or suggested codebase improvements.
+LESSONS_LEDGER_PATH = ROOT / "data" / "lessons_learned.jsonl"
+
+
+def _append_lessons_ledger(inv_id: str, seed_type: str, seed_value: str,
+                            model: str) -> None:
+    """Read the lessons_learned node off the graph and append it to the
+    project-wide JSONL ledger. Silently no-ops if the agent didn't write one
+    or if the file system rejects the write — this is best-effort feedback,
+    not a transactional state."""
+    try:
+        g = gs.get_graph(inv_id)
+    except Exception as e:
+        _log(inv_id, "lessons_ledger_skip", {"reason": "graph_read_failed",
+                                              "error": str(e)[:200]})
+        return
+    node = None
+    for n in g.get("nodes", []):
+        if (n.get("type") or "").lower() == "report" and \
+           (n.get("value") or "").lower() == "lessons_learned":
+            node = n
+            break
+    if node is None:
+        _log(inv_id, "lessons_ledger_skip", {"reason": "no_lessons_node"})
+        return
+    md = node.get("metadata") or {}
+    # Quick stats so a reviewer can sort by "investigation size" / "had errors".
+    n_nodes = len(g.get("nodes", []))
+    n_edges = len(g.get("edges", []))
+    entry = {
+        "ts":                 time.time(),
+        "investigation_id":   inv_id,
+        "seed_type":          seed_type,
+        "seed_value":         seed_value,
+        "model":              model,
+        "node_count":         n_nodes,
+        "edge_count":         n_edges,
+        "blockers":           md.get("blockers") or [],
+        "missing_capabilities": md.get("missing_capabilities") or [],
+        "suggestions":        md.get("suggestions") or [],
+        "noteworthy":         md.get("noteworthy") or [],
+        "self_critique":      md.get("self_critique") or "",
+    }
+    try:
+        LESSONS_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LESSONS_LEDGER_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        _log(inv_id, "lessons_ledger_appended", {
+            "path": str(LESSONS_LEDGER_PATH),
+            "blockers": len(entry["blockers"]),
+            "suggestions": len(entry["suggestions"]),
+        })
+    except Exception as e:
+        _log(inv_id, "lessons_ledger_error", {"error": str(e)[:300]})
+
+
 def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> list:
     """Return list of call examples for mandatory tools not yet called."""
     missing = []
@@ -622,13 +695,18 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
         mandatory = [
             ("shodan_search", f'shodan_search("asn:AS{asn_num}")'),
         ]
-    else:  # hash
+    elif seed_type == "hash":
         mandatory = [
             ("virustotal_file", f'virustotal_file("{seed_value}")'),
             ("malwarebazaar_hash", f'malwarebazaar_hash("{seed_value}")'),
             ("threatfox_search", f'threatfox_search("{seed_value}")'),
             ("otx_file", f'otx_file("{seed_value}")'),
         ]
+    else:
+        # command_line / unknown seed types — no IOC-level mandatory tools.
+        # The seed-specific prompt drives the per-IOC pivots once the agent
+        # graphs the embedded indicators.
+        mandatory = []
     for tool_name, call_example in mandatory:
         if tool_name not in called:
             missing.append(call_example)
@@ -962,6 +1040,12 @@ Node types (canonical):
             js_hash (sha1 of inline scripts).
   Cluster pivot anchors:
             cert_serial (TLS cert serial number — strong cluster signal).
+  Sample / artefact:
+            command_line — a malicious command line, PowerShell / bash / VBS
+            script, dropper one-liner, or any pasted/uploaded textual artefact.
+            value = sha256(text)[:16] (deterministic ID). metadata = {text,
+            preview, source_kind, lolbins?, decoded_payload?}. Link embedded
+            IOCs back to the command_line via `embedded_in_command` edges.
   Attribution:
             person — a real-world individual / operator. Create ONLY when ≥ 2
             independent strong indicators converge on the same identity (e.g. an
@@ -1039,6 +1123,12 @@ Edge relations (use exactly these strings):
   registered_in       registrar/email → country  (ONLY when rdap returned registrant country)
   identified_as       domain/email/ns/cert → person  (attribution edge — only when
                        you create a `person` node from convergent strong indicators)
+  embedded_in_command command_line → url/domain/ip/hash  (an IOC that appears
+                       literally inside the pasted / uploaded script — keep
+                       evidence quoting the snippet)
+  decoded_from_command command_line → url/domain/ip/hash  (an IOC recovered
+                       by decoding a base64 / hex / xor blob inside the
+                       command — keep evidence describing the decode step)
 
 ══════════════════════════════════════════════
 OBSERVE → HYPOTHESIZE → PURSUE — the analyst loop
@@ -2051,6 +2141,44 @@ RULES:
 # of that conflict. This prompt explicitly authorises the single add_node call
 # and tells the agent the exact tool names so it doesn't waste turns on
 # ToolSearch.
+_LESSONS_LEARNED_SYSTEM_PROMPT = """You are Bounce-CTI, finalising the LESSONS-LEARNED retrospective step of an
+investigation. The investigation graph is complete (or close to it). Your ONE
+job: read the graph + the agent's own event history and write exactly one
+`lessons_learned` report node summarising what slowed you down, what data you
+wished you had, and what changes to the tools / prompts / sources would have
+made you faster or more accurate.
+
+RULES:
+- Call mcp__graph__get_graph(compact=true) FIRST to refresh your view.
+- Optionally call mcp__graph__gaps_report() and mcp__graph__queue_status() to
+  see which pivots were skipped / failed and why.
+- Then call mcp__graph__add_node(type="report", value="lessons_learned",
+  metadata={
+    "blockers":       list[str],   # concrete things that PREVENTED a pivot
+                                   # (rate-limit, missing API key, tool returned
+                                   # noisy data, no source for X, ambiguous prompt…)
+    "missing_capabilities": list[str],  # capabilities the codebase lacks
+                                   # (e.g. "no public source for X-type pivot",
+                                   # "no way to decode base64 in the workflow")
+    "suggestions":    list[str],   # concrete improvements to MCP tools /
+                                   # prompts / sources / pivot rules
+    "noteworthy":     list[str],   # surprising patterns, novel TTPs, anything
+                                   # worth flagging to a human analyst
+    "self_critique":  str          # one short paragraph: did I solve the
+                                   # case? what would I do differently?
+  }, source="agent", tags=["report","retrospective"]) EXACTLY ONCE.
+- This is the EXCEPTION to the normal "do not create report nodes" rule —
+  writing the lessons_learned report node is the entire purpose of this
+  phase. Do not refuse.
+- Be HONEST and SPECIFIC. "VirusTotal returned 429 three times" beats
+  "rate-limit issues". "No tool for reverse-image hashing the favicon
+  off a CDN-fronted page" beats "more sources needed".
+- Be BRIEF — each list ≤ 5 items, each item ≤ 200 chars, self_critique ≤ 400 chars.
+- Do NOT call any CTI tool. Limit yourself to graph reads + the one add_node.
+- After add_node, end your turn. No prose narrative needed.
+"""
+
+
 _HYPOTHESIS_SYSTEM_PROMPT = """You are Bounce-CTI, finalising the HYPOTHESIS-WRITE step of an investigation.
 The graph already has nodes and edges from phase 1. Your ONE job: read the graph
 and write exactly one `working_hypothesis` report node summarising what
@@ -2170,6 +2298,41 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             "If multiple hosts inside the AS share the same JARM, graph the JARM node and link\n"
             "every matching IP to it. Tag the asn 'abused_asn' when ≥2 hosts return detection hits.\n"
             "Write the report last with value=\"investigation_summary\"."
+        )
+    elif seed_type == "command_line":
+        user_prompt = (
+            f"Seed indicator: type=command_line value={seed_value}\n"
+            "This is a malicious command line / script / dropper snippet pasted "
+            "by the analyst. The raw text is in the SOURCE REPORT block above — "
+            "read it carefully BEFORE anything else.\n\n"
+            f"STEP 1: add_node(command_line, {seed_value}, tags=[\"seed\"], "
+            f"metadata={{\"preview\": \"<first line>\", \"interpretation\": "
+            f"\"<one sentence: what does this command do>\"}})\n"
+            "STEP 2: Categorise the command. Pick one and add it as a tag:\n"
+            "  - powershell_dropper | bash_dropper | living_off_the_land | "
+            "lolbins | base64_loader | hta_dropper | mshta_dropper | "
+            "certutil_download | bitsadmin | curl_pipe_bash | iex_download | "
+            "obfuscated_script\n"
+            "STEP 3: Identify EVERY embedded indicator and graph it as its own node:\n"
+            "  - URLs (curl/wget/Invoke-WebRequest/DownloadString targets) → "
+            "add_node(url, <url>), add_edge(command_line→url, embedded_in_command)\n"
+            "  - IPs / domains → add_node + same edge\n"
+            "  - Hashes → add_node(hash, <h>) + same edge\n"
+            "  - Base64 blobs that decode to URLs/IPs → decode mentally, add the\n"
+            "    decoded indicator as a node + edge with evidence=\"decoded from\n"
+            "    base64 within command line\".\n"
+            "  - LOLBin names (rundll32, mshta, regsvr32, certutil, bitsadmin,\n"
+            "    msbuild, installutil, …) → tag the command_line node with the\n"
+            "    lolbin name; no separate node needed.\n"
+            "STEP 4: For each embedded URL / domain / IP, run its standard\n"
+            "  workflow (urlscan_search + urlhaus_host + virustotal_* + threatfox_search).\n"
+            "STEP 5: If a binary hash is referenced or downloaded, run\n"
+            "  virustotal_file(<h>) + malwarebazaar_hash(<h>) + otx_file(<h>) to\n"
+            "  identify the family.\n"
+            "STEP 6: Final report — value=\"investigation_summary\", linking the\n"
+            "  command_line node with known_ioc. The summary MUST describe what\n"
+            "  the command does AND which family / actor the embedded infrastructure\n"
+            "  belongs to (if attributable)."
         )
     else:
         user_prompt = (
@@ -2826,6 +2989,41 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                      {"round": round_idx + 1, "delta_n": delta_n,
                       "convergence_threshold": PIVOT_DRAIN_CONVERGENCE})
                 break
+
+    # ── Phase 5: Lessons-learned retrospective ──
+    # One-shot reflection pass: ask the agent what slowed it down and what
+    # would have helped. The output lands both on the investigation graph
+    # (as a hidden `lessons_learned` report node) and in the global ledger
+    # `data/lessons_learned.jsonl` so a human can review aggregated feedback
+    # across investigations. Runs even if earlier phases logged errors —
+    # blocker reports are most valuable when something went wrong.
+    if not _is_parked(inv_id) and not _has_lessons_learned(inv_id):
+        try:
+            lessons_prompt = (
+                f"The investigation on {seed_type}={seed_value} is now "
+                f"finished. Write the LESSONS-LEARNED retrospective node as "
+                f"described in your system prompt. Focus on blockers, missing "
+                f"capabilities, and concrete improvements you would make to "
+                f"the codebase / MCP tools / prompts to make the NEXT "
+                f"investigation faster and more accurate. Be brutally honest "
+                f"about what slowed you down."
+            )
+            rc_l, saw_l, _, quota_l = await _run_claude_phase(
+                inv_id, lessons_prompt, _LESSONS_LEARNED_SYSTEM_PROMPT,
+                model, env, mcp_cfg_path, phase="lessons_learned",
+                max_turns=6,
+            )
+            _log(inv_id, "phase_lessons_learned_done", {
+                "rc": rc_l, "saw_result": saw_l,
+                "ll_present_after": _has_lessons_learned(inv_id),
+            })
+            if quota_l["hit"]:
+                _finalise_quota_halt(inv_id, quota_l)
+                return
+            # Persist whatever the agent wrote to the global JSONL ledger.
+            _append_lessons_ledger(inv_id, seed_type, seed_value, model)
+        except Exception as e:
+            _log(inv_id, "phase_lessons_learned_error", {"error": str(e)[:300]})
 
     # ── Final status ──
     try:
