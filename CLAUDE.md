@@ -12,7 +12,7 @@ backend/
   agent_runner.py       # Spawns claude -p with MCP config, multi-phase workflow
                         #   (main → hypothesis_write → followup → report_write), pumps events
   graph_store.py        # SQLite schema + CRUD (investigations, nodes, edges, events,
-                        #   cache, users, sessions, shares, pivot_tasks)
+                        #   cache, users, sessions, shares, pivot_tasks, quota_state)
   config.py             # Env var loading (API keys, paths)
   auth.py               # PIN-based auth, sessions, admin bootstrap + impersonation
   defuse_lists.py       # CDN/parking/sinkhole/dyndns noise filters
@@ -126,6 +126,20 @@ This repo has **automatic deployment via GitHub Actions**.
   are inserted as `skipped` with `skip_reason='defused'` for later visibility in
   `gaps_report`. Per-node fan-out cap: 8 high-priority + 4 low-priority pivots.
   The agent drains the queue via `next_pivot()` / `mark_pivot_done()`.
+- **Claude-subscription quota tracking**: `agent_runner` scans every
+  `claude -p` stream-json event + stderr line for the `Claude AI usage limit
+  reached|<epoch>` marker (and a handful of free-text variants) via
+  `_detect_quota_error`. On a hit, the agent is killed, the investigation
+  flips to status `quota_exceeded` with `quota_reset_at` stored, the global
+  `quota_state` row is updated, and a `quota_exceeded` event + `status_change`
+  event are emitted so the WebSocket clients refresh live. New spawns
+  (`/api/investigations`, `/batch`, `/rerun`, `/enrich`, `/add_seed`,
+  `/prompt`, `/from_pdf`) are gated by `_require_quota_available()` and
+  return HTTP 429 until the reset epoch passes. `POST /api/investigations/{id}/resume`
+  re-runs `run_investigation` without clearing the graph — phases are
+  idempotent (`_has_working_hypothesis`, `_has_investigation_summary`,
+  pivot-drain convergence) so already-finished work is skipped. The frontend
+  polls `GET /api/quota` for the global banner + per-inv countdown.
 - **Key rotation**: `backend/key_pool.py` lets each source accept either
   `<SRC>_API_KEY=k1` (single) or `<SRC>_API_KEYS=k1,k2,k3` (multi, takes precedence).
   Cooldown on 429 (60s default), full-day cooldown on quota exhausted. Sources call

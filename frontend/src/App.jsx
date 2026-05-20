@@ -19,7 +19,23 @@ const NODE_SHAPES = {
   cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'concave-hexagon',
   jarm: 'pentagon', url: 'cut-rectangle', country: 'tag'
 }
-const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e', error: '#f85149' }
+const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
+                       error: '#f85149', quota_exceeded: '#d29922' }
+
+// Render a unix-epoch reset time as a "Xh Ym Zs" countdown relative to now.
+// Returns '' once the reset epoch has passed so the caller can swap the UI to
+// a "ready to resume" affordance.
+function formatCountdown(epochSeconds) {
+  if (!epochSeconds) return ''
+  const secsLeft = Math.max(0, Math.round(epochSeconds - Date.now() / 1000))
+  if (secsLeft <= 0) return ''
+  const h = Math.floor(secsLeft / 3600)
+  const m = Math.floor((secsLeft % 3600) / 60)
+  const s = secsLeft % 60
+  if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`
+  if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`
+  return `${s}s`
+}
 
 // ── Maltego entity type mapping ──────────────────────────────────────────────
 // Maps bounce-cti node.type -> Maltego entity type string. The paste format is
@@ -232,6 +248,13 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // display a banner and poll /api/auth/me until the service is back, then
   // reload so all stale state (WS, timers, in-flight fetches) is replaced.
   const [serverDown, setServerDown] = useState(false)
+  // Global Claude-subscription quota state. Populated by polling /api/quota,
+  // which the backend updates whenever a `claude -p` invocation reports a
+  // usage-limit error. While `quotaState.exhausted` is true, new
+  // investigations are refused (HTTP 429) and the per-inv Resume button
+  // stays disabled until the reset epoch passes.
+  const [quotaState, setQuotaState] = useState({ exhausted: false, exhausted_until: null, message: null })
+  const [, setQuotaTick] = useState(0)
   const [leftWidth, setLeftWidth] = useState(260)
   const [rightWidth, setRightWidth] = useState(360)
   const isMobile = useIsMobile()
@@ -628,6 +651,32 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     return () => cy.off('add remove', 'node', update)
   }, [])
 
+  // Poll the Claude-subscription quota state. We poll faster while the
+  // banner is up (so the countdown stays accurate and we can flip from
+  // "wait" → "ready to resume" without the user reloading) and slower
+  // when everything is fine. The local tick state forces a re-render
+  // every second so the displayed countdown ticks down smoothly.
+  useEffect(() => {
+    let cancelled = false
+    const fetchQuota = async () => {
+      try {
+        const r = await fetch('/api/quota', { credentials: 'same-origin' })
+        if (!r.ok || cancelled) return
+        const s = await r.json()
+        setQuotaState(s || { exhausted: false, exhausted_until: null, message: null })
+      } catch (_) { /* swallow */ }
+    }
+    fetchQuota()
+    const id = setInterval(fetchQuota, 30_000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [])
+
+  useEffect(() => {
+    if (!quotaState.exhausted) return
+    const id = setInterval(() => setQuotaTick(t => (t + 1) & 0xffff), 1000)
+    return () => clearInterval(id)
+  }, [quotaState.exhausted])
+
   // Reconnect loop on server shutdown (fires once `serverDown` turns true).
   // Poll /api/auth/me every 2s; when the backend answers OK, reload the page
   // so every side-effect (WS, timers, fetches) gets a clean slate.
@@ -949,6 +998,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         }
         if (evt.kind === 'status_change') {
           refreshInvs()
+          if (evt.status === 'quota_exceeded' && evt.quota_reset_at) {
+            // Skip the poll — show the banner instantly with the reset epoch
+            // we just received over the websocket.
+            setQuotaState({
+              exhausted: true,
+              exhausted_until: evt.quota_reset_at,
+              message: evt.quota_message || 'Claude subscription quota reached',
+            })
+          }
           return `● status: ${evt.status || '?'}`
         }
         if (evt.kind === 'agent_exit') {
@@ -1098,6 +1156,30 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     ev.stopPropagation()
     if (!confirm('Rerun this investigation? The existing graph is preserved; the agent will pivot from current state with a fresh budget.')) return
     await fetch(`/api/investigations/${id}/rerun`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ model }) })
+    await refreshInvs()
+    openInv(id)
+  }
+
+  // Resume an investigation that was halted by a Claude-subscription quota
+  // error. Backend rejects (HTTP 425) if we're still inside the cooldown
+  // window; surface the wait time in that case so the analyst doesn't think
+  // the click did nothing.
+  const resumeInv = async (id, ev) => {
+    if (ev) ev.stopPropagation()
+    const r = await fetch(`/api/investigations/${id}/resume`, { method: 'POST' })
+    if (r.status === 425) {
+      let detail = null
+      try { detail = (await r.json()).detail } catch (_) {}
+      const wait = detail?.retry_after_seconds
+      alert(`Claude subscription still in cooldown. Try again in ${wait ? formatCountdown(Date.now()/1000 + wait) : 'a moment'}.`)
+      return
+    }
+    if (!r.ok) {
+      const t = await r.text(); alert(`Resume failed: ${t || r.status}`); return
+    }
+    // Clear the global banner immediately so the UI reflects the resume —
+    // /api/quota will reconfirm on the next poll.
+    setQuotaState({ exhausted: false, exhausted_until: null, message: null })
     await refreshInvs()
     openInv(id)
   }
@@ -1475,6 +1557,17 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           </span>
         </div>
       )}
+      {quotaState.exhausted && (
+        <div className="quota-banner" role="status" aria-live="polite">
+          <span className="quota-banner-icon" aria-hidden="true">⏳</span>
+          <span className="quota-banner-text">
+            Claude subscription quota reached — new investigations are paused
+            {quotaState.exhausted_until ? (
+              <>. Resumes in <strong>{formatCountdown(quotaState.exhausted_until) || 'a moment'}</strong>.</>
+            ) : '.'}
+          </span>
+        </div>
+      )}
       {/* ── MOBILE TOP BAR (visible only on small screens via CSS) ── */}
       <div className="mobile-topbar" role="toolbar" aria-label="Mobile navigation">
         <button
@@ -1673,11 +1766,27 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                 </div>
                 <div className="inv-item-meta">
                   <span className="inv-status-dot" style={{ background: STATUS_COLOR[i.status] || '#8b949e' }} />
-                  <span className="inv-status-text" style={{ color: STATUS_COLOR[i.status] || '#8b949e' }}>{i.status}</span>
+                  <span className="inv-status-text" style={{ color: STATUS_COLOR[i.status] || '#8b949e' }}>
+                    {i.status === 'quota_exceeded'
+                      ? (i.quota_reset_at
+                          ? `quota — ${formatCountdown(i.quota_reset_at) || 'ready'}`
+                          : 'quota reached')
+                      : i.status}
+                  </span>
                   {i.model && <span className="inv-model-badge">{i.model}</span>}
                   <span className="inv-actions">
                     {i.status === 'running' && (
                       <button className="icon-btn warning" title="Stop" onClick={e => stopInv(i.id, e)}>■</button>
+                    )}
+                    {i.status === 'quota_exceeded' && (
+                      <button
+                        className="icon-btn primary"
+                        title={quotaState.exhausted
+                          ? `Claude quota cooldown — resumes in ${formatCountdown(quotaState.exhausted_until) || 'a moment'}`
+                          : 'Resume this investigation from where it stopped'}
+                        disabled={quotaState.exhausted}
+                        onClick={e => resumeInv(i.id, e)}
+                      >▶</button>
                     )}
                     <button className="icon-btn" title="Rerun" onClick={e => rerunInv(i.id, e)}>↺</button>
                     {/* Merge into another of my investigations. Backend dedups
