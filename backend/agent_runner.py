@@ -702,6 +702,11 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
             ("threatfox_search", f'threatfox_search("{seed_value}")'),
             ("otx_file", f'otx_file("{seed_value}")'),
         ]
+    elif seed_type == "executable_name":
+        mandatory = [
+            ("malwarebazaar_filename", f'malwarebazaar_filename("{seed_value}")'),
+            ("threatfox_search", f'threatfox_search("{seed_value}")'),
+        ]
     else:
         # command_line / unknown seed types — no IOC-level mandatory tools.
         # The seed-specific prompt drives the per-IOC pivots once the agent
@@ -1046,6 +1051,14 @@ Node types (canonical):
             value = sha256(text)[:16] (deterministic ID). metadata = {text,
             preview, source_kind, lolbins?, decoded_payload?}. Link embedded
             IOCs back to the command_line via `embedded_in_command` edges.
+            executable_name — just the filename of a malicious binary
+            (e.g. `malware.exe`, `dropper.dll`, `update.ps1`) when the
+            analyst has the NAME but not the file itself and not its hash.
+            value = lowercased basename. metadata = {extension, observed_in?}.
+            Pivot: malwarebazaar_filename → hash nodes (linked back via
+            `observed_as` edges) → the standard hash workflow attributes
+            the family. Combine with threatfox_search on the same string
+            and opencti_lookup_indicator to widen coverage.
   Attribution:
             person — a real-world individual / operator. Create ONLY when ≥ 2
             independent strong indicators converge on the same identity (e.g. an
@@ -1129,6 +1142,10 @@ Edge relations (use exactly these strings):
   decoded_from_command command_line → url/domain/ip/hash  (an IOC recovered
                        by decoding a base64 / hex / xor blob inside the
                        command — keep evidence describing the decode step)
+  observed_as          hash → executable_name  (a known sample (sha256) was
+                       reported on MalwareBazaar / VT with this filename —
+                       evidence should cite the source: "malwarebazaar
+                       get_filename" or "virustotal meaningful_name")
 
 ══════════════════════════════════════════════
 OBSERVE → HYPOTHESIZE → PURSUE — the analyst loop
@@ -2299,6 +2316,58 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             "every matching IP to it. Tag the asn 'abused_asn' when ≥2 hosts return detection hits.\n"
             "Write the report last with value=\"investigation_summary\"."
         )
+    elif seed_type == "executable_name":
+        user_prompt = (
+            f"Seed indicator: type=executable_name value={seed_value}\n"
+            "This is JUST the filename of a malicious binary — the analyst does\n"
+            "NOT have the file itself and does NOT have its hash. Your job is to\n"
+            "find sample(s) ever reported under this filename and attribute the\n"
+            "family from there. There is no fingerprint to pivot on yet — the\n"
+            "filename is the only signal.\n\n"
+            f"STEP 1: add_node(executable_name, {seed_value}, tags=[\"seed\"], "
+            f"metadata={{\"extension\": \"<ext>\"}})\n"
+            f"STEP 2: malwarebazaar_filename({seed_value})  — primary pivot. "
+            "For EACH sample returned (up to the top 10, prioritising distinct\n"
+            f"  sha256/signature/file_type triplets):\n"
+            "  - add_node(hash, <sha256_hash>, metadata={file_name, file_type, "
+            "signature, first_seen}, source=\"malwarebazaar\")\n"
+            f"  - add_edge(<hash> → executable_name node, observed_as, "
+            f"source=\"malwarebazaar\", evidence=\"reported with filename "
+            f"{seed_value} on MalwareBazaar\")\n"
+            "  - If `signature` is set on the sample, that is the malware family\n"
+            "    — copy it onto the executable_name node as a tag (e.g. "
+            "    'family:agenttesla', 'family:lummac2') and add an `attributed_to`\n"
+            "    relation in the report's metadata.\n"
+            f"STEP 3: For the top 3 sample hashes (by recency / family diversity), "
+            "run the full hash workflow:\n"
+            "  - virustotal_file(<h>)  — extract names[], meaningful_name, "
+            "first_submission, family from popular_threat_classification\n"
+            "  - malwarebazaar_hash(<h>)  — yara/cape tags, C2 list\n"
+            "  - otx_file(<h>)  — pulse / actor attribution\n"
+            "  - threatfox_search(<h>)  — IOCs linked to that sample\n"
+            "  Graph every C2 / contacted_url / contacted_domain / "
+            "contacted_ip the sample reveals (add_node + communicates_with edge).\n"
+            f"STEP 4: threatfox_search({seed_value})  — sometimes ThreatFox\n"
+            "  entries reference filenames as IOCs (especially for droppers).\n"
+            f"STEP 5: opencti_lookup_indicator({seed_value})  — community KG\n"
+            "  may have the filename indexed against an actor / campaign.\n"
+            "STEP 6: If no sample is found in MalwareBazaar AND threatfox finds\n"
+            "  no hit, the filename may be too generic ('update.exe', "
+            "  'svchost.exe', 'taskmgr.exe') — note that explicitly in the\n"
+            "  report's metadata under `attribution_status: \"filename_too_"
+            "generic\"` and STILL write a short investigation_summary.\n"
+            "STEP 7: Final report — value=\"investigation_summary\", linking the\n"
+            "  executable_name node with known_ioc. The summary MUST state:\n"
+            "  - how many samples were found,\n"
+            "  - the dominant malware family (if any),\n"
+            "  - the most distinctive C2 / network IOC each family contacts,\n"
+            "  - whether the filename is generic / shared across families.\n"
+            "EXCEPTION: If malwarebazaar_filename returns zero samples and the\n"
+            "  filename matches a known legitimate binary (svchost, explorer,\n"
+            "  notepad, chrome, msedge…), tag the seed `generic_filename` and\n"
+            "  keep the report minimal — explain that the name alone is not a\n"
+            "  meaningful pivot."
+        )
     elif seed_type == "command_line":
         user_prompt = (
             f"Seed indicator: type=command_line value={seed_value}\n"
@@ -3263,6 +3332,18 @@ async def run_add_seed(inv_id: str, seed_type: str, seed_value: str, model: str 
             f"  - threatfox_search({seed_value})\n"
             "For the hash node set metadata.file_name (required for UI labels).\n"
         )
+    elif seed_type == "executable_name":
+        user_prompt += (
+            "This is a filename-only add-seed (no binary, no hash). Required:\n"
+            f"  - malwarebazaar_filename({seed_value})  — top samples → graph each\n"
+            "    as a hash node with an `observed_as` edge to the executable_name.\n"
+            "    Top 3 samples: also virustotal_file + otx_file + malwarebazaar_hash\n"
+            "    to pull family / C2 / file_name set.\n"
+            f"  - threatfox_search({seed_value})\n"
+            "If any returned sample's sha256 / family / C2 ALREADY exists on the\n"
+            "graph (from a prior seed), that's a concrete cross-seed link — record\n"
+            "it in cross_seed_findings.\n"
+        )
     elif seed_type == "url":
         user_prompt += (
             "This is a URL add-seed. Graph the URL as a url node with tags=['seed'],\n"
@@ -3392,6 +3473,15 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
             f"  - otx_file({seed_value})\n"
             f"  - threatfox_search({seed_value})\n"
             "For every hash node created or updated, set metadata.file_name.\n"
+        )
+    elif seed_type == "executable_name":
+        user_prompt += (
+            "This is a filename-only pivot (no binary, no hash). Required:\n"
+            f"  - malwarebazaar_filename({seed_value})  — graph each returned\n"
+            "    sample's sha256 as a hash node + observed_as edge to the\n"
+            "    executable_name. Top 3 samples: also virustotal_file +\n"
+            "    malwarebazaar_hash + otx_file to pull family + C2.\n"
+            f"  - threatfox_search({seed_value})\n"
         )
     elif seed_type == "url":
         user_prompt += (

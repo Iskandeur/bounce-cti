@@ -60,3 +60,23 @@ async def mb_signature(signature: str, limit: int = 10) -> dict:
         raw = dict(raw)
         raw["data"] = [_slim_mb_sample(s) for s in raw["data"]]
     return raw
+
+
+async def mb_filename(filename: str, limit: int = 20) -> dict:
+    """List samples seen on MalwareBazaar with this exact filename.
+
+    Used as the primary pivot for `executable_name` seeds — the analyst only
+    has the filename (no binary, no hash) and wants to know which samples
+    were ever reported under that name, then run the standard hash workflow
+    on the top hits for family attribution.
+    Response is trimmed per-sample like `mb_signature`.
+    """
+    raw = await post_form("https://mb-api.abuse.ch/api/v1/",
+                          headers=_h(),
+                          form_data={"query": "get_filename",
+                                     "filename": filename, "limit": str(limit)},
+                          ttl=3600)
+    if isinstance(raw, dict) and isinstance(raw.get("data"), list):
+        raw = dict(raw)
+        raw["data"] = [_slim_mb_sample(s) for s in raw["data"]]
+    return raw

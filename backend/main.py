@@ -294,9 +294,19 @@ def list_models(user_id: int = Depends(current_user)):
     return {"models": models, "default": default}
 
 
-ALLOWED_SEED_TYPES = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line"}
+ALLOWED_SEED_TYPES = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line",
+                      "executable_name"}
 
 import re
+
+# Unambiguous executable / script extensions — chosen to avoid TLD collisions
+# (no .com, .app, .bin, .so, .sh, .jar, .pkg, .deb, .rpm, .swf, .reg, etc.).
+# When auto-detect is on, a value like "malware.exe" or "C:\\Users\\foo\\dropper.dll"
+# is classified as `executable_name` instead of falling through to `domain`.
+_EXEC_EXTENSIONS = (
+    "exe", "dll", "sys", "scr", "bat", "cmd", "ps1", "vbs", "vbe", "hta",
+    "pif", "wsh", "wsf", "jse", "msi", "ocx", "drv", "lnk", "dylib", "elf",
+)
 
 _RE_URL = re.compile(r"^(https?|ftp)://", re.I)
 _RE_IPV4 = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$")
@@ -307,6 +317,10 @@ _RE_SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 _RE_SHA1 = re.compile(r"^[0-9a-fA-F]{40}$")
 _RE_MD5 = re.compile(r"^[0-9a-fA-F]{32}$")
 _RE_DOMAIN = re.compile(r"^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$")
+_RE_EXECUTABLE_NAME = re.compile(
+    r"^[^\s<>|?*\"]+\.(" + "|".join(_EXEC_EXTENSIONS) + r")$",
+    re.I,
+)
 
 
 def detect_seed_type(value: str) -> str:
@@ -330,6 +344,11 @@ def detect_seed_type(value: str) -> str:
         return "hash"
     if _RE_MD5.match(v):
         return "hash"
+    # Executable filename before domain: "malware.exe" matches both _RE_DOMAIN
+    # and _RE_EXECUTABLE_NAME, and the filename interpretation is what the
+    # analyst pasting a binary's basename actually wants.
+    if _RE_EXECUTABLE_NAME.match(v):
+        return "executable_name"
     if _RE_DOMAIN.match(v):
         return "domain"
     return "domain"
@@ -347,6 +366,14 @@ def _clean_seed(seed_type: str, seed_value: str) -> str:
         sv = f"AS{digits}" if digits else sv
     elif seed_type == "jarm":
         # JARM fingerprints are 62-char lowercase hex-ish; normalize case + trim.
+        sv = sv.lower()
+    elif seed_type == "executable_name":
+        # Strip surrounding quotes, drop any path component (Windows or POSIX),
+        # lowercase so "Malware.EXE" and "malware.exe" hash to the same node.
+        sv = sv.strip("\"'")
+        for sep in ("\\", "/"):
+            if sep in sv:
+                sv = sv.rsplit(sep, 1)[-1]
         sv = sv.lower()
     return sv
 
