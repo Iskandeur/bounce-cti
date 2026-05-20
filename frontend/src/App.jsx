@@ -195,6 +195,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // Phase-1.5 hypothesis report node ("working_hypothesis"). Surfaced in the
   // Report tab instead of cluttering the graph as a separate node.
   const [hypothesis, setHypothesis] = useState(null)
+  // Snapshot of the graph state at the moment the hypothesis was (re)written,
+  // so we can show a freshness signal ("12 new nodes since"). The hypothesis
+  // is a phase-1.5 commit on the first ~8 observations; after the full
+  // pivot drain the graph has often grown 10×, and the analyst should know
+  // whether the early guess still reflects what's on screen.
+  const [hypothesisStamp, setHypothesisStamp] = useState(null)
   // When the user clicks the "merge into…" icon on a History row we stash
   // its inv id here and reveal an inline target-picker. Null = picker hidden.
   const [mergePickerSrc, setMergePickerSrc] = useState(null)
@@ -851,7 +857,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (!n || n.type !== 'report') return
     const v = String(n.value || '').toLowerCase()
     if (v === 'working_hypothesis' || v.startsWith('working_hypothesis')) {
-      if (n.metadata) setHypothesis({ ...n.metadata, _ts: n.created_at })
+      if (n.metadata) {
+        setHypothesis({ ...n.metadata, _ts: n.created_at })
+        const cy = cyRef.current
+        const liveCount = cy ? cy.nodes().length : 0
+        setHypothesisStamp({ ts: n.created_at, nodeCountAt: liveCount })
+      }
     } else if (v.startsWith('budget_extension')) {
       const m = String(n.value || '').match(/budget_extension[_-]?(\d+)/i)
       const round = m ? Number(m[1]) : null
@@ -1137,10 +1148,31 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       setSelected(null)
       setReport(null)
       setHypothesis(null)
+      setHypothesisStamp(null)
       setBudgetLog([])
       setEvents([])
       setNodeValues(new Map())
       setExistingTypes(new Set())
+    }
+    await refreshInvs()
+  }
+
+  // Rename: prompt for a new title and PATCH it. Empty / cancelled = clear,
+  // which falls back to the seed value in the sidebar display.
+  const renameInv = async (id, currentTitle, currentSeed, ev) => {
+    if (ev) ev.stopPropagation()
+    const next = window.prompt(
+      'Rename this investigation (blank to reset to the seed value):',
+      currentTitle || ''
+    )
+    if (next === null) return  // user cancelled
+    const r = await fetch(`/api/investigations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: next })
+    })
+    if (!r.ok) {
+      const t = await r.text(); alert(`Rename failed: ${t || r.status}`); return
     }
     await refreshInvs()
   }
@@ -1756,7 +1788,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                   : undefined}
               >
                 <div className="inv-item-main">
-                  <span className="inv-seed">{i.seed_value}</span>
+                  <span
+                    className={`inv-seed${i.title ? ' has-title' : ''}`}
+                    title={i.title ? `${i.title} — seed: ${i.seed_value}` : i.seed_value}
+                  >
+                    {i.title || i.seed_value}
+                  </span>
                   {extraSeeds > 0 && (
                     <span className="inv-seed-count" title={`${seedCount} seeds in this investigation`}>
                       +{extraSeeds}
@@ -1788,6 +1825,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                         onClick={e => resumeInv(i.id, e)}
                       >▶</button>
                     )}
+                    <button
+                      className="icon-btn"
+                      title={i.title ? `Rename (current: ${i.title})` : 'Rename'}
+                      onClick={e => renameInv(i.id, i.title, i.seed_value, e)}
+                    >✎</button>
                     <button className="icon-btn" title="Rerun" onClick={e => rerunInv(i.id, e)}>↺</button>
                     {/* Merge into another of my investigations. Backend dedups
                         nodes (type, value) and edges (src, dst, relation),
@@ -1822,8 +1864,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                         const dst = e.target.value
                         if (!dst) return
                         const dstInv = invs.find(x => x.id === dst)
-                        const srcLabel = i.seed_value || i.id
-                        const dstLabel = dstInv ? (dstInv.seed_value || dstInv.id) : dst
+                        const srcLabel = i.title || i.seed_value || i.id
+                        const dstLabel = dstInv ? (dstInv.title || dstInv.seed_value || dstInv.id) : dst
                         const delSrc = confirm(
                           `Merge "${srcLabel}" into "${dstLabel}"?\n\n` +
                           `Click OK to also DELETE the source after merging.\n` +
@@ -1842,7 +1884,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                         .filter(j => j.id !== i.id)
                         .map(j => (
                           <option key={j.id} value={j.id}>
-                            {j.seed_value || j.id}
+                            {j.title || j.seed_value || j.id}
                             {((j.seeds || []).length > 1) ? ` (+${j.seeds.length - 1})` : ''}
                           </option>
                         ))}
@@ -2128,14 +2170,19 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           {/* ── Report tab ── */}
           {rightTab === 'report' && (
             <>
-              {/* Working hypothesis (phase-1.5 commit). Surfaced here instead
-                  of as a separate graph node — it's analyst context, not
-                  infrastructure. May appear before the full report node.
-                  The agent emits two schemas depending on whether it wrote
-                  the node organically (system_prompt schema:
-                  candidate_category / primary_evidence / plan_to_test) or via
-                  the mechanical phase-1.5 fallback (category / evidence /
-                  what_to_pursue_next). Read both. */}
+              {/* Working hypothesis — phase-1.5 commit, written within the
+                  first ~8 tool calls. Compact one-line summary by default;
+                  expand to see evidence + plan. Two schemas in the wild:
+                  organic (candidate_category / primary_evidence / plan_to_test)
+                  vs mechanical fallback (category / evidence /
+                  what_to_pursue_next) — read both.
+
+                  Freshness: a hypothesis pinned at 8 nodes is stale once the
+                  drain has added 40 more. Surface that delta + age so the
+                  analyst doesn't mistake the early guess for current consensus.
+                  Once the full investigation_summary report is rendered below,
+                  the hypothesis is mostly a historical artefact — collapse it
+                  hard and dim it. */}
               {hypothesis && (() => {
                 const cat = hypothesis.category || hypothesis.candidate_category
                 const altCat = hypothesis.alternate_category
@@ -2155,51 +2202,73 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                   : (typeof nextRaw === 'string' && nextRaw.trim()
                       ? [nextRaw]
                       : [])
+                const newNodes = hypothesisStamp
+                  ? Math.max(0, nodeCount - hypothesisStamp.nodeCountAt)
+                  : 0
+                const ageSec = hypothesis._ts ? Math.max(0, (Date.now() / 1000) - hypothesis._ts) : 0
+                const ageLabel = ageSec < 90
+                  ? 'just now'
+                  : ageSec < 3600
+                    ? `${Math.round(ageSec / 60)} min ago`
+                    : ageSec < 86400
+                      ? `${Math.round(ageSec / 3600)} h ago`
+                      : `${Math.round(ageSec / 86400)} d ago`
+                // "Stale" heuristic: hypothesis was written when the graph
+                // was small, and a lot has been added since. Tunable; this
+                // is purely a UX hint, not a backend signal.
+                const isStale = newNodes >= 15
+                const supersededByReport = !!report
                 return (
-                  <details className="hypothesis-card" open style={{
-                    border: '1px solid var(--border)', borderRadius: 6,
-                    padding: '6px 10px', marginBottom: 8, background: 'var(--surface-alt, #1c2128)'
-                  }}>
-                    <summary style={{ cursor: 'pointer', fontSize: 12, opacity: 0.85 }}>
-                      <span style={{ color: '#f5a623', fontWeight: 600 }}>Working hypothesis</span>
+                  <details
+                    className={`hypothesis-card${supersededByReport ? ' superseded' : ''}${isStale ? ' stale' : ''}`}
+                    /* Collapsed by default — full report (below) is the
+                       primary surface. Expand on click for the rationale. */
+                  >
+                    <summary>
+                      <span className="hypothesis-label">hypothesis</span>
                       {cat && (
-                        <span style={{ marginLeft: 8 }}>
+                        <span className="hypothesis-cat">
                           {String(cat).replace(/_/g, ' ')}
                         </span>
                       )}
-                      {altCat && (
-                        <span style={{ marginLeft: 6, opacity: 0.6 }}>
-                          / {String(altCat).replace(/_/g, ' ')}
-                        </span>
-                      )}
                       {hypothesis.confidence && (
-                        <span style={{ marginLeft: 6, opacity: 0.7 }}>
-                          ({hypothesis.confidence})
+                        <span className="hypothesis-conf">
+                          {hypothesis.confidence}
                         </span>
                       )}
+                      <span className="hypothesis-meta">
+                        {ageLabel}
+                        {newNodes > 0 && (
+                          <span className={isStale ? 'hypothesis-stale' : ''}>
+                            {` · +${newNodes} node${newNodes === 1 ? '' : 's'} since`}
+                          </span>
+                        )}
+                        {supersededByReport && ' · superseded by report ↓'}
+                      </span>
                     </summary>
-                    {reasonText && (
-                      <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
-                        {String(reasonText)}
-                      </div>
-                    )}
-                    {evidenceList.length > 0 && (
-                      <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
-                        {evidenceList.map((ev, i) => <li key={i}>{String(ev)}</li>)}
-                      </ul>
-                    )}
-                    {nextList.length > 0 && (
-                      <div style={{ marginTop: 6, fontSize: 12 }}>
-                        <span style={{ opacity: 0.7 }}>Next: </span>
-                        {nextList.map((p, i) => (
-                          <span key={i} style={{
-                            display: 'inline-block', margin: '2px 4px 0 0',
-                            padding: '1px 6px', border: '1px solid var(--border)',
-                            borderRadius: 10, fontSize: 11
-                          }}>{String(p)}</span>
-                        ))}
-                      </div>
-                    )}
+                    <div className="hypothesis-body">
+                      {altCat && (
+                        <div className="hypothesis-alt">
+                          alt: {String(altCat).replace(/_/g, ' ')}
+                        </div>
+                      )}
+                      {reasonText && (
+                        <div className="hypothesis-reason">{String(reasonText)}</div>
+                      )}
+                      {evidenceList.length > 0 && (
+                        <ul className="hypothesis-evidence">
+                          {evidenceList.slice(0, 4).map((ev, i) => <li key={i}>{String(ev)}</li>)}
+                        </ul>
+                      )}
+                      {nextList.length > 0 && !supersededByReport && (
+                        <div className="hypothesis-next">
+                          <span className="hypothesis-next-label">plan: </span>
+                          {nextList.slice(0, 4).map((p, i) => (
+                            <span key={i} className="hypothesis-pivot-chip">{String(p)}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </details>
                 )
               })()}

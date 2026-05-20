@@ -17,3 +17,7 @@ OTX_KEY = os.getenv("OTX_API_KEY", "")
 # abuse.ch (URLhaus + MalwareBazaar) auth key — free, register at https://auth.abuse.ch/
 ABUSECH_KEY = os.getenv("ABUSECH_AUTH_KEY", "")
 CLAUDE_BIN = os.getenv("CLAUDE_BIN", "claude")
+# OpenCTI base URL. The API key is read through key_pool ("opencti").
+# The demo instance lives at https://demo.opencti.io and accepts the
+# token format `flgrn_octi_tkn_…` as a bearer header.
+OPENCTI_URL = os.getenv("OPENCTI_URL", "https://demo.opencti.io").rstrip("/")

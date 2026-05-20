@@ -89,6 +89,11 @@ WHOXY_API_KEY=         # 1500 lifetime https://www.whoxy.com (reverse WHOIS)
 ZOOMEYE_API_KEY=       #  10k /month   https://www.zoomeye.org
 CRIMINALIP_API_KEY=    #  ~50/day      https://www.criminalip.io
 
+# Community knowledge graph (read-only). Demo at https://demo.opencti.io
+# exposes a generous 10k/window quota; the token format is `flgrn_octi_tkn_…`.
+OPENCTI_URL=https://demo.opencti.io
+OPENCTI_API_KEY=
+
 # Multi-key rotation (optional). Supersedes the single-key form per source.
 # VIRUSTOTAL_API_KEYS=k1,k2,k3
 # NETLAS_API_KEYS=...

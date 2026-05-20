@@ -400,5 +400,42 @@ async def dom_fingerprints(url: str | None = None,
     return {"error": "dom_fingerprints: pass either url or urlscan_uuid"}
 
 
+@mcp.tool()
+async def opencti_lookup_indicator(value: str) -> dict:
+    """OpenCTI community knowledge-graph lookup for an IOC (domain / IP / hash /
+    URL). Exact-match — no fuzzy substring hits. Returns score, curated labels
+    (often malware-family names like "socgholish" / "mintsloader"), and walks
+    relationships to surface attribution: linked Malware, IntrusionSet,
+    ThreatActor, Campaign, AttackPattern (MITRE ATT&CK). Also includes any
+    OpenCTI Reports the IOC belongs to ("OSINT - NSO related domains", etc.).
+
+    Coverage is sparse — many normal IOCs return {"hit": false}. Treat as
+    best-effort attribution; do NOT promote labels to add_node tags without
+    corroboration from at least one other source. When `hit=true` and
+    `relationships[].name` surfaces a named actor or family, call
+    opencti_search_actor / virustotal_* / threatfox_search to corroborate.
+    """
+    return await _src("opencti").lookup_indicator(value)
+
+
+@mcp.tool()
+async def opencti_search_actor(name: str) -> dict:
+    """OpenCTI fuzzy search for a threat-actor / intrusion-set by name. Use
+    when opencti_lookup_indicator surfaces an actor name (e.g. "TAG-124",
+    "APT28") and you want the alias list + description for normalisation
+    and cross-referencing in the final report. Returns up to 5 matches with
+    aliases, description (capped), first/last seen, labels."""
+    return await _src("opencti").search_intrusion_set(name)
+
+
+@mcp.tool()
+async def opencti_search_report(name: str) -> dict:
+    """OpenCTI fuzzy search for a report by title. Use when a relationships
+    walk surfaces a report name (e.g. "MintsLoader Malware Analysis") and
+    you want its description + external_references (links to the source
+    analysis on the open web). Returns up to 5 matches."""
+    return await _src("opencti").search_report(name)
+
+
 if __name__ == "__main__":
     mcp.run()

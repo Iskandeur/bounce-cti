@@ -56,6 +56,7 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 - `GET    /api/investigations/{id}/graph`
 - `POST   /api/investigations/{id}/stop` — kill the running agent
 - `DELETE /api/investigations/{id}`
+- `PATCH  /api/investigations/{id}` — rename (`{title}`); empty/omitted title clears it, falling back to the seed value in the UI
 - `POST   /api/investigations/{id}/rerun`
 - `POST   /api/investigations/{id}/resume` — pick up an investigation halted by a Claude-subscription quota error (425 while still in cooldown)
 - `GET    /api/quota` — Claude-subscription quota state for the host account (`{exhausted, exhausted_until, message, last_seen}`); the frontend polls it to render a global banner + per-investigation Resume button
@@ -144,7 +145,7 @@ SQLite-backed store. Tables:
 
 | Table            | Columns (essentials)                                                                                                          |
 |------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `quota_reset_at` (epoch when a Claude-subscription cooldown lifts) |
+| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `quota_reset_at` (epoch when a Claude-subscription cooldown lifts), `title` (optional analyst-supplied rename; falls back to `seed_value` in the UI) |
 | `nodes`          | `id`, `investigation_id`, `type`, `value`, `metadata` (JSON), `tags` (JSON), `confidence`, `source`, `created_at`, UNIQUE(inv,type,value) |
 | `edges`          | `id`, `investigation_id`, `src`, `dst`, `relation`, `evidence`, `source`, `confidence`, `created_at`, UNIQUE(inv,src,dst,relation) |
 | `events`         | `id` AUTOINCREMENT, `investigation_id`, `kind`, `payload` (JSON), `created_at` — full agent stream + state changes            |
@@ -224,6 +225,17 @@ MCP server exposing ~50 async CTI source tools:
   - `zoomeye_search` / `zoomeye_jarm` / `zoomeye_favicon` — scanner DB (10k/mo)
   - `criminalip_ip` / `criminalip_domain` — IP/domain intel (~50/day)
   - `openphish_check` — community phishing feed corroboration (no auth)
+- **Community knowledge graph (added 2026-05-20)**:
+  - `opencti_lookup_indicator` — exact-match IOC enrichment via OpenCTI's
+    GraphQL API. Returns score, curated labels (often malware-family names
+    like "socgholish", "mintsloader"), and walks `stixCoreRelationships` to
+    surface attribution: linked Malware, IntrusionSet, ThreatActor, Campaign,
+    AttackPattern (MITRE ATT&CK). Sparse coverage — best-effort enrichment.
+  - `opencti_search_actor` — fuzzy intrusion-set / threat-actor lookup with
+    aliases + description (for cross-referencing surfaced actor names).
+  - `opencti_search_report` — fuzzy report lookup with external_references
+    (for chasing the source analysis when a report title appears in the
+    indicator response).
 - **Phase 2 fingerprint extractor**:
   - `dom_fingerprints(url|urlscan_uuid)` — favicon mmh3 hash (Shodan-compat),
     title SHA1, marketing tracking IDs (GA, GA4, GTM, FB Pixel, Yandex,
@@ -245,6 +257,15 @@ Phase 3 (added 2026-05-03): `abuseipdb`, `certspotter`, `netlas`, `whoxy`,
 `zoomeye`, `criminalip`, `openphish`. Each goes through `key_pool.acquire()`
 for rotation/cooldown and degrades gracefully when no key is configured.
 
+Community knowledge graph (added 2026-05-20): `opencti` — single GraphQL
+endpoint at `$OPENCTI_URL/graphql` (defaults to `https://demo.opencti.io`)
+with bearer-token auth via `key_pool.acquire("opencti")`. Three tools wired
+into `cti_mcp` (`opencti_lookup_indicator`, `opencti_search_actor`,
+`opencti_search_report`). Auto-enqueued as a priority-3 enrichment for
+`domain` / `ip` / `hash` / `url` nodes; falls back to `skip_reason='no_api_key'`
+when no token is configured. GraphQL `errors[].extensions.code = AUTH_REQUIRED`
+triggers a 10-minute cooldown to stop hot-loop retries on bad tokens.
+
 ### `backend/key_pool.py`
 In-process API key pool with round-robin rotation, cooldown on 429
 (`mark_rate_limited(src, key, cooldown_seconds)`) and full-day cooldown on
@@ -252,7 +273,7 @@ quota exhaustion (`mark_quota_exhausted(src, key)`). Reads keys from env in
 two formats per source: `<PREFIX>_API_KEYS=k1,k2,k3` (multi, takes
 precedence) or `<PREFIX>_API_KEY=k1` (single, legacy). Per-source short
 names: `vt`, `urlscan`, `onyphe`, `shodan`, `otx`, `abusech`, `abuseipdb`,
-`certspotter`, `netlas`, `whoxy`, `zoomeye`, `criminalip`. Sources call
+`certspotter`, `netlas`, `whoxy`, `zoomeye`, `criminalip`, `opencti`. Sources call
 `acquire(src)` and degrade gracefully when None is returned.
 
 ### `backend/pivot_mapping.py`

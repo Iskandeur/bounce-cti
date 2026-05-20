@@ -1745,11 +1745,13 @@ def _build_env(inv_id: str) -> dict:
               "SHODAN_API_KEY", "OTX_API_KEY", "ABUSECH_AUTH_KEY",
               "ABUSEIPDB_API_KEY", "CERTSPOTTER_API_KEY", "NETLAS_API_KEY",
               "WHOXY_API_KEY", "ZOOMEYE_API_KEY", "CRIMINALIP_API_KEY",
+              "OPENCTI_URL", "OPENCTI_API_KEY",
               # multi-key forms (rotation)
               "VIRUSTOTAL_API_KEYS", "URLSCAN_API_KEYS", "ONYPHE_API_KEYS",
               "SHODAN_API_KEYS", "OTX_API_KEYS", "ABUSECH_API_KEYS",
               "ABUSEIPDB_API_KEYS", "CERTSPOTTER_API_KEYS", "NETLAS_API_KEYS",
-              "WHOXY_API_KEYS", "ZOOMEYE_API_KEYS", "CRIMINALIP_API_KEYS"):
+              "WHOXY_API_KEYS", "ZOOMEYE_API_KEYS", "CRIMINALIP_API_KEYS",
+              "OPENCTI_API_KEYS"):
         if parent.get(k):
             env[k] = parent[k]
     env["BOUNCE_INV_ID"] = inv_id

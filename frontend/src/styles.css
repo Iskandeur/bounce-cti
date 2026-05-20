@@ -176,6 +176,13 @@ button.secondary:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Analyst-supplied title overrides the seed in the row label. Keep the
+   seed in the tooltip; differentiate visually so it's not mistaken for
+   an IOC string. */
+.inv-seed.has-title {
+  font-style: italic;
+  letter-spacing: 0.01em;
+}
 .inv-type {
   font-size: 10px;
   color: var(--primary);
@@ -508,6 +515,103 @@ button.secondary:hover {
   font-size: 13px;
   margin-top: 8px;
   line-height: 1.6;
+}
+
+/* ── Working hypothesis card ───────────────────────────────────────────────
+   Phase-1.5 commit — kept compact. Single-line summary by default; the full
+   investigation summary lives below and is the primary surface. */
+.hypothesis-card {
+  margin: 0 0 6px 0;
+  font-size: 11px;
+  line-height: 1.45;
+  border-left: 2px solid #f5a62366;  /* warm amber, dim */
+  padding: 2px 0 2px 8px;
+  opacity: 0.85;
+}
+.hypothesis-card[open] {
+  opacity: 1;
+}
+/* Once the full report renders below, the hypothesis is mostly history —
+   dim it further so it doesn't compete with the live report. */
+.hypothesis-card.superseded {
+  opacity: 0.6;
+  border-left-color: var(--outline-dim);
+}
+.hypothesis-card.superseded[open] {
+  opacity: 0.85;
+}
+/* Lots of new nodes have arrived since the hypothesis was pinned — the
+   guess may no longer match the graph. Use the warning hue to flag it. */
+.hypothesis-card.stale {
+  border-left-color: var(--warning, #e3b341);
+}
+.hypothesis-card summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.hypothesis-card summary::-webkit-details-marker { display: none; }
+.hypothesis-card .hypothesis-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #f5a623;
+  font-weight: 700;
+}
+.hypothesis-card .hypothesis-cat {
+  font-weight: 600;
+  color: var(--on-bg);
+}
+.hypothesis-card .hypothesis-conf {
+  font-size: 10px;
+  opacity: 0.7;
+  border: 1px solid var(--outline-dim);
+  border-radius: 8px;
+  padding: 0 5px;
+}
+.hypothesis-card .hypothesis-meta {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.6;
+}
+.hypothesis-card .hypothesis-meta .hypothesis-stale {
+  color: var(--warning, #e3b341);
+  opacity: 1;
+}
+.hypothesis-card .hypothesis-body {
+  margin-top: 4px;
+  padding-left: 0;
+  font-size: 11px;
+}
+.hypothesis-card .hypothesis-alt {
+  font-size: 10px;
+  opacity: 0.7;
+}
+.hypothesis-card .hypothesis-reason {
+  margin-top: 3px;
+  line-height: 1.5;
+}
+.hypothesis-card .hypothesis-evidence {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+.hypothesis-card .hypothesis-next {
+  margin-top: 4px;
+}
+.hypothesis-card .hypothesis-next-label {
+  opacity: 0.7;
+}
+.hypothesis-card .hypothesis-pivot-chip {
+  display: inline-block;
+  margin: 2px 4px 0 0;
+  padding: 1px 6px;
+  border: 1px solid var(--outline-dim);
+  border-radius: 10px;
+  font-size: 10px;
+  opacity: 0.85;
 }
 
 /* ── Threat badge ────────────────────────────────────────────────────────── */

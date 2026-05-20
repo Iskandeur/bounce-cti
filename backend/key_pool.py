@@ -40,6 +40,7 @@ _ENV_PREFIX = {
     "whoxy": "WHOXY",
     "zoomeye": "ZOOMEYE",
     "criminalip": "CRIMINALIP",
+    "opencti": "OPENCTI",
 }
 
 _lock = threading.Lock()

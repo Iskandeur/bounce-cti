@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS investigations (
     created_at REAL,
     status TEXT,
     user_id INTEGER,
-    model TEXT
+    model TEXT,
+    title TEXT
 );
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
@@ -141,6 +142,7 @@ def init_db():
         _ensure_column(c, "investigations", "user_id", "user_id INTEGER")
         _ensure_column(c, "investigations", "model", "model TEXT")
         _ensure_column(c, "investigations", "quota_reset_at", "quota_reset_at REAL")
+        _ensure_column(c, "investigations", "title", "title TEXT")
         # users table may pre-date is_admin/allowed_models
         if c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone():
             _ensure_column(c, "users", "is_admin", "is_admin INTEGER NOT NULL DEFAULT 0")
@@ -163,6 +165,16 @@ def create_investigation(seed_type: str, seed_value: str, user_id: Optional[int]
 def set_status(inv_id: str, status: str):
     with conn() as c:
         c.execute("UPDATE investigations SET status=? WHERE id=?", (status, inv_id))
+
+
+def rename_investigation(inv_id: str, title: Optional[str]) -> bool:
+    """Set or clear the analyst-supplied title. Empty/None clears it,
+    falling back to the seed value in the UI. Returns True if the row
+    existed and was updated."""
+    t = (title or "").strip()[:120] or None
+    with conn() as c:
+        cur = c.execute("UPDATE investigations SET title=? WHERE id=?", (t, inv_id))
+        return cur.rowcount > 0
 
 
 def set_quota_reset_at(inv_id: str, reset_at: Optional[float]):
