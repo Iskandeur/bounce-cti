@@ -67,6 +67,15 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("malwarebazaar_hash", 2, None, False),
         ("opencti_lookup_indicator", 3, "opencti", False),
     ],
+    "executable_name": [
+        # MalwareBazaar's get_filename query is the one free pivot that turns
+        # a bare filename into concrete sample hashes. The hash nodes the agent
+        # creates from the result then enqueue their own VT/OTX/threatfox/MB
+        # pivots, so the standard hash workflow takes over from there.
+        ("malwarebazaar_filename", 2, None, False),
+        ("threatfox_search", 3, None, False),
+        ("opencti_lookup_indicator", 3, "opencti", False),
+    ],
     "url": [
         ("urlscan_search", 2, None, False),
         ("wayback", 3, None, False),

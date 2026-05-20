@@ -155,6 +155,18 @@ async def malwarebazaar_signature(signature: str, limit: int = 10) -> dict:
 
 
 @mcp.tool()
+async def malwarebazaar_filename(filename: str, limit: int = 20) -> dict:
+    """abuse.ch MalwareBazaar — list samples ever reported with this filename.
+
+    Primary pivot for `executable_name` seeds: the analyst only has the
+    filename (no binary, no hash). Each returned entry exposes a sha256_hash
+    you can graph as a `hash` node and run the full hash workflow on.
+    Response is trimmed per-sample (hash fields, file_name/type, first_seen, signature, tags).
+    """
+    return await _src("abusech").mb_filename(filename, limit=limit)
+
+
+@mcp.tool()
 async def onyphe_domain(domain: str) -> dict:
     """Onyphe summary for a domain."""
     return await _src("onyphe").onyphe_summary_domain(domain)

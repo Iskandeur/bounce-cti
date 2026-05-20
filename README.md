@@ -7,7 +7,9 @@
 > [COMMERCIAL.md](./COMMERCIAL.md).
 
 Autonomous CTI investigation tool. Feed it a domain, IP, file hash, URL, JARM
-fingerprint, or ASN, and a Claude Code agent pivots through ~50 public-source
+fingerprint, ASN, malicious command line, or just the **filename** of a
+malicious binary (e.g. `dropper.exe`, no upload needed), and a Claude Code
+agent pivots through ~50 public-source
 tools (DNS / RDAP, crt.sh, CertSpotter, VirusTotal, URLScan, Onyphe, Shodan,
 Netlas, ZoomEye, CriminalIP, OTX, ThreatFox, AbuseIPDB, abuse.ch URLhaus &
 MalwareBazaar, Mnemonic pDNS, ip-api, Wayback, Whoxy reverse-WHOIS, OpenPhish,

@@ -12,13 +12,14 @@ const NODE_COLORS = {
   domain: '#79c0ff', ip: '#ffa657', hash: '#d2a8ff', url: '#56d364',
   cert: '#3fb950', asn: '#e3b341', email: '#f78166', registrar: '#8b949e',
   ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f5a623',
-  country: '#ff7b72', person: '#ff80b3', command_line: '#f0883e'
+  country: '#ff7b72', person: '#ff80b3', command_line: '#f0883e',
+  executable_name: '#ffb86b'
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
   cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'concave-hexagon',
   jarm: 'pentagon', url: 'cut-rectangle', country: 'tag', person: 'star',
-  command_line: 'rhomboid'
+  command_line: 'rhomboid', executable_name: 'vee'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
                        error: '#f85149', quota_exceeded: '#d29922' }
@@ -56,6 +57,7 @@ const MALTEGO_TYPES = {
   country:   () => 'maltego.Location.Country',
   person:    () => 'maltego.Person',
   command_line: () => 'maltego.Phrase',
+  executable_name: () => 'maltego.File',
   report:    () => null,
 }
 
@@ -119,7 +121,9 @@ function refang(s) {
   return out.trim()
 }
 
-// Auto-detect IOC type from a (refanged) value
+// Auto-detect IOC type from a (refanged) value.
+// Keep in sync with backend/main.py:detect_seed_type.
+const EXEC_EXTENSIONS_RE = /\.(exe|dll|sys|scr|bat|cmd|ps1|vbs|vbe|hta|pif|wsh|wsf|jse|msi|ocx|drv|lnk|dylib|elf)$/i
 function detectIOCType(raw) {
   const v = refang(raw).trim()
   if (!v) return 'domain'
@@ -131,6 +135,9 @@ function detectIOCType(raw) {
   if (/^[0-9a-fA-F]{64}$/.test(v)) return 'hash'
   if (/^[0-9a-fA-F]{40}$/.test(v)) return 'hash'
   if (/^[0-9a-fA-F]{32}$/.test(v)) return 'hash'
+  // Executable filename before domain: "malware.exe" matches the domain regex
+  // too, but the filename interpretation is what the analyst wants.
+  if (!/\s/.test(v) && EXEC_EXTENSIONS_RE.test(v)) return 'executable_name'
   if (/^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(v)) return 'domain'
   return 'domain'
 }

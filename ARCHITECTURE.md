@@ -50,7 +50,7 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 
 **Investigations**
 
-- `POST   /api/investigations` — start (auto-detects seed type from value if `seed_type=auto`)
+- `POST   /api/investigations` — start (auto-detects seed type from value if `seed_type=auto`; supported types: `domain`, `ip`, `hash`, `url`, `jarm`, `asn`, `command_line`, `executable_name` — the last being a bare filename of a malicious binary such as `dropper.exe`, pivoted via MalwareBazaar's `get_filename`)
 - `POST   /api/investigations/batch` — start many at once; `combined=true` chains them on one graph
 - `GET    /api/investigations` — list (caller-owned only)
 - `GET    /api/investigations/{id}/graph`
@@ -241,7 +241,7 @@ MCP server exposing ~50 async CTI source tools:
 - Shodan: `shodan_host`, `shodan_search`
 - OTX: `otx_domain`, `otx_ip`, `otx_file`
 - ThreatFox: `threatfox_search`
-- abuse.ch: `urlhaus_host`, `malwarebazaar_hash`, `malwarebazaar_signature`
+- abuse.ch: `urlhaus_host`, `malwarebazaar_hash`, `malwarebazaar_signature`, `malwarebazaar_filename` (filename-only pivot — returns sample hashes ever reported under that name, used as the primary pivot for `executable_name` seeds)
 - ip-api: `ip_api_lookup`, `ip_api_batch_lookup`, `ip_api_edns`
 - Wayback: `wayback`
 - **Phase 3 (added 2026-05-03)**:
