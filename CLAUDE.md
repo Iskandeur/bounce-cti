@@ -38,7 +38,7 @@ backend/
                         #   queue_status, coverage_matrix, requeue_missing,
                         #   gaps_report, quota_status). add_node auto-enqueues
                         #   pivots into pivot_tasks per pivot_mapping rules.
-    cti_mcp.py          # MCP server: ~50 async CTI source tools
+    cti_mcp.py          # MCP server: ~75 async CTI source tools
   sources/              # One file per CTI source (all async, all cached):
                         #   Existing: crtsh, rdap, dns_tools, virustotal,
                         #     urlscan, onyphe, shodan, otx, threatfox, wayback,
@@ -50,6 +50,19 @@ backend/
                         #   Community KG: opencti (GraphQL, read-only —
                         #     score, malware-family labels, actor/campaign
                         #     attribution, ATT&CK + linked report titles)
+                        #   Phase 4 (2026-05-21): dnsdumpster (passive subdomain),
+                        #     hackertarget (rev-IP / host search / geoip — free),
+                        #     leakix (exposed services + leak detection),
+                        #     pulsedive (risk-scored IOC enrichment),
+                        #     phishtank (URL verdict — independent of OpenPhish),
+                        #     circl_lu (CIRCL hashlookup NSRL + vuln-lookup),
+                        #     alienvault_rep (IP reputation feed, no auth),
+                        #     censys (Platform v3, JARM + cert search),
+                        #     emailrep (registrant-email reputation),
+                        #     project_honeypot (http:BL DNS lookup),
+                        #     tor_exits (live exit-relay list — auto-defuse),
+                        #     dnstwist (local typosquat enumeration),
+                        #     takeover (subdomain-takeover heuristic)
                         #   Shared: http_client
 frontend/
   src/

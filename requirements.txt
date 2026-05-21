@@ -10,3 +10,6 @@ websockets>=12.0
 fpdf2>=2.7
 pypdf>=4.0
 python-multipart>=0.0.6
+# dnstwist — local typosquat / IDN-homoglyph permutation engine (Phase 4).
+# Invoked as a subprocess by backend/sources/dnstwist.py.
+dnstwist>=20240807

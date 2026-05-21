@@ -295,6 +295,38 @@ into `cti_mcp` (`opencti_lookup_indicator`, `opencti_search_actor`,
 when no token is configured. GraphQL `errors[].extensions.code = AUTH_REQUIRED`
 triggers a 10-minute cooldown to stop hot-loop retries on bad tokens.
 
+Phase 4 (added 2026-05-21): broad source-coverage expansion.
+- `dnsdumpster` — passive subdomain enum (free 50/day, key required)
+- `hackertarget` — reverse-IP, host search, geoip (free anonymous, key
+  recommended); fallback for VT/Shodan reverse and ip_api
+- `leakix` — exposed services + data-leak events on a host (key optional)
+- `pulsedive` — risk-scored IOC enrichment with threat-cluster pivots
+  (free 500/month)
+- `phishtank` — phishing URL verdict, independent of OpenPhish (no auth)
+- `circl_lu` — CIRCL Luxembourg hashlookup (NSRL known-good defuse) + CVE
+  vulnerability-lookup (both no-auth)
+- `alienvault_rep` — AlienVault IP reputation feed, mirrored locally
+  every 6h (no auth)
+- `censys` — Censys Platform v3 (Bearer PAT) with auto-fallback to legacy
+  Search v2 when the key looks like `id:secret`
+- `emailrep` — registrant-email reputation grading (10/day anonymous,
+  250/month with key)
+- `project_honeypot` — http:BL DNS-based blacklist (IPv4 only, key
+  required, sync via `socket.gethostbyname`)
+- `tor_exits` — live Tor exit-relay set (no auth, 30 min cache);
+  `defuse_lists.is_tor_exit()` queries the in-process set so `add_node`
+  auto-tags Tor exits with `tor_exit` and skips infrastructure pivots
+- `dnstwist` — local CLI (`pip install dnstwist`) for typosquat /
+  IDN-homoglyph / bitsquat permutation discovery; strictly passive
+- `takeover` — subdomain-takeover heuristic (curated cloud-provider
+  fingerprint list, HTTP GET on the host's own root page)
+
+These add 20 MCP tools, taking the total to ~77. The `circl_hash_lookup`,
+`tor_exit_check`, `dnstwist_permutations`, `leakix_host`, and
+`pulsedive_indicator` wrappers attach `_pivot_hints` (see `backend/hints.py`)
+that steer the agent into NSRL defusion, tor-exit defusion, typosquat
+add-nodes, leak triage, and threat-cluster expansion respectively.
+
 ### `backend/key_pool.py`
 In-process API key pool with round-robin rotation, cooldown on 429
 (`mark_rate_limited(src, key, cooldown_seconds)`) and full-day cooldown on
@@ -465,6 +497,16 @@ NETLAS_API_KEY=        # free 50 req/day
 WHOXY_API_KEY=         # free 1500 lifetime
 ZOOMEYE_API_KEY=       # free 10k/month
 CRIMINALIP_API_KEY=    # free ~50/day
+
+# Phase 4 sources (added 2026-05-21)
+DNSDUMPSTER_API_KEY=        # free 50 req/day
+HACKERTARGET_API_KEY=       # optional — lifts the anonymous ~50/day cap
+LEAKIX_API_KEY=             # optional — gives 1k/day vs ~50/day anonymous
+PULSEDIVE_API_KEY=          # free 500 req/month
+CENSYS_API_KEY=             # PAT format `censys_<id>_<secret>` (Platform v3) or `id:secret` (legacy Search v2)
+EMAILREP_API_KEY=           # optional — 250/month vs 10/day anonymous
+PROJECTHONEYPOT_API_KEY=    # http:BL access key, free
+# No-auth sources (no env var): circl_lu, alienvault_rep, phishtank, tor_exits, dnstwist (local), takeover
 
 # Multi-key rotation (optional; if set, takes precedence over the single-key form)
 # Useful for free tiers (VT, Netlas, CertSpotter, CriminalIP).

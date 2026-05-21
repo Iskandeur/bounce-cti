@@ -41,6 +41,15 @@ _ENV_PREFIX = {
     "zoomeye": "ZOOMEYE",
     "criminalip": "CRIMINALIP",
     "opencti": "OPENCTI",
+    # Tier 1/2 (added 2026-05-21): DNSDumpster, HackerTarget (optional key),
+    # LeakIX (optional key), Pulsedive, Censys, EmailRep (optional key).
+    # ProjectHoneyPot uses a direct env var (DNS-based, no rotation).
+    "dnsdumpster": "DNSDUMPSTER",
+    "hackertarget": "HACKERTARGET",
+    "leakix": "LEAKIX",
+    "pulsedive": "PULSEDIVE",
+    "censys": "CENSYS",
+    "emailrep": "EMAILREP",
 }
 
 _lock = threading.Lock()

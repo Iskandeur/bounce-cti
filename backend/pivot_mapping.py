@@ -43,6 +43,13 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("certspotter_issuances", 3, "certspotter", False),
         ("dom_fingerprints", 3, None, False),
         ("opencti_lookup_indicator", 3, "opencti", False),
+        # Tier 1/2 additions (2026-05-21)
+        ("dnsdumpster_domain", 3, "dnsdumpster", False),
+        ("hackertarget_hosts", 3, None, False),
+        ("leakix_host", 3, None, False),  # key optional — works anonymous too
+        ("pulsedive_indicator", 3, "pulsedive", False),
+        ("dnstwist_permutations", 4, None, False),
+        ("phishtank_check", 4, None, False),
     ],
     "ip": [
         ("rdap_ip", 1, None, True),
@@ -60,12 +67,22 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("abuseipdb_check", 3, "abuseipdb", False),
         ("criminalip_ip", 3, "criminalip", False),
         ("opencti_lookup_indicator", 3, "opencti", False),
+        # Tier 1/2 additions (2026-05-21)
+        ("hackertarget_reverse_ip", 3, None, False),
+        ("leakix_host", 3, None, False),
+        ("pulsedive_indicator", 3, "pulsedive", False),
+        ("censys_host", 3, "censys", False),
+        ("alienvault_reputation", 4, None, False),
+        ("tor_exit_check", 4, None, True),  # doc-only: always cheap, always safe
+        ("project_honeypot_check", 4, None, False),
     ],
     "hash": [
         ("virustotal_file", 1, "vt", False),
         ("otx_file", 2, "otx", False),
         ("malwarebazaar_hash", 2, None, False),
         ("opencti_lookup_indicator", 3, "opencti", False),
+        # Tier 1/2 additions (2026-05-21)
+        ("circl_hash_lookup", 1, None, True),  # doc-only: defuses NSRL hits
     ],
     "executable_name": [
         # MalwareBazaar's get_filename query is the one free pivot that turns
@@ -81,6 +98,9 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("wayback", 3, None, False),
         ("dom_fingerprints", 2, None, False),
         ("opencti_lookup_indicator", 3, "opencti", False),
+        # Tier 1/2 additions (2026-05-21)
+        ("phishtank_check", 3, None, False),
+        ("pulsedive_indicator", 4, "pulsedive", False),
     ],
     "jarm": [
         ("onyphe_datascan", 2, "onyphe", False),
@@ -102,6 +122,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     ],
     "email": [
         ("whoxy_reverse", 3, "whoxy", False),
+        ("emailrep_check", 3, None, False),  # key optional
     ],
     "favicon_hash": [
         ("shodan_search", 2, "shodan", False),
@@ -207,7 +228,8 @@ def discriminating_marker(node_type: str, tags: list[str] | None,
     # null-routed IP cannot identify infrastructure. `sinkhole` stays here
     # too (sinkhole IPs are shared by hundreds of historical victims, so
     # they don't fingerprint a single operator on their own).
-    bad_tags = {"cdn", "parking", "sinkhole", "blackhole", "dyndns"}
+    bad_tags = {"cdn", "parking", "sinkhole", "blackhole", "dyndns", "tor_exit",
+                  "nsrl_known"}
     if any(t in bad_tags for t in tags):
         return False
 
