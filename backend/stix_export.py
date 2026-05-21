@@ -1,4 +1,7 @@
-"""Export an investigation graph as a STIX 2.1 bundle."""
+"""Export an investigation graph as a STIX 2.1 bundle (or as a STIX-flavoured
+CSV ready for an OpenCTI workbench)."""
+import csv
+import io
 import uuid
 import hashlib
 import re
@@ -397,3 +400,144 @@ def generate_stix_bundle(inv_id: str) -> dict:
     }
 
     return bundle
+
+
+# ── CSV export (OpenCTI workbench-ready) ─────────────────────────────────────
+
+# Maps Bounce-CTI node.type to (stix_type, opencti_entity_type) tuples. The
+# opencti_entity_type column matches the display names OpenCTI's CSV mapper
+# expects (e.g. "StixFile" for files, "Url" capitalised) so an analyst can
+# point a workbench CSV mapper at this output without renaming columns.
+_CSV_TYPE_MAP = {
+    "domain":    ("domain-name",       "Domain-Name"),
+    "ip":        ("ipv4-addr",         "IPv4-Addr"),
+    "url":       ("url",               "Url"),
+    "hash":      ("file",              "StixFile"),
+    "email":     ("email-addr",        "Email-Addr"),
+    "asn":       ("autonomous-system", "Autonomous-System"),
+    "cert":      ("x509-certificate",  "X509-Certificate"),
+    "country":   ("location",          "Location"),
+    "registrar": ("identity",          "Identity"),
+    "ns":        ("domain-name",       "Domain-Name"),
+    "malware":   ("malware",           "Malware"),
+    "campaign":  ("campaign",          "Campaign"),
+    "apt":       ("threat-actor",      "Threat-Actor"),
+}
+
+_CSV_COLUMNS = [
+    "stix_type",
+    "entity_type",
+    "value",
+    "hash_algorithm",
+    "hash_md5",
+    "hash_sha1",
+    "hash_sha256",
+    "labels",
+    "confidence",
+    "sources",
+    "description",
+    "first_seen",
+    "last_seen",
+    "investigation_id",
+    "investigation_seed",
+]
+
+
+def _csv_iso(epoch) -> str:
+    if not epoch:
+        return ""
+    try:
+        return datetime.fromtimestamp(float(epoch), tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+    except (TypeError, ValueError):
+        return ""
+
+
+def _csv_description(node: dict) -> str:
+    """Build a short description string from node metadata. Truncated so the
+    CSV stays readable in spreadsheet apps."""
+    md = node.get("metadata") or {}
+    parts = []
+    for k in ("summary", "description", "evidence", "as_owner", "country",
+              "registrar", "signature", "subject", "issuer"):
+        v = md.get(k)
+        if v:
+            parts.append(f"{k}={v}")
+            if len(parts) >= 4:
+                break
+    text = " | ".join(str(p) for p in parts)
+    return text[:500]
+
+
+def generate_csv(inv_id: str) -> str:
+    """Export the investigation's observables as a STIX-flavoured CSV.
+
+    One row per observable / domain object. Hashes get split across
+    hash_md5/hash_sha1/hash_sha256 columns based on digest length so an
+    OpenCTI CSV mapper can wire each column to the matching StixFile
+    attribute. `sources` is the union of `metadata.sources_seen` across
+    the node, semicolon-separated.
+    """
+    graph = gs.get_graph(inv_id)
+    nodes = graph.get("nodes", [])
+
+    with gs.conn() as c:
+        row = c.execute("SELECT * FROM investigations WHERE id=?", (inv_id,)).fetchone()
+    inv = dict(row) if row else {}
+    seed_label = f"{inv.get('seed_type', '')}:{inv.get('seed_value', '')}".strip(":")
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=_CSV_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+
+    # Stable ordering: by type then value so successive exports of the same
+    # investigation diff cleanly in source control.
+    for n in sorted(nodes, key=lambda x: (x.get("type", ""), str(x.get("value", "")))):
+        ntype = n.get("type", "")
+        nvalue = n.get("value", "")
+        mapping = _CSV_TYPE_MAP.get(ntype)
+        if not mapping:
+            continue  # skip report/jarm/favicon/js_hash/etc.
+
+        stix_type, entity_type = mapping
+        if ntype == "ip" and ":" in str(nvalue):
+            stix_type = "ipv6-addr"
+            entity_type = "IPv6-Addr"
+
+        md = n.get("metadata") or {}
+        sources = md.get("sources_seen") or []
+        tags = n.get("tags") or []
+        conf = n.get("confidence")
+
+        # Hash splitting for the StixFile rows.
+        hash_md5 = hash_sha1 = hash_sha256 = ""
+        hash_algo = ""
+        if ntype == "hash":
+            h_len = len(str(nvalue))
+            if h_len == 32:
+                hash_md5, hash_algo = nvalue, "MD5"
+            elif h_len == 40:
+                hash_sha1, hash_algo = nvalue, "SHA-1"
+            elif h_len == 64:
+                hash_sha256, hash_algo = nvalue, "SHA-256"
+
+        writer.writerow({
+            "stix_type": stix_type,
+            "entity_type": entity_type,
+            "value": nvalue,
+            "hash_algorithm": hash_algo,
+            "hash_md5": hash_md5,
+            "hash_sha1": hash_sha1,
+            "hash_sha256": hash_sha256,
+            "labels": ";".join(str(t) for t in tags),
+            "confidence": "" if conf is None else str(max(0, min(100, int(float(conf) * 100)))),
+            "sources": ";".join(str(s) for s in sources),
+            "description": _csv_description(n),
+            "first_seen": _csv_iso(n.get("created_at")),
+            "last_seen": _csv_iso(n.get("created_at")),
+            "investigation_id": inv_id,
+            "investigation_seed": seed_label,
+        })
+
+    return buf.getvalue()

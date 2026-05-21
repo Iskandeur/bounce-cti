@@ -31,7 +31,7 @@ html, body, #root {
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 .app {
   display: grid;
-  grid-template-columns: 260px 1fr 360px;
+  grid-template-columns: 260px 1fr 460px;
   height: 100vh;
   overflow: hidden;
 }
@@ -1732,7 +1732,7 @@ button.secondary:hover {
 
 /* ── Resize handles ──────────────────────────────────────────────────────── */
 .app {
-  grid-template-columns: 260px 5px 1fr 5px 360px;
+  grid-template-columns: 260px 5px 1fr 5px 460px;
 }
 .resize-handle {
   background: var(--surface-3);

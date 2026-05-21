@@ -277,8 +277,23 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // stays disabled until the reset epoch passes.
   const [quotaState, setQuotaState] = useState({ exhausted: false, exhausted_until: null, message: null })
   const [, setQuotaTick] = useState(0)
-  const [leftWidth, setLeftWidth] = useState(260)
-  const [rightWidth, setRightWidth] = useState(360)
+  // Right panel default bumped to 460px so the "Partager" button + first lines
+  // of the description/report aren't cropped at common laptop widths. Both
+  // values persist to localStorage so a manual resize is remembered.
+  const [leftWidth, setLeftWidth] = useState(() => {
+    try {
+      const v = parseInt(window.localStorage.getItem('bounce.leftWidth') || '', 10)
+      if (Number.isFinite(v) && v >= 180 && v <= 520) return v
+    } catch (_) { /* ignore */ }
+    return 260
+  })
+  const [rightWidth, setRightWidth] = useState(() => {
+    try {
+      const v = parseInt(window.localStorage.getItem('bounce.rightWidth') || '', 10)
+      if (Number.isFinite(v) && v >= 220 && v <= 620) return v
+    } catch (_) { /* ignore */ }
+    return 460
+  })
   const isMobile = useIsMobile()
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false)
   const [mobileRightOpen, setMobileRightOpen] = useState(false)
@@ -288,8 +303,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const activeInvRef = useRef(null)
   const showEdgeLabelsRef = useRef(showEdgeLabels)
   const filterTypesRef = useRef(filterTypes)
-  const leftWidthRef = useRef(260)
-  const rightWidthRef = useRef(360)
+  const leftWidthRef = useRef(leftWidth)
+  const rightWidthRef = useRef(rightWidth)
   const dragStateRef = useRef(null)
   const chatEndRef = useRef(null)
 
@@ -326,8 +341,14 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       setNoteDraft('')
     }
   }, [selected?.id])
-  useEffect(() => { leftWidthRef.current = leftWidth }, [leftWidth])
-  useEffect(() => { rightWidthRef.current = rightWidth }, [rightWidth])
+  useEffect(() => {
+    leftWidthRef.current = leftWidth
+    try { window.localStorage.setItem('bounce.leftWidth', String(leftWidth)) } catch (_) {}
+  }, [leftWidth])
+  useEffect(() => {
+    rightWidthRef.current = rightWidth
+    try { window.localStorage.setItem('bounce.rightWidth', String(rightWidth)) } catch (_) {}
+  }, [rightWidth])
 
   // Keep cytoscape sized correctly when crossing the mobile breakpoint or when
   // mobile drawers slide in/out (the graph container's effective area shifts).
@@ -2467,6 +2488,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                         title="Download STIX 2.1 bundle (JSON) for threat intel sharing"
                       >
                         STIX
+                      </button>
+                    )}
+                    {activeInv && (
+                      <button
+                        className="btn-sm secondary export-btn"
+                        onClick={() => window.open(`/api/investigations/${activeInv}/csv`, '_blank')}
+                        title="Download observables as STIX-flavoured CSV (ready for an OpenCTI workbench)"
+                      >
+                        CSV
                       </button>
                     )}
                     {activeInv && (

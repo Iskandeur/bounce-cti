@@ -68,6 +68,9 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 - `POST   /api/investigations/{id}/prompt` — custom prompt on top of the current graph
 - `GET    /api/investigations/{id}/pdf` — render PDF report
 - `GET    /api/investigations/{id}/stix` — render STIX 2.1 bundle
+- `GET    /api/investigations/{id}/csv`  — render STIX-flavoured CSV of observables
+  (OpenCTI workbench-ready: `stix_type`, `entity_type`, `value`, hash columns,
+  `labels`, `confidence`, `sources`, `description`, `first_seen`, `last_seen`)
 - `GET    /api/investigations/{id}/nodes/{node_id}/evidence`
 - `POST   /api/investigations/{id}/nodes/{node_id}/tag` — toggle a tag (e.g. `pinned`)
 - `POST   /api/investigations/{id}/nodes/{node_id}/note` — set/clear analyst note
@@ -368,7 +371,9 @@ Renders an investigation as a downloadable PDF (DejaVu Sans TTF for full
 Unicode support).
 
 ### `backend/stix_export.py`
-Renders an investigation as a STIX 2.1 bundle (JSON).
+Renders an investigation as a STIX 2.1 bundle (JSON) via `generate_stix_bundle`,
+or as a STIX-flavoured CSV of observables via `generate_csv` (one row per
+observable, columns map onto OpenCTI's CSV mapper for direct workbench import).
 
 ### `run_mcp.py`
 Standalone MCP launcher (at project root). Used as `command` in generated
