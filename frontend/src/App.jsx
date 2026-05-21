@@ -3011,6 +3011,53 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     </div>
                   )}
 
+                  {/* MITRE ATT&CK mapping — agent-validated list of
+                      techniques the investigation observed. Each row links
+                      to the technique page on attack.mitre.org. */}
+                  {(() => {
+                    const m = report.mitre_attack_mapping
+                    let items = []
+                    if (Array.isArray(m)) items = m
+                    else if (m && Array.isArray(m.techniques)) items = m.techniques
+                    if (!items || items.length === 0) return null
+                    return (
+                      <div>
+                        <div className="section-label" style={{ margin: '8px 0 6px' }}>MITRE ATT&CK</div>
+                        <div className="mitre-list">
+                          {items.map((t, i) => {
+                            const tid = t.technique_id || t.id || '?'
+                            const name = t.technique_name || t.name || ''
+                            const tactics = Array.isArray(t.tactics) ? t.tactics : (t.tactic ? [t.tactic] : [])
+                            const ev = t.evidence || t.rationale || ''
+                            const conf = (t.confidence || '').toLowerCase()
+                            const url = `https://attack.mitre.org/techniques/${tid.replace('.', '/')}/`
+                            return (
+                              <div key={i} className={`mitre-item${conf ? ` mitre-${conf}` : ''}`}>
+                                <a href={url} target="_blank" rel="noopener noreferrer" className="mitre-id" title="Open on attack.mitre.org">
+                                  {tid}
+                                </a>
+                                <div className="mitre-body">
+                                  <div className="mitre-name">
+                                    {name}
+                                    {conf && <span className="mitre-conf">{conf}</span>}
+                                  </div>
+                                  {tactics.length > 0 && (
+                                    <div className="mitre-tactics">
+                                      {tactics.map(tac => (
+                                        <span key={tac} className="mitre-tactic">{String(tac).replace(/_/g, ' ').replace(/-/g, ' ')}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {ev && <div className="mitre-ev">{String(ev)}</div>}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
                   {report.pivot_suggestions?.length > 0 && (
                     <div>
                       <div className="section-label" style={{ margin: '8px 0 6px' }}>Pivot suggestions</div>

@@ -35,6 +35,16 @@ backend/
                         #     out defused indicators by default so accidental
                         #     CDN / Tor / sinkhole blocks don't leak into
                         #     production drop-lists.
+  mitre_mapping.py      # Heuristic MITRE ATT&CK technique mapper:
+                        #   TECHNIQUES catalog (44 enterprise techniques),
+                        #   _TAG_MAP (node-tag → technique candidates with
+                        #   rationale), _IMPORT_MAP (PE-import → technique).
+                        #   map_graph(graph) returns ranked candidates with
+                        #   merged rationales / evidence node IDs / confidence
+                        #   (low/medium/high based on signal count). Exposed
+                        #   to the agent as the mitre_attack_candidates MCP
+                        #   tool — the agent validates each candidate and
+                        #   writes the final report.metadata.mitre_attack_mapping.
   sample_analysis.py    # Pure-Python static-analysis pass run on uploaded
                         #   binaries: Shannon entropy (overall + per-section),
                         #   printable string extraction (ASCII + UTF-16LE,

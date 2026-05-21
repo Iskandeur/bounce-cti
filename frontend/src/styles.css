@@ -3278,3 +3278,86 @@ button.secondary:hover {
 .takedown-card-actions a.btn-sm:visited {
   text-decoration: none;
 }
+
+/* ── MITRE ATT&CK mapping (Report tab) ────────────────────────────────────
+   Renders the agent-validated technique list. The technique ID is a
+   bordered chip that opens attack.mitre.org; rationale + tactics sit
+   beside it. Confidence ribbon: high=green, medium=amber, low=grey. */
+.mitre-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mitre-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  border-left: 3px solid var(--outline);
+  border-radius: var(--radius);
+}
+.mitre-item.mitre-high   { border-left-color: #56d364; }
+.mitre-item.mitre-medium { border-left-color: #e3b341; }
+.mitre-item.mitre-low    { border-left-color: #8b949e; }
+.mitre-id {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary, #58a6ff);
+  background: var(--surface-1, #0d1117);
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  padding: 2px 6px;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.mitre-id:hover {
+  background: var(--surface-3);
+  border-color: var(--primary, #58a6ff);
+}
+.mitre-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.mitre-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--on);
+}
+.mitre-conf {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--on-dim);
+  background: var(--surface-3);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.mitre-item.mitre-high .mitre-conf   { color: #56d364; background: rgba(86, 211, 100, 0.12); }
+.mitre-item.mitre-medium .mitre-conf { color: #e3b341; background: rgba(227, 179, 65, 0.12); }
+.mitre-tactics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.mitre-tactic {
+  font-size: 9px;
+  color: var(--on-dim);
+  background: var(--surface-3);
+  border-radius: 4px;
+  padding: 1px 5px;
+  text-transform: capitalize;
+}
+.mitre-ev {
+  font-size: 10px;
+  color: var(--on-dim);
+  line-height: 1.5;
+  font-style: italic;
+}

@@ -316,6 +316,33 @@ def quota_status() -> dict:
 
 
 @mcp.tool()
+def mitre_attack_candidates() -> dict:
+    """Heuristic MITRE ATT&CK technique candidates for THIS investigation.
+
+    Runs a deterministic mapper over the current graph (tags + PE imports
+    from sample_analysis) and returns a starting list of (technique_id,
+    technique_name, tactics, rationales, evidence_node_ids, confidence).
+    Call this AFTER the main investigation is done and BEFORE writing
+    the final report. The agent MUST:
+
+      1. Read each candidate, validate it against the evidence
+         (look up the cited node, confirm the rationale holds).
+      2. Add ONLY validated entries to ``report.metadata.mitre_attack_mapping``
+         (drop spurious ones, refine rationales with quotes from tool output).
+      3. NEVER invent ATT&CK technique IDs not returned here — if a
+         technique is clearly relevant but not in the candidate list,
+         note it in `mitre_attack_mapping.analyst_added` with full
+         justification rather than fabricating a TID match.
+
+    Empty result is fine — pure-infrastructure investigations often
+    only yield T1071.* generically. Note that explicitly in the report.
+    """
+    from .. import mitre_mapping
+    graph = gs.get_graph(INV_ID)
+    return {"candidates": mitre_mapping.map_graph(graph)}
+
+
+@mcp.tool()
 def cross_investigation_lookup(type: str, value: str, limit: int = 25) -> dict:
     """Find every prior investigation (same owner) where this (type, value)
     node was already observed. Use this on KEY infrastructure pivots —

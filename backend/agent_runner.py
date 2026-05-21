@@ -964,6 +964,26 @@ SELF-CRITIQUE (call BEFORE writing the report):
           and report.metadata.pivots_not_attempted so the analyst knows what
           you couldn't do and why. This is non-negotiable.
 
+MITRE ATT&CK MAPPING:
+    mitre_attack_candidates()
+        → deterministic heuristic mapper over the current graph (tags +
+          PE imports from static_analysis). Returns a starting list of
+          candidate technique IDs with rationales + cited node ids.
+          CALL THIS RIGHT BEFORE writing the final investigation_summary
+          report. Workflow:
+            1. Receive candidates.
+            2. For each candidate, look up the cited evidence node
+               (get_node), verify the rationale actually holds.
+            3. Add validated entries to report.metadata.mitre_attack_mapping
+               as objects: {technique_id, technique_name, tactics, rationale,
+               evidence: "<short quote from tool output>", confidence}.
+            4. If a technique is clearly relevant but NOT in the candidate
+               list, place it under report.metadata.mitre_attack_mapping
+               .analyst_added with a full justification — do NOT invent
+               TID matches. Empty mapping is fine for pure-infrastructure
+               investigations; note that the seed has no observed behaviour
+               to classify and move on.
+
 CROSS-INVESTIGATION CONVERGENCE:
     cross_investigation_lookup(type, value)
         → finds prior investigations (same owner) where this (type, value)
@@ -1931,6 +1951,7 @@ _ALLOWED_TOOLS = (
     "mcp__graph__coverage_matrix,mcp__graph__requeue_missing,"
     "mcp__graph__gaps_report,mcp__graph__quota_status,"
     "mcp__graph__cross_investigation_lookup,"
+    "mcp__graph__mitre_attack_candidates,"
     "mcp__cti__whois_domain,mcp__cti__whois_ip,"
     # CTI sources (existing)
     "mcp__cti__dns_resolve,mcp__cti__reverse_dns,mcp__cti__crtsh_subdomains,"
