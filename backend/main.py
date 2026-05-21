@@ -775,6 +775,25 @@ def export_stix(inv_id: str, user_id: int = Depends(current_user)):
     )
 
 
+@app.get("/api/investigations/{inv_id}/csv")
+def export_csv(inv_id: str, user_id: int = Depends(current_user)):
+    """Generate and return a STIX-flavoured CSV of observables for the
+    investigation, ready to feed into an OpenCTI workbench via its CSV
+    mapper. Columns include `stix_type` / `entity_type`, hashes split per
+    algorithm, labels, sources, and a short description."""
+    _require_owner(inv_id, user_id)
+    try:
+        from .stix_export import generate_csv
+        content = generate_csv(inv_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CSV export failed: {e}")
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="bounce-cti-{inv_id}.observables.csv"'},
+    )
+
+
 @app.get("/api/investigations/{inv_id}/nodes/{node_id}/evidence")
 def node_evidence(inv_id: str, node_id: str, user_id: int = Depends(current_user)):
     """Return raw cached CTI source data relevant to a node.
