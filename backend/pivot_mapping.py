@@ -126,6 +126,21 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     "email": [
         ("whoxy_reverse", 3, "whoxy", False),
         ("emailrep_check", 3, None, False),  # key optional
+        ("pulsedive_indicator", 3, "pulsedive", False),
+        ("opencti_lookup_indicator", 3, "opencti", False),
+        ("threatfox_search", 4, None, False),
+    ],
+    "wallet_address": [
+        ("threatfox_search", 2, None, False),
+        ("pulsedive_indicator", 3, "pulsedive", False),
+        ("opencti_lookup_indicator", 3, "opencti", False),
+        ("urlscan_search", 4, None, False),
+    ],
+    "username": [
+        ("threatfox_search", 2, None, False),
+        ("pulsedive_indicator", 3, "pulsedive", False),
+        ("opencti_lookup_indicator", 3, "opencti", False),
+        ("urlscan_search", 4, None, False),
     ],
     "favicon_hash": [
         ("shodan_search", 2, "shodan", False),
@@ -138,8 +153,10 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     "ns": [
         ("crtsh_subdomains", 5, None, False),
     ],
-    # title_hash, form_action, wallet_address, js_hash: no pivots (used as
-    # connectors/evidence only). The auto-enqueue will skip them silently.
+    # title_hash, form_action, js_hash: no pivots (used as connectors /
+    # evidence only). The auto-enqueue will skip them silently. wallet_address
+    # used to live here but now gets ThreatFox / Pulsedive / OpenCTI lookups
+    # since it can also be a seed type.
 }
 
 # Type aliases — different names for the same conceptual node type. When

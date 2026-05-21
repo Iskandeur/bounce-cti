@@ -707,6 +707,26 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
             ("malwarebazaar_filename", f'malwarebazaar_filename("{seed_value}")'),
             ("threatfox_search", f'threatfox_search("{seed_value}")'),
         ]
+    elif seed_type == "email":
+        mandatory = [
+            ("emailrep_check", f'emailrep_check("{seed_value}")'),
+            ("whoxy_reverse", f'whoxy_reverse(email="{seed_value}")'),
+            ("pulsedive_indicator", f'pulsedive_indicator("{seed_value}")'),
+            ("opencti_lookup_indicator", f'opencti_lookup_indicator("{seed_value}")'),
+            ("threatfox_search", f'threatfox_search("{seed_value}")'),
+        ]
+    elif seed_type == "wallet_address":
+        mandatory = [
+            ("threatfox_search", f'threatfox_search("{seed_value}")'),
+            ("pulsedive_indicator", f'pulsedive_indicator("{seed_value}")'),
+            ("opencti_lookup_indicator", f'opencti_lookup_indicator("{seed_value}")'),
+        ]
+    elif seed_type == "username":
+        mandatory = [
+            ("threatfox_search", f'threatfox_search("{seed_value}")'),
+            ("pulsedive_indicator", f'pulsedive_indicator("{seed_value}")'),
+            ("opencti_lookup_indicator", f'opencti_lookup_indicator("{seed_value}")'),
+        ]
     else:
         # command_line / unknown seed types — no IOC-level mandatory tools.
         # The seed-specific prompt drives the per-IOC pivots once the agent
@@ -2368,6 +2388,91 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             "  keep the report minimal — explain that the name alone is not a\n"
             "  meaningful pivot."
         )
+    elif seed_type == "email":
+        user_prompt = (
+            f"Seed indicator: type=email value={seed_value}\n"
+            "This is an email address — most often a malware/phishing registrant\n"
+            "contact, a C2 beacon target, an exfil drop, or a paste-site author.\n"
+            "Your job is to find every domain registered with this email, every\n"
+            "reputation signal, and any threat-intel mention.\n\n"
+            f"STEP 1: add_node(email, {seed_value}, tags=[\"seed\"])\n"
+            f"STEP 2: emailrep_check({seed_value})  — reputation, disposable flag,\n"
+            "        spammer / malicious tags. Copy `details.profiles` onto the node\n"
+            "        metadata when present (linked social profiles).\n"
+            f"STEP 3: whoxy_reverse(email=\"{seed_value}\")  — every domain ever\n"
+            "        registered with this email. For each returned domain (top 25\n"
+            "        prioritising recency / TLD diversity):\n"
+            "          - add_node(domain, <d>)\n"
+            "          - add_edge(email→domain, registered, source=\"whoxy\")\n"
+            "        Tag the email `bulk_registrant` if ≥20 domains are returned.\n"
+            f"STEP 4: pulsedive_indicator({seed_value}) — risk-scored corroboration.\n"
+            f"STEP 5: opencti_lookup_indicator({seed_value}) — community KG hits.\n"
+            f"STEP 6: threatfox_search({seed_value}) — listed as IOC?\n"
+            "STEP 7: For the TOP 3 domains discovered in STEP 3 (most recently\n"
+            "        registered or most-suspect TLD), run the full domain workflow\n"
+            "        (rdap, dns, VT, urlhaus, threatfox, otx) so the cluster has\n"
+            "        concrete infrastructure to pivot from.\n"
+            "STEP 8: Final report — value=\"investigation_summary\". The summary\n"
+            "        MUST state: how many domains the email registered, whether the\n"
+            "        email is disposable / reputation-flagged, and the dominant\n"
+            "        malware family or campaign (if attributable)."
+        )
+    elif seed_type == "wallet_address":
+        user_prompt = (
+            f"Seed indicator: type=wallet_address value={seed_value}\n"
+            "This is a cryptocurrency wallet address — most often a ransomware\n"
+            "payment target, a scam-collection wallet, or a market vendor wallet.\n"
+            "We do not (yet) query block explorers — your job is to surface every\n"
+            "PUBLIC threat-intel mention of this address and graph the surrounding\n"
+            "infrastructure so analysts can attribute the campaign.\n\n"
+            f"STEP 1: add_node(wallet_address, {seed_value}, tags=[\"seed\"], "
+            f"metadata={{\"chain\": \"<btc|eth|xmr|...>\"}})\n"
+            "        Set the chain in metadata based on the address format:\n"
+            "          - 0x + 40 hex   → ethereum (also BSC, Polygon — flag both)\n"
+            "          - bc1/tb1       → bitcoin (bech32)\n"
+            "          - 1 / 3 + b58   → bitcoin (legacy P2PKH / P2SH)\n"
+            "          - 4 / 8 + b58   → monero\n"
+            f"STEP 2: threatfox_search({seed_value}) — abuse.ch lists wallets in\n"
+            "        ransomware IOC bundles. Every matching threat_type / malware\n"
+            "        field becomes a tag on the wallet_address node.\n"
+            f"STEP 3: pulsedive_indicator({seed_value}) — risk + linked indicators.\n"
+            f"STEP 4: opencti_lookup_indicator({seed_value}) — community KG.\n"
+            f"STEP 5: urlscan_search(\"{seed_value}\") — sometimes the address shows\n"
+            "        up in scanned phishing page DOM (donate buttons, ransom notes).\n"
+            "        For each matching page graph it as a url node and tie back to\n"
+            "        the wallet with an embedded_in edge.\n"
+            "STEP 6: Final report — value=\"investigation_summary\". The summary\n"
+            "        MUST state: the chain, whether the wallet has any direct\n"
+            "        threat-feed listing, and the campaign / malware family it is\n"
+            "        attributed to (if known). If NONE of the sources return a\n"
+            "        hit, set metadata.attribution_status=\"unattributed\" and keep\n"
+            "        the report minimal. Without block-explorer access we cannot\n"
+            "        chain-trace — note that explicitly in `limitations`."
+        )
+    elif seed_type == "username":
+        user_prompt = (
+            f"Seed indicator: type=username value={seed_value}\n"
+            "This is an actor handle / alias — could be a forum username, a\n"
+            "Telegram/X/GitHub handle, a malware-builder identifier, or a paste-\n"
+            "site author. Treat it as an opaque identifier and surface every\n"
+            "public mention in the threat-intel sources we have.\n\n"
+            f"STEP 1: add_node(username, {seed_value}, tags=[\"seed\"])\n"
+            f"STEP 2: threatfox_search({seed_value}) — sometimes lists known actor handles.\n"
+            f"STEP 3: pulsedive_indicator({seed_value}) — corroboration.\n"
+            f"STEP 4: opencti_lookup_indicator({seed_value}) — community KG.\n"
+            f"STEP 5: urlscan_search(\"{seed_value}\") — the handle may appear in\n"
+            "        page text on phishing kits or open-dir listings.\n"
+            "STEP 6: For every domain / IP / hash mentioned in returned records,\n"
+            "        graph it (add_node + uses_handle edge from the infrastructure\n"
+            "        back to the username node).\n"
+            "STEP 7: Final report — value=\"investigation_summary\". The summary\n"
+            "        MUST state: which actor / campaign the handle attributes to\n"
+            "        (if any), how many concrete IOCs were tied to it, and what\n"
+            "        platforms / forums the handle has been observed on. If no\n"
+            "        public source mentions the handle, set\n"
+            "        metadata.attribution_status=\"no_public_record\" and keep\n"
+            "        the report minimal — the handle alone is not actionable."
+        )
     elif seed_type == "command_line":
         user_prompt = (
             f"Seed indicator: type=command_line value={seed_value}\n"
@@ -3372,6 +3477,37 @@ async def run_add_seed(inv_id: str, seed_type: str, seed_value: str, model: str 
             "If multiple hosts in the AS share a JARM, graph that JARM and link all hits.\n"
             "If any cluster IP is ALREADY on the graph, record it in cross_seed_findings.\n"
         )
+    elif seed_type == "email":
+        user_prompt += (
+            "This is an email add-seed. Required tools:\n"
+            f"  - emailrep_check({seed_value})\n"
+            f"  - whoxy_reverse(email=\"{seed_value}\")  — every reverse-WHOIS domain hit\n"
+            "    becomes a domain node + registered edge from the email.\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            "If any returned domain ALREADY exists on the graph, that's a concrete\n"
+            "cross-seed link — record it in cross_seed_findings.\n"
+        )
+    elif seed_type == "wallet_address":
+        user_prompt += (
+            "This is a wallet_address add-seed. Required tools:\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - urlscan_search(\"{seed_value}\")  — phishing page DOM may include it\n"
+            "Set metadata.chain on the wallet node (btc / eth / xmr / …).\n"
+        )
+    elif seed_type == "username":
+        user_prompt += (
+            "This is a username add-seed. Required tools:\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - urlscan_search(\"{seed_value}\")\n"
+            "Every domain / IP / hash co-mentioned with the handle becomes a node\n"
+            "with a uses_handle edge to the username.\n"
+        )
 
     user_prompt += (
         "\nSTEP 3: CROSS-SEED CHECK. For each infrastructure node you added during STEP 2,\n"
@@ -3511,6 +3647,32 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
             f"  - threatfox_search(\"AS{asn_num}\")\n"
             "For top 5 interesting IPs in the AS: defuse + virustotal_ip + threatfox_search.\n"
             "Tag the asn 'abused_asn' when ≥2 of those hosts return detection hits.\n"
+        )
+    elif seed_type == "email":
+        user_prompt += (
+            "This is an email pivot. Call these tools (skip any already in graph):\n"
+            f"  - emailrep_check({seed_value})\n"
+            f"  - whoxy_reverse(email=\"{seed_value}\")\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            "For each new domain returned by whoxy: add_node + registered edge.\n"
+        )
+    elif seed_type == "wallet_address":
+        user_prompt += (
+            "This is a wallet_address pivot. Call these tools (skip already-graphed):\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - urlscan_search(\"{seed_value}\")\n"
+        )
+    elif seed_type == "username":
+        user_prompt += (
+            "This is a username pivot. Call these tools (skip already-graphed):\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - urlscan_search(\"{seed_value}\")\n"
         )
     user_prompt += (
         "\nSTEP 3: UPDATE THE REPORT (do this exactly once, at the end).\n"

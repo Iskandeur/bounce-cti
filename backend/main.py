@@ -295,7 +295,7 @@ def list_models(user_id: int = Depends(current_user)):
 
 
 ALLOWED_SEED_TYPES = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line",
-                      "executable_name"}
+                      "executable_name", "email", "wallet_address", "username"}
 
 import re
 
@@ -321,6 +321,20 @@ _RE_EXECUTABLE_NAME = re.compile(
     r"^[^\s<>|?*\"]+\.(" + "|".join(_EXEC_EXTENSIONS) + r")$",
     re.I,
 )
+# RFC 5322-ish email — pragmatic, not exhaustive.
+_RE_EMAIL = re.compile(
+    r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$"
+)
+# Cryptocurrency wallet detection. We only auto-classify when the format is
+# unambiguous (ETH 0x prefix, BTC bech32 bc1 / tb1 prefix). The legacy BTC
+# Base58 forms (P2PKH/P2SH) collide with arbitrary strings, so we require
+# a leading 1 or 3 plus the canonical length window and Base58 alphabet.
+_RE_WALLET_ETH = re.compile(r"^0x[a-fA-F0-9]{40}$")
+_RE_WALLET_BTC_BECH32 = re.compile(r"^(bc1|tb1)[a-z0-9]{6,87}$")
+_RE_WALLET_BTC_BASE58 = re.compile(r"^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$")
+_RE_WALLET_XMR = re.compile(r"^[48][1-9A-HJ-NP-Za-km-z]{94}$")
+# Usernames are intentionally not auto-detected — too generic. The frontend
+# (and API) pass seed_type=username explicitly when the analyst means it.
 
 
 def detect_seed_type(value: str) -> str:
@@ -336,6 +350,16 @@ def detect_seed_type(value: str) -> str:
         return "ip"
     if _RE_IPV6.match(v):
         return "ip"
+    if _RE_EMAIL.match(v):
+        return "email"
+    if _RE_WALLET_ETH.match(v):
+        return "wallet_address"
+    if _RE_WALLET_BTC_BECH32.match(v):
+        return "wallet_address"
+    if _RE_WALLET_XMR.match(v):
+        return "wallet_address"
+    # Legacy BTC Base58 — checked AFTER hash/exec/domain because the
+    # 1.../3... pattern collides with arbitrary IOC strings.
     if _RE_JARM.match(v):
         return "jarm"
     if _RE_SHA256.match(v):
@@ -344,6 +368,8 @@ def detect_seed_type(value: str) -> str:
         return "hash"
     if _RE_MD5.match(v):
         return "hash"
+    if _RE_WALLET_BTC_BASE58.match(v):
+        return "wallet_address"
     # Executable filename before domain: "malware.exe" matches both _RE_DOMAIN
     # and _RE_EXECUTABLE_NAME, and the filename interpretation is what the
     # analyst pasting a binary's basename actually wants.
@@ -375,6 +401,22 @@ def _clean_seed(seed_type: str, seed_value: str) -> str:
             if sep in sv:
                 sv = sv.rsplit(sep, 1)[-1]
         sv = sv.lower()
+    elif seed_type == "email":
+        # Email addresses are case-insensitive on the domain part and
+        # almost-always-treated-case-insensitive on the local part. We
+        # lower-case the whole thing so "Foo@Bar.com" and "foo@bar.com"
+        # hash to the same node.
+        sv = sv.lower()
+    elif seed_type == "wallet_address":
+        # ETH addresses use EIP-55 mixed case for checksum. Keep case for
+        # ETH; lower-case Bech32 (BTC bc1/tb1) for canonical form.
+        if _RE_WALLET_BTC_BECH32.match(sv) or sv.lower().startswith(("bc1", "tb1")):
+            sv = sv.lower()
+        # Base58 (BTC legacy, XMR) and ETH 0x stay as provided.
+    elif seed_type == "username":
+        # Strip a leading @ if the analyst pasted "@handle". Keep case —
+        # some identifiers are case-sensitive (e.g. GitHub).
+        sv = sv.lstrip("@")
     return sv
 
 

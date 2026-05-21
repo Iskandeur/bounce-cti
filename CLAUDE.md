@@ -2,9 +2,11 @@
 
 ## What this is
 
-Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submits a seed (domain / IP / hash / URL / JARM / ASN / command_line / executable_name), the backend spawns a headless `claude -p` agent that queries ~50 public CTI source tools via MCP (commercial scanners + abuse feeds + the OpenCTI community knowledge graph), builds an infrastructure graph in SQLite, and streams it live to a React + Cytoscape frontend over WebSocket. Investigations are scoped to PIN-authenticated users, can be shared via signed links, and can be exported as PDF or STIX 2.1.
+Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submits a seed (domain / IP / hash / URL / JARM / ASN / command_line / executable_name / email / wallet_address / username), the backend spawns a headless `claude -p` agent that queries ~50 public CTI source tools via MCP (commercial scanners + abuse feeds + the OpenCTI community knowledge graph), builds an infrastructure graph in SQLite, and streams it live to a React + Cytoscape frontend over WebSocket. Investigations are scoped to PIN-authenticated users, can be shared via signed links, and can be exported as PDF or STIX 2.1.
 
 The `executable_name` seed type lets the analyst paste just the basename of a malicious binary (e.g. `dropper.exe`) without uploading the file or knowing its hash — the agent pivots via MalwareBazaar's `get_filename` query to recover sample hashes and then runs the standard hash workflow on the top hits for family attribution.
+
+The `email`, `wallet_address`, and `username` seed types let the analyst start from an actor signal: a registrant / phishing-contact email triggers reverse-WHOIS over Whoxy + EmailRep reputation; a cryptocurrency wallet (auto-detected for ETH `0x…`, BTC bech32, BTC legacy, XMR) cross-references ransomware IOC feeds; a forum / Telegram handle is graphed as an opaque identifier and probed against the community KG. None of these require dedicated chain-tracing — the value is graph-level correlation across the existing source pool.
 
 ## Project layout
 

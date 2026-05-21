@@ -13,13 +13,15 @@ const NODE_COLORS = {
   cert: '#3fb950', asn: '#e3b341', email: '#f78166', registrar: '#8b949e',
   ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f5a623',
   country: '#ff7b72', person: '#ff80b3', command_line: '#f0883e',
-  executable_name: '#ffb86b'
+  executable_name: '#ffb86b', wallet_address: '#f1c40f',
+  username: '#a371f7'
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
   cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'concave-hexagon',
   jarm: 'pentagon', url: 'cut-rectangle', country: 'tag', person: 'star',
-  command_line: 'rhomboid', executable_name: 'vee'
+  command_line: 'rhomboid', executable_name: 'vee',
+  email: 'round-tag', wallet_address: 'rhomboid', username: 'star'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
                        error: '#f85149', quota_exceeded: '#d29922' }
@@ -58,6 +60,8 @@ const MALTEGO_TYPES = {
   person:    () => 'maltego.Person',
   command_line: () => 'maltego.Phrase',
   executable_name: () => 'maltego.File',
+  wallet_address: () => 'maltego.Phrase',
+  username:  () => 'maltego.Alias',
   report:    () => null,
 }
 
@@ -131,6 +135,10 @@ function detectIOCType(raw) {
   if (/^(as|asn)\s*\d{1,10}$/i.test(v)) return 'asn'
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(v)) return 'ip'
   if (/^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(v)) return 'ip'
+  if (/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(v)) return 'email'
+  if (/^0x[a-fA-F0-9]{40}$/.test(v)) return 'wallet_address'
+  if (/^(bc1|tb1)[a-z0-9]{6,87}$/.test(v)) return 'wallet_address'
+  if (/^[48][1-9A-HJ-NP-Za-km-z]{94}$/.test(v)) return 'wallet_address'
   if (/^[0-9a-fA-F]{62}$/.test(v)) return 'jarm'
   if (/^[0-9a-fA-F]{64}$/.test(v)) return 'hash'
   if (/^[0-9a-fA-F]{40}$/.test(v)) return 'hash'
@@ -139,6 +147,9 @@ function detectIOCType(raw) {
   // too, but the filename interpretation is what the analyst wants.
   if (!/\s/.test(v) && EXEC_EXTENSIONS_RE.test(v)) return 'executable_name'
   if (/^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(v)) return 'domain'
+  // Legacy BTC Base58 — checked LAST because the 1.../3... pattern collides
+  // with arbitrary strings. Must be ≥25 chars and Base58 alphabet only.
+  if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(v)) return 'wallet_address'
   return 'domain'
 }
 
