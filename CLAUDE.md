@@ -27,6 +27,16 @@ backend/
                         #   + pasted command-line / script — hashes binaries,
                         #   extracts IOCs from scripts, builds the command_line
                         #   context node + report_context for the agent
+  sample_analysis.py    # Pure-Python static-analysis pass run on uploaded
+                        #   binaries: Shannon entropy (overall + per-section),
+                        #   printable string extraction (ASCII + UTF-16LE,
+                        #   ≥6/≥4 chars, deduped + ranked + capped at 500),
+                        #   IOC harvesting from those strings, PE walker
+                        #   (machine, compile_timestamp, sections w/ entropy,
+                        #   import-DLL list, imphash-lite), ELF walker
+                        #   (ei_class, machine, entry). Zero new deps; runs
+                        #   in-process so the binary never leaves the host.
+                        #   Output lands on hash_node.metadata.static_analysis
   pdf_report.py         # Render an investigation as a downloadable PDF
   stix_export.py        # Render an investigation as a STIX 2.1 bundle
   key_pool.py           # API key rotation pool: round-robin, cooldown on 429,

@@ -699,6 +699,114 @@ button.secondary:hover {
   color: var(--on-dim);
 }
 
+/* ── Static analysis card (Node tab — hash nodes only) ────────────────────
+   Surfaces the in-process PE/ELF parse + entropy + strings IOCs from the
+   sample upload. Designed to be skimmable in 2 seconds: key/value rows
+   with arch+timestamp on top, sections + imports collapsed into chips,
+   and a 'packed?' warning chip when any section is high-entropy. */
+.static-analysis {
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  margin: 4px 0;
+  font-size: 11px;
+}
+.sa-warn {
+  font-size: 9px;
+  background: rgba(248, 81, 73, 0.18);
+  color: #f85149;
+  border: 1px solid #f85149;
+  padding: 1px 6px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.sa-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 0;
+}
+.sa-row-wrap {
+  align-items: flex-start;
+}
+.sa-key {
+  color: var(--on-dim);
+  width: 64px;
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.sa-val {
+  color: var(--on);
+  font-family: var(--font-mono, monospace);
+  word-break: break-word;
+}
+.sa-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  font-family: inherit;
+}
+.sa-chip {
+  background: var(--surface-3);
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  color: var(--on);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.sa-chip-type {
+  color: var(--on-dim);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.sa-chip-more {
+  color: var(--on-dim);
+  font-size: 10px;
+  padding: 1px 5px;
+}
+.sa-sections {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--outline);
+}
+.sa-sections-header,
+.sa-iocs-header {
+  color: var(--on-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 3px;
+}
+.sa-section {
+  display: flex;
+  justify-content: space-between;
+  padding: 1px 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+}
+.sa-section-hot {
+  color: #f78166;
+}
+.sa-section-name {
+  color: var(--on);
+}
+.sa-section-meta {
+  color: var(--on-dim);
+}
+.sa-iocs {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--outline);
+}
+
 /* ── Cross-investigation panel (Node tab) ──────────────────────────────────
    Surfaces when an IOC was already observed in the analyst's prior
    investigations. Loud-but-not-shouty: subtle violet stripe so it stands

@@ -172,6 +172,16 @@ def handle_file_upload(blob: bytes, filename: str | None) -> dict:
     hashes = hash_blob(blob)
     file_type = sniff_file_type(blob, filename)
 
+    # Static analysis: pure-Python passes over the byte blob. Surfaces
+    # embedded IOCs, PE/ELF container facts, per-section entropy (>7.5 ⇒
+    # likely packed), and a string-set hash for cross-sample clustering.
+    # Runs in-process — the binary never leaves the host.
+    try:
+        from . import sample_analysis
+        static = sample_analysis.analyse(blob, file_type=file_type)
+    except Exception as e:
+        static = {"error": f"sample_analysis failed: {e}"}
+
     # Build the seed: always the SHA256 of the file. The hash workflow already
     # has the right pivots (VirusTotal, MalwareBazaar, OTX, …).
     seed_metadata = {
@@ -181,6 +191,7 @@ def handle_file_upload(blob: bytes, filename: str | None) -> dict:
         "sha1":      hashes["sha1"],
         "md5":       hashes["md5"],
         "source_kind": "user_upload",
+        "static_analysis": static,
     }
     primary = {"type": "hash", "value": hashes["sha256"], "metadata": seed_metadata}
 
@@ -209,6 +220,20 @@ def handle_file_upload(blob: bytes, filename: str | None) -> dict:
                 # Skip self-reference if the file content happens to embed its own hash.
                 continue
             extras.append(ioc)
+
+    # For binary samples, the static-analysis pass also harvests printable
+    # URLs / IPs / hashes that live inside the bytes. Hoist them as extras
+    # so the agent investigates them as peer-seeds (deduped against the
+    # primary hash + against any script-extracted IOCs above).
+    if isinstance(static, dict):
+        seen = {(e["type"], e["value"].lower()) for e in extras}
+        seen.add(("hash", hashes["sha256"].lower()))
+        for ioc in (static.get("embedded_iocs") or []):
+            key = (ioc.get("type"), (ioc.get("value") or "").lower())
+            if not key[0] or not key[1] or key in seen:
+                continue
+            seen.add(key)
+            extras.append({"type": ioc["type"], "value": ioc["value"]})
 
     return {
         "primary":      primary,

@@ -1723,6 +1723,21 @@ STEP 7 — Final report (MANDATORY — always do this last)
 ══════════════════════════════════════════════
 WORKFLOW — HASH seed
 ══════════════════════════════════════════════
+STEP 0 (uploaded samples only): get_node(hash, <seed>) → if `metadata.static_analysis`
+  is present, READ it FIRST. The backend already ran a pure-Python static pass on
+  the byte blob (PE/ELF parse, per-section entropy, embedded printable strings,
+  embedded URLs/IPs/hashes harvested from those strings). High-signal fields:
+    - `static_analysis.entropy` (overall) and per-section `entropy` ≥ 7.5
+      → tag the hash node `packed_or_encrypted` (the UI surfaces this as a chip).
+    - `static_analysis.pe.import_dlls` — distinctive imports
+      (wininet, ws2_32, crypt32, advapi32 LSA APIs, etc.) are family clues.
+    - `static_analysis.pe.compile_timestamp` — sanity check against VT first_seen;
+      forged-or-old timestamps (<2010 or >today) are themselves a tag.
+    - `static_analysis.embedded_iocs` — for each entry, ALREADY-graphed by the
+      sample-import path as an extra-seed, BUT confirm and add an
+      `embedded_in_sample` edge from the hash node so the lineage is explicit.
+  These are LOCAL findings — record them in the report under `local_static_analysis`
+  with the section list, packed verdict, and the dominant DLL-import set.
 STEP 1: add_node(hash, seed, tags=["seed"])
 STEP 1.5: malwarebazaar_hash(<seed>) → family, signature, yara_rules, file_name, intelligence
   → If a malware family/signature is identified: malwarebazaar_signature(<family>) → list sibling samples (max 5), add as hash nodes with same_family edge
