@@ -243,6 +243,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [evidenceLoading, setEvidenceLoading] = useState(false)
   const [agentNotes, setAgentNotes] = useState([])
   const [expandedReasoning, setExpandedReasoning] = useState(() => new Set())
+  // Cross-investigation hits for the currently selected node — fetched on
+  // demand once per (inv, node) pair. ``null`` = not loaded, ``[]`` = loaded
+  // and empty (no prior investigations contain this IOC).
+  const [crossInvHits, setCrossInvHits] = useState(null)
+  const [crossInvLoading, setCrossInvLoading] = useState(false)
   const [customPrompt, setCustomPrompt] = useState('')
   const [promptBusy, setPromptBusy] = useState(false)
   // Optimistic pending prompt: shows the user's message in the chat immediately
@@ -430,6 +435,24 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       setPromptBusy(false)
     }
   }, [promptHistoryLen, rightTab])
+
+  // ── Cross-investigation lookup for the selected node ─────────────────────
+  // When the analyst clicks a node we fetch the list of OTHER investigations
+  // (same user) where the same (type, value) was already observed. This is
+  // the convergence signal: repeat infrastructure across campaigns.
+  useEffect(() => {
+    setCrossInvHits(null)
+    if (!activeInv || !selected || selected.type === 'report') return
+    let cancelled = false
+    setCrossInvLoading(true)
+    fetch(`/api/investigations/${activeInv}/nodes/${selected.id}/cross_investigations`,
+          { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (!cancelled && j) setCrossInvHits(j.hits || []) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setCrossInvLoading(false) })
+    return () => { cancelled = true }
+  }, [activeInv, selected?.id, selected?.type])
 
   // ── Cytoscape init ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -2851,6 +2874,63 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                       </div>
                     )
                   })()}
+
+                  {/* Cross-investigation convergence — repeat infrastructure
+                      across the user's prior investigations. High signal:
+                      if the same JARM / registrant email / C2 IP shows up
+                      in several past campaigns, it's almost certainly the
+                      same actor cluster. */}
+                  {selected.type !== 'report' && (
+                    <div className="cross-inv-panel">
+                      {crossInvLoading && (
+                        <div className="cross-inv-loading">Checking prior investigations…</div>
+                      )}
+                      {!crossInvLoading && crossInvHits && crossInvHits.length === 0 && (
+                        <div className="cross-inv-empty">
+                          <span style={{ color: 'var(--on-dim)', fontSize: 10 }}>
+                            First time this IOC appears in your investigation history.
+                          </span>
+                        </div>
+                      )}
+                      {!crossInvLoading && crossInvHits && crossInvHits.length > 0 && (
+                        <div className="cross-inv-block">
+                          <div className="cross-inv-header">
+                            <span className="cross-inv-icon">↺</span>
+                            <span className="cross-inv-title">
+                              Also seen in {crossInvHits.length} prior investigation{crossInvHits.length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                          <div className="cross-inv-list">
+                            {crossInvHits.slice(0, 6).map(h => (
+                              <button
+                                key={h.investigation_id}
+                                className="cross-inv-item"
+                                onClick={() => openInv(h.investigation_id)}
+                                title={`Open this prior investigation (started ${new Date((h.investigation_created_at || 0) * 1000).toLocaleString()})`}
+                              >
+                                <span className="cross-inv-seed-type">{h.seed_type}</span>
+                                <span className="cross-inv-seed-value">
+                                  {h.title || h.seed_value}
+                                </span>
+                                {h.node_tags && h.node_tags.length > 0 && (
+                                  <span className="cross-inv-tags">
+                                    {h.node_tags.slice(0, 3).map(t => (
+                                      <span key={t} className={`tag-chip tag-${t}`} style={{ fontSize: 9, padding: '0 4px' }}>{t}</span>
+                                    ))}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                            {crossInvHits.length > 6 && (
+                              <div className="cross-inv-more">
+                                + {crossInvHits.length - 6} more
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', gap: 6 }}>
                     {PIVOTABLE.includes(selected.type) && (

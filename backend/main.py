@@ -541,6 +541,36 @@ def graph(inv_id: str, user_id: int = Depends(current_user)):
     return gs.get_graph(inv_id)
 
 
+@app.get("/api/investigations/{inv_id}/nodes/{node_id}/cross_investigations")
+def node_cross_investigations(inv_id: str, node_id: str,
+                               limit: int = 25,
+                               user_id: int = Depends(current_user)):
+    """Return prior investigations (owned by the caller) where a node with
+    the same (type, value) tuple already appeared. Surfaces cross-campaign
+    infrastructure reuse — when a registrant email / JARM / C2 IP shows up
+    in multiple investigations, that's a high-signal pivot the analyst
+    should not miss.
+
+    The node is resolved by ``node_id`` in the current investigation; the
+    lookup itself is by (type, value) across the user's full history,
+    excluding the current investigation. Up to ``limit`` rows, most recent
+    first.
+    """
+    _require_owner(inv_id, user_id)
+    with gs.conn() as c:
+        row = c.execute(
+            "SELECT type, value FROM nodes WHERE investigation_id=? AND id=?",
+            (inv_id, node_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="node not found")
+    hits = gs.find_node_across_investigations(
+        row["type"], row["value"], user_id=user_id,
+        exclude_inv=inv_id, limit=min(max(1, int(limit)), 100),
+    )
+    return {"type": row["type"], "value": row["value"], "hits": hits, "count": len(hits)}
+
+
 @app.get("/api/investigations/{inv_id}/transcript")
 def transcript(inv_id: str, user_id: int = Depends(current_user)):
     """Return the agent's reasoning + tool-call transcript, ordered.

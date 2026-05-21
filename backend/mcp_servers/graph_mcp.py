@@ -315,5 +315,26 @@ def quota_status() -> dict:
     return key_pool.status_all()
 
 
+@mcp.tool()
+def cross_investigation_lookup(type: str, value: str, limit: int = 25) -> dict:
+    """Find every prior investigation (same owner) where this (type, value)
+    node was already observed. Use this on KEY infrastructure pivots —
+    suspicious JARMs, registrar emails, C2 IPs, malware hashes — to detect
+    repeat infrastructure across campaigns. Each returned hit comes with
+    the prior investigation's seed and metadata-key list so you can decide
+    whether to record a `seen_in_prior_investigation` evidence note on the
+    current node. Scope: ONLY investigations owned by the same user.
+
+    Returns ``{"hits": [...], "count": N}`` (count clamped to ``limit``).
+    Empty hits means this is the first time this IOC appears in this
+    user's investigation history — useful negative signal.
+    """
+    owner = gs.get_investigation_owner(INV_ID)
+    hits = gs.find_node_across_investigations(
+        type, value, user_id=owner, exclude_inv=INV_ID, limit=limit
+    )
+    return {"hits": hits, "count": len(hits)}
+
+
 if __name__ == "__main__":
     mcp.run()

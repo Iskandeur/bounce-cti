@@ -59,6 +59,13 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   after page reload (live WebSocket events only cover the current session).
   Entries are tagged `reasoning` / `tool` / `tool_result` / `phase` so the
   client can render the audit trail with full agent text and per-tool inputs.
+- `GET    /api/investigations/{id}/nodes/{node_id}/cross_investigations` —
+  list every prior investigation owned by the caller where the same
+  `(type, value)` IOC already appeared. Powers the Node-tab "Also seen in
+  N prior investigations" panel; the same data is exposed to the agent as
+  the `cross_investigation_lookup` MCP tool so it can record
+  `seen_in_prior_investigation` evidence on repeat infrastructure during
+  the autonomous run.
 - `POST   /api/investigations/{id}/stop` — kill the running agent
 - `DELETE /api/investigations/{id}`
 - `PATCH  /api/investigations/{id}` — rename (`{title}`); empty/omitted title clears it, falling back to the seed value in the UI

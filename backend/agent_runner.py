@@ -964,6 +964,20 @@ SELF-CRITIQUE (call BEFORE writing the report):
           and report.metadata.pivots_not_attempted so the analyst knows what
           you couldn't do and why. This is non-negotiable.
 
+CROSS-INVESTIGATION CONVERGENCE:
+    cross_investigation_lookup(type, value)
+        → finds prior investigations (same owner) where this (type, value)
+          already appeared. Call this on KEY pivots — distinctive JARMs,
+          registrant emails, registrar abuse contacts, suspicious-looking C2
+          IPs, malware hashes that aren't already nsrl_known. A non-empty
+          hits[] means this is REPEAT infrastructure: when it fires, record
+          a `seen_in_prior_investigation` evidence note on the node with
+          metadata={"prior_investigations": [<id>, ...]} and tag the node
+          `repeat_infrastructure`. Cite the count in the report's
+          key_findings. Empty hits is fine and worth noting on a high-value
+          IOC (first observation of this exact IOC across the user's
+          history is itself a signal).
+
 QUOTA AWARENESS:
     quota_status()
         → per-source key pool snapshot. If a primary source is exhausted, redirect
@@ -1901,6 +1915,8 @@ _ALLOWED_TOOLS = (
     "mcp__graph__next_pivot,mcp__graph__mark_pivot_done,mcp__graph__queue_status,"
     "mcp__graph__coverage_matrix,mcp__graph__requeue_missing,"
     "mcp__graph__gaps_report,mcp__graph__quota_status,"
+    "mcp__graph__cross_investigation_lookup,"
+    "mcp__cti__whois_domain,mcp__cti__whois_ip,"
     # CTI sources (existing)
     "mcp__cti__dns_resolve,mcp__cti__reverse_dns,mcp__cti__crtsh_subdomains,"
     "mcp__cti__crtsh_serial,mcp__cti__crtsh_query,"

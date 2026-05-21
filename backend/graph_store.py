@@ -242,6 +242,65 @@ def get_investigation_owner(inv_id: str) -> Optional[int]:
     return row["user_id"] if row else None
 
 
+def find_node_across_investigations(type_: str, value: str,
+                                     user_id: Optional[int] = None,
+                                     exclude_inv: Optional[str] = None,
+                                     limit: int = 25) -> list[dict]:
+    """Find every prior investigation containing a node with this (type, value).
+
+    Used for cross-investigation convergence: when the same IOC was seen in
+    earlier investigations, surface that link so analysts notice repeat
+    infrastructure and the agent can record cross-campaign evidence.
+
+    Scope is restricted to investigations owned by ``user_id`` (None = all
+    users — admin-only callers). ``exclude_inv`` drops the current
+    investigation from the result so we never return self-hits.
+
+    Returns up to ``limit`` rows, most recent first. Each row::
+      {"investigation_id", "seed_type", "seed_value", "title",
+       "node_tags", "node_first_seen", "node_metadata_keys",
+       "investigation_created_at"}
+    """
+    params: list = [type_, value]
+    sql = (
+        "SELECT n.investigation_id, n.tags, n.metadata, n.created_at AS node_created, "
+        "       i.seed_type, i.seed_value, i.title, i.created_at AS inv_created "
+        "FROM nodes n JOIN investigations i ON i.id = n.investigation_id "
+        "WHERE n.type = ? AND n.value = ? "
+    )
+    if user_id is not None:
+        sql += "AND i.user_id = ? "
+        params.append(user_id)
+    if exclude_inv:
+        sql += "AND n.investigation_id != ? "
+        params.append(exclude_inv)
+    sql += "ORDER BY i.created_at DESC LIMIT ?"
+    params.append(limit)
+    out: list[dict] = []
+    with conn() as c:
+        rows = c.execute(sql, tuple(params)).fetchall()
+    for r in rows:
+        try:
+            md = json.loads(r["metadata"] or "{}")
+        except Exception:
+            md = {}
+        try:
+            tags = json.loads(r["tags"] or "[]")
+        except Exception:
+            tags = []
+        out.append({
+            "investigation_id": r["investigation_id"],
+            "seed_type": r["seed_type"],
+            "seed_value": r["seed_value"],
+            "title": r["title"],
+            "node_tags": tags,
+            "node_first_seen": r["node_created"],
+            "node_metadata_keys": sorted(md.keys()),
+            "investigation_created_at": r["inv_created"],
+        })
+    return out
+
+
 def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
              confidence: float = 0.8, source: str = "agent", tags: list[str] | None = None) -> dict:
     nid = _node_id(inv_id, type_, value)
