@@ -38,9 +38,10 @@ backend/
                         #   queue_status, coverage_matrix, requeue_missing,
                         #   gaps_report, quota_status). add_node auto-enqueues
                         #   pivots into pivot_tasks per pivot_mapping rules.
-    cti_mcp.py          # MCP server: ~75 async CTI source tools
+    cti_mcp.py          # MCP server: ~77 async CTI source tools
   sources/              # One file per CTI source (all async, all cached):
-                        #   Existing: crtsh, rdap, dns_tools, virustotal,
+                        #   Existing: crtsh, rdap, whois (RFC 3912 / port-43),
+                        #     dns_tools, virustotal,
                         #     urlscan, onyphe, shodan, otx, threatfox, wayback,
                         #     ip_api, mnemonic, abusech (URLhaus+MalwareBazaar)
                         #   Phase 2: fingerprints (favicon mmh3 hash, title

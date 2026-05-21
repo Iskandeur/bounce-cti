@@ -71,6 +71,29 @@ async def rdap_ip(ip: str) -> dict:
 
 
 @mcp.tool()
+async def whois_domain(domain: str) -> dict:
+    """Classic WHOIS lookup for a domain via TCP/43 (RFC 3912).
+
+    Complements rdap_domain: returns fields some registries don't yet
+    publish over RDAP — abuse contacts on certain ccTLDs, full registrant
+    org for thin TLDs after referral, registrar abuse mailbox. Use this
+    when rdap_domain returns sparse data or when you need the raw
+    registry text for audit purposes. Cached 24h."""
+    return with_hints("whois_domain", await _src("whois").whois_domain(domain), domain)
+
+
+@mcp.tool()
+async def whois_ip(ip_or_asn: str) -> dict:
+    """Classic WHOIS lookup for an IP address or ASN via TCP/43.
+
+    Accepts ``8.8.8.8``, ``2001:4860::``, or ``AS15169`` / ``15169``.
+    Two-hop: IANA refers to the responsible RIR (ARIN/RIPE/APNIC/LACNIC/
+    AFRINIC) which holds the allocation record. Yields netname, org,
+    country, CIDR, and OrgAbuseEmail. Cached 24h."""
+    return with_hints("whois_ip", await _src("whois").whois_ip(ip_or_asn), ip_or_asn)
+
+
+@mcp.tool()
 async def virustotal_domain(domain: str) -> dict:
     """VirusTotal v3 domain report."""
     return with_hints("virustotal_domain", await _src("virustotal").vt_domain(domain), domain)

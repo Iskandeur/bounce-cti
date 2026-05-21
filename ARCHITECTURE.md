@@ -233,7 +233,10 @@ MCP server exposing ~50 async CTI source tools:
 
 - DNS / pDNS: `dns_resolve`, `reverse_dns`, `mnemonic_pdns`,
   `onyphe_resolver_forward`, `onyphe_resolver_reverse`
-- RDAP / WHOIS: `rdap_domain`, `rdap_ip`
+- RDAP / WHOIS: `rdap_domain`, `rdap_ip`, `whois_domain`, `whois_ip`
+  (classic RFC 3912 TCP/43 client; complements RDAP for fields some
+  registries don't yet publish over RDAP — registrar abuse mailbox,
+  full registrant org on thin TLDs, OrgAbuseEmail for IP/ASN ranges)
 - Certificates: `crtsh_subdomains`, `crtsh_serial`, `crtsh_query`, `onyphe_ctl`,
   `certspotter_issuances`, `certspotter_serial`
 - VirusTotal: `virustotal_domain`, `virustotal_ip`, `virustotal_file`,

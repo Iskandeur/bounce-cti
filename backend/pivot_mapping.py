@@ -28,6 +28,7 @@ from typing import Callable, Optional
 _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     "domain": [
         ("rdap_domain", 1, None, True),
+        ("whois_domain", 2, None, True),
         ("dns_resolve", 1, None, True),
         ("crtsh_subdomains", 2, None, False),
         ("virustotal_domain", 2, "vt", False),
@@ -53,6 +54,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     ],
     "ip": [
         ("rdap_ip", 1, None, True),
+        ("whois_ip", 2, None, True),
         ("reverse_dns", 1, None, True),
         ("virustotal_ip", 2, "vt", False),
         ("virustotal_resolutions_ip", 3, "vt", False),
@@ -109,6 +111,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("zoomeye_jarm", 3, "zoomeye", False),
     ],
     "asn": [
+        ("whois_ip", 1, None, True),
         ("onyphe_datascan", 4, "onyphe", False),
         ("shodan_search", 4, "shodan", False),
         ("netlas_search", 5, "netlas", False),
