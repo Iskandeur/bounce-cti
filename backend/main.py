@@ -931,6 +931,68 @@ def export_csv(inv_id: str, user_id: int = Depends(current_user)):
     )
 
 
+@app.get("/api/investigations/{inv_id}/actions/blocklist")
+def export_blocklist(inv_id: str, fmt: str = "plain",
+                      include_defused: bool = False,
+                      user_id: int = Depends(current_user)):
+    """Render the investigation's network IOCs as a blocklist artefact.
+
+    ``fmt`` is one of ``plain | hosts | unbound | rpz | palo_edl |
+    cisco_acl | csv``. Defused nodes (CDN/parking/sinkhole/Tor/…) are
+    excluded by default — flip ``include_defused`` if the analyst has
+    audited that the indicator is genuinely malicious despite the tag."""
+    _require_owner(inv_id, user_id)
+    try:
+        from . import action_exports as ax
+        g = gs.get_graph(inv_id)
+        content = ax.render_blocklist(g["nodes"], fmt, include_defused=include_defused)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"blocklist render failed: {e}")
+    return {"format": fmt, "content": content,
+            "filename": f"bounce-cti-{inv_id}.blocklist.{fmt}.txt"}
+
+
+@app.get("/api/investigations/{inv_id}/actions/detection")
+def export_detection(inv_id: str, fmt: str = "sigma",
+                      include_defused: bool = False,
+                      user_id: int = Depends(current_user)):
+    """Render a starter detection rule (Sigma / Snort / YARA) from the
+    investigation's IOCs. Output is a starting point — the defender must
+    tune false positives and add environment context before deploying."""
+    _require_owner(inv_id, user_id)
+    try:
+        from . import action_exports as ax
+        g = gs.get_graph(inv_id)
+        content = ax.render_detection(g["nodes"], fmt,
+                                       investigation_id=inv_id,
+                                       include_defused=include_defused)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"detection render failed: {e}")
+    suffix = {"sigma": "yml", "snort": "rules", "yara": "yar"}.get(fmt, "txt")
+    return {"format": fmt, "content": content,
+            "filename": f"bounce-cti-{inv_id}.detection.{fmt}.{suffix}"}
+
+
+@app.get("/api/investigations/{inv_id}/actions/takedown")
+def export_takedown(inv_id: str, user_id: int = Depends(current_user)):
+    """Render a list of takedown-ready abuse-email bundles, one per
+    malicious host/IP with a known abuse contact. The analyst still owns
+    the send — bounce-cti never auto-emails anyone."""
+    _require_owner(inv_id, user_id)
+    try:
+        from . import action_exports as ax
+        g = gs.get_graph(inv_id)
+        bundles = ax.render_takedown(g["nodes"], g["edges"],
+                                       investigation_id=inv_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"takedown render failed: {e}")
+    return {"count": len(bundles), "items": bundles}
+
+
 @app.get("/api/investigations/{inv_id}/nodes/{node_id}/evidence")
 def node_evidence(inv_id: str, node_id: str, user_id: int = Depends(current_user)):
     """Return raw cached CTI source data relevant to a node.

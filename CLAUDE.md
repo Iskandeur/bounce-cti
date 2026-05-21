@@ -27,6 +27,14 @@ backend/
                         #   + pasted command-line / script — hashes binaries,
                         #   extracts IOCs from scripts, builds the command_line
                         #   context node + report_context for the agent
+  action_exports.py     # Operational deliverables for the Actions tab:
+                        #   render_blocklist (plain/hosts/unbound/rpz/palo_edl/
+                        #     cisco_acl/csv), render_detection (sigma/snort/
+                        #     yara), render_takedown (per-host abuse email
+                        #     bundle: To/Subject/Body + mailto link). Filters
+                        #     out defused indicators by default so accidental
+                        #     CDN / Tor / sinkhole blocks don't leak into
+                        #     production drop-lists.
   sample_analysis.py    # Pure-Python static-analysis pass run on uploaded
                         #   binaries: Shannon entropy (overall + per-section),
                         #   printable string extraction (ASCII + UTF-16LE,

@@ -3008,3 +3008,273 @@ button.secondary:hover {
   .share-row { grid-template-columns: 1fr; }
   .share-row-actions { grid-column: 1; grid-row: auto; flex-direction: row; }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════
+   Actions tab — operational deliverables (blocklist / takedown / detection)
+   ═════════════════════════════════════════════════════════════════════════
+   Designed to read in 2 seconds: the three cards across the top declare
+   what the analyst can ship, the format pills row + monospace preview
+   surface the artifact, copy/download primitives are always one click
+   away. Takedown bundles render as compact cards with mailto + clipboard
+   shortcuts so they integrate with whatever ticketing flow the team uses.
+   ═══════════════════════════════════════════════════════════════════════ */
+.actions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+.actions-intro {
+  font-size: 11px;
+  color: var(--on-dim);
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--outline-dim);
+  border-radius: var(--radius);
+}
+.actions-defuse-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--on-dim);
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+.actions-defuse-toggle input { margin: 0; }
+.actions-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+@media (max-width: 900px) {
+  .actions-cards { grid-template-columns: 1fr; }
+}
+.action-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  text-align: left;
+  cursor: pointer;
+  color: var(--on);
+  font-family: inherit;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+.action-card:hover {
+  background: var(--surface-3);
+  border-color: var(--primary, #58a6ff);
+}
+.action-card:active { transform: scale(0.98); }
+.action-card.active {
+  background: var(--surface-3);
+  border-color: var(--primary, #58a6ff);
+  box-shadow: 0 0 0 1px var(--primary, #58a6ff);
+}
+.action-card-icon {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+  filter: saturate(0.9);
+}
+.action-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.action-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on);
+}
+.action-card-desc {
+  font-size: 10px;
+  color: var(--on-dim);
+  line-height: 1.4;
+}
+.actions-error {
+  background: rgba(248, 81, 73, 0.12);
+  border: 1px solid rgba(248, 81, 73, 0.5);
+  color: #f85149;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 11px;
+}
+.actions-loading,
+.actions-empty {
+  font-size: 11px;
+  color: var(--on-dim);
+  padding: 12px;
+  text-align: center;
+}
+.actions-output {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+.actions-format-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.format-pill {
+  background: var(--surface-1, #0d1117);
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 10px;
+  color: var(--on-dim);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.format-pill:hover { color: var(--on); border-color: var(--primary, #58a6ff); }
+.format-pill.active {
+  background: var(--primary, #58a6ff);
+  color: #0d1117;
+  border-color: var(--primary, #58a6ff);
+  font-weight: 600;
+}
+.actions-output-pre {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--surface-1, #0d1117);
+  border: 1px solid var(--outline-dim);
+  border-radius: 4px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 55vh;
+  overflow: auto;
+  color: var(--on);
+}
+.actions-takedown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.takedown-summary {
+  font-size: 11px;
+  color: var(--on-dim);
+  padding: 0 4px;
+}
+.takedown-card {
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.takedown-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.takedown-card-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.takedown-target-type {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--on-dim);
+  background: var(--surface-3);
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+.takedown-target-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--on);
+  word-break: break-all;
+}
+.takedown-card-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  font-size: 10px;
+  color: var(--on-dim);
+}
+.takedown-asn {
+  background: var(--surface-3);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.takedown-card-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+}
+.takedown-card-label {
+  color: var(--on-dim);
+  width: 56px;
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.takedown-card-email {
+  font-family: var(--font-mono, monospace);
+  color: var(--on);
+}
+.takedown-card-subject {
+  color: var(--on);
+}
+.takedown-card-body {
+  margin: 0;
+}
+.takedown-card-body summary {
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--on-dim);
+  padding: 2px 0;
+  user-select: none;
+}
+.takedown-card-body summary:hover { color: var(--on); }
+.takedown-body-pre {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  background: var(--surface-1, #0d1117);
+  border: 1px solid var(--outline-dim);
+  border-radius: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--on);
+  white-space: pre-wrap;
+  max-height: 280px;
+  overflow: auto;
+}
+.takedown-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.takedown-card-actions a.btn-sm,
+.takedown-card-actions a.btn-sm:visited {
+  text-decoration: none;
+}

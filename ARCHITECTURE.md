@@ -66,6 +66,18 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   the `cross_investigation_lookup` MCP tool so it can record
   `seen_in_prior_investigation` evidence on repeat infrastructure during
   the autonomous run.
+- `GET    /api/investigations/{id}/actions/blocklist?fmt=...` — render the
+  network IOCs as a drop-list. `fmt`: `plain` (default), `hosts`,
+  `unbound`, `rpz`, `palo_edl`, `cisco_acl`, `csv`. Defused nodes
+  (CDN/parking/sinkhole/Tor/...) excluded unless `include_defused=1`.
+- `GET    /api/investigations/{id}/actions/detection?fmt=...` — starter
+  detection rule. `fmt`: `sigma` (default), `snort`, `yara`. Hashes
+  flagged `nsrl_known` and defused indicators are excluded.
+- `GET    /api/investigations/{id}/actions/takedown` — list of
+  takedown-ready abuse-email bundles, one per malicious host/IP with a
+  known `abuse_email` in its metadata. Each item carries To/Subject/Body
+  + mailto link so the Actions UI can offer one-click open in the
+  analyst's mail client; bounce-cti never sends anything itself.
 - `POST   /api/investigations/{id}/stop` — kill the running agent
 - `DELETE /api/investigations/{id}`
 - `PATCH  /api/investigations/{id}` — rename (`{title}`); empty/omitted title clears it, falling back to the seed value in the UI
