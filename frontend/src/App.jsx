@@ -242,6 +242,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [evidenceData, setEvidenceData] = useState(null)
   const [evidenceLoading, setEvidenceLoading] = useState(false)
   const [agentNotes, setAgentNotes] = useState([])
+  const [expandedReasoning, setExpandedReasoning] = useState(() => new Set())
   const [customPrompt, setCustomPrompt] = useState('')
   const [promptBusy, setPromptBusy] = useState(false)
   // Optimistic pending prompt: shows the user's message in the chat immediately
@@ -978,6 +979,32 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setBudgetLog([])
     setEvents([])
     setAgentNotes([])
+    setExpandedReasoning(new Set())
+    // Backfill the timeline from the persisted transcript so reasoning +
+    // tool calls survive a page reload. Live WS events appended on top.
+    fetch(`/api/investigations/${id}/transcript`, { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (!j || activeInvRef.current !== id) return
+        const notes = []
+        for (const e of (j.entries || [])) {
+          if (e.kind === 'reasoning' && e.text) {
+            notes.push({ ts: e.ts, noteKind: 'reasoning', text: e.text })
+          } else if (e.kind === 'tool') {
+            notes.push({
+              ts: e.ts, noteKind: 'tool', text: e.name,
+              detail: JSON.stringify(e.input || {}).slice(0, 200),
+            })
+          } else if (e.kind === 'tool_result' && e.is_error) {
+            notes.push({
+              ts: e.ts, noteKind: 'reasoning',
+              text: `⚠ ${e.name} returned an error: ${(e.result_preview || '').slice(0, 200)}`,
+            })
+          }
+        }
+        if (notes.length) setAgentNotes(notes)
+      })
+      .catch(() => {})
     setNodeValues(new Map())
     setExistingTypes(new Set())
     setFilterTypes(new Set())
@@ -1013,9 +1040,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         const toolBlocks = content.filter(b => b.type === 'tool_use')
         const notes = []
         if (textBlocks.length) {
-          // Agent reasoning — summarize to keep timeline compact
-          const full = textBlocks.join(' ')
-          if (full.trim().length > 5) notes.push({ ts: evtTs, noteKind: 'reasoning', text: full.slice(0, 300) })
+          // Agent reasoning — keep the full text (up to a 4000-char cap to
+          // bound a single runaway message). The timeline UI line-clamps
+          // for compactness and expands on click.
+          const full = textBlocks.join(' ').trim()
+          if (full.length > 5) notes.push({ ts: evtTs, noteKind: 'reasoning', text: full.slice(0, 4000) })
         }
         for (const t of toolBlocks) {
           notes.push({ ts: evtTs, noteKind: 'tool', text: t.name, detail: JSON.stringify(t.input || {}).slice(0, 120) })
@@ -3049,6 +3078,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                         )
                       }
                       if (tn._kind === 'reasoning') {
+                        const isExp = expandedReasoning.has(i)
                         return (
                           <div key={`note-${i}`} className="timeline-entry timeline-note">
                             <div className="timeline-line">
@@ -3056,7 +3086,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                               {i < merged.length - 1 && <span className="timeline-connector" />}
                             </div>
                             <div className="timeline-content">
-                              <div className="timeline-note-text">{tn.text}</div>
+                              <div
+                                className={`timeline-note-text${isExp ? ' expanded' : ''}`}
+                                title={isExp ? 'Click to collapse' : 'Click to expand full reasoning'}
+                                onClick={() => setExpandedReasoning(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(i)) next.delete(i); else next.add(i)
+                                  return next
+                                })}
+                              >{tn.text}</div>
                             </div>
                           </div>
                         )

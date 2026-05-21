@@ -1659,6 +1659,19 @@ button.secondary:hover {
   font-style: italic;
   line-height: 1.4;
   padding: 2px 0;
+  cursor: pointer;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+.timeline-note-text.expanded {
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+.timeline-note-text:hover {
+  color: var(--on);
 }
 /* Agent tool call groups */
 .timeline-tool-group {

@@ -541,6 +541,71 @@ def graph(inv_id: str, user_id: int = Depends(current_user)):
     return gs.get_graph(inv_id)
 
 
+@app.get("/api/investigations/{inv_id}/transcript")
+def transcript(inv_id: str, user_id: int = Depends(current_user)):
+    """Return the agent's reasoning + tool-call transcript, ordered.
+
+    Used by the UI to rebuild the timeline after page reload (live WS events
+    only cover the current session — historical reasoning lives in the
+    events table). Each entry is one of:
+      {"kind": "reasoning", "ts": <epoch>, "text": "...", "phase": "..."}
+      {"kind": "tool",      "ts": <epoch>, "name": "...", "input": {...}}
+      {"kind": "tool_result","ts":<epoch>, "name": "...", "result_preview": "..."}
+      {"kind": "phase",     "ts": <epoch>, "phase": "main|followup|...", "stage": "starting|exit"}
+    Tool inputs are kept as-is; tool results are truncated to 800 chars for
+    rendering compactness — the full JSON is still in the events table for
+    deep audit if ever needed.
+    """
+    _require_owner(inv_id, user_id)
+    out: list[dict] = []
+    events = gs.get_events_since(inv_id, 0)
+    tool_use_id_to_name: dict[str, str] = {}
+    for e in events:
+        ts = e.get("_ts") or 0
+        kind = e.get("kind") or ""
+        msg = e.get("msg") or e.get("data") or {}
+        if kind == "agent_assistant":
+            content = (msg.get("message") or {}).get("content") or []
+            for block in content:
+                btype = block.get("type")
+                if btype == "text":
+                    txt = (block.get("text") or "").strip()
+                    if txt:
+                        out.append({"kind": "reasoning", "ts": ts, "text": txt})
+                elif btype == "tool_use":
+                    name = block.get("name") or "?"
+                    inp = block.get("input") or {}
+                    tool_use_id = block.get("id")
+                    if tool_use_id:
+                        tool_use_id_to_name[tool_use_id] = name
+                    out.append({"kind": "tool", "ts": ts, "name": name, "input": inp})
+        elif kind == "agent_user":
+            # Synthetic "user" events from the SDK carry tool results back.
+            content = (msg.get("message") or {}).get("content") or []
+            for block in content:
+                if block.get("type") == "tool_result":
+                    tool_use_id = block.get("tool_use_id") or ""
+                    name = tool_use_id_to_name.get(tool_use_id, "?")
+                    raw = block.get("content")
+                    if isinstance(raw, list):
+                        preview = " ".join(
+                            (b.get("text") or "")[:800] for b in raw
+                            if isinstance(b, dict) and b.get("type") == "text"
+                        )[:800]
+                    elif isinstance(raw, str):
+                        preview = raw[:800]
+                    else:
+                        preview = ""
+                    is_error = bool(block.get("is_error"))
+                    out.append({"kind": "tool_result", "ts": ts, "name": name,
+                                "result_preview": preview, "is_error": is_error})
+        elif kind.startswith("phase_") and kind.endswith(("_starting", "_exit")):
+            stage = "starting" if kind.endswith("_starting") else "exit"
+            phase = kind[len("phase_"):-len(f"_{stage}")]
+            out.append({"kind": "phase", "ts": ts, "phase": phase, "stage": stage})
+    return {"investigation_id": inv_id, "entries": out}
+
+
 @app.get("/api/quota")
 def get_quota(user_id: int = Depends(current_user)):
     """Report the Claude-subscription quota state for the host account.

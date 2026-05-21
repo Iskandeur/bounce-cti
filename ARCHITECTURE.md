@@ -54,6 +54,11 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 - `POST   /api/investigations/batch` — start many at once; `combined=true` chains them on one graph
 - `GET    /api/investigations` — list (caller-owned only)
 - `GET    /api/investigations/{id}/graph`
+- `GET    /api/investigations/{id}/transcript` — agent's reasoning + tool-call
+  transcript ordered by event time. Used by the UI to rebuild the timeline
+  after page reload (live WebSocket events only cover the current session).
+  Entries are tagged `reasoning` / `tool` / `tool_result` / `phase` so the
+  client can render the audit trail with full agent text and per-tool inputs.
 - `POST   /api/investigations/{id}/stop` — kill the running agent
 - `DELETE /api/investigations/{id}`
 - `PATCH  /api/investigations/{id}` — rename (`{title}`); empty/omitted title clears it, falling back to the seed value in the UI
