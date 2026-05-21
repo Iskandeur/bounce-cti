@@ -315,5 +315,53 @@ def quota_status() -> dict:
     return key_pool.status_all()
 
 
+@mcp.tool()
+def mitre_attack_candidates() -> dict:
+    """Heuristic MITRE ATT&CK technique candidates for THIS investigation.
+
+    Runs a deterministic mapper over the current graph (tags + PE imports
+    from sample_analysis) and returns a starting list of (technique_id,
+    technique_name, tactics, rationales, evidence_node_ids, confidence).
+    Call this AFTER the main investigation is done and BEFORE writing
+    the final report. The agent MUST:
+
+      1. Read each candidate, validate it against the evidence
+         (look up the cited node, confirm the rationale holds).
+      2. Add ONLY validated entries to ``report.metadata.mitre_attack_mapping``
+         (drop spurious ones, refine rationales with quotes from tool output).
+      3. NEVER invent ATT&CK technique IDs not returned here — if a
+         technique is clearly relevant but not in the candidate list,
+         note it in `mitre_attack_mapping.analyst_added` with full
+         justification rather than fabricating a TID match.
+
+    Empty result is fine — pure-infrastructure investigations often
+    only yield T1071.* generically. Note that explicitly in the report.
+    """
+    from .. import mitre_mapping
+    graph = gs.get_graph(INV_ID)
+    return {"candidates": mitre_mapping.map_graph(graph)}
+
+
+@mcp.tool()
+def cross_investigation_lookup(type: str, value: str, limit: int = 25) -> dict:
+    """Find every prior investigation (same owner) where this (type, value)
+    node was already observed. Use this on KEY infrastructure pivots —
+    suspicious JARMs, registrar emails, C2 IPs, malware hashes — to detect
+    repeat infrastructure across campaigns. Each returned hit comes with
+    the prior investigation's seed and metadata-key list so you can decide
+    whether to record a `seen_in_prior_investigation` evidence note on the
+    current node. Scope: ONLY investigations owned by the same user.
+
+    Returns ``{"hits": [...], "count": N}`` (count clamped to ``limit``).
+    Empty hits means this is the first time this IOC appears in this
+    user's investigation history — useful negative signal.
+    """
+    owner = gs.get_investigation_owner(INV_ID)
+    hits = gs.find_node_across_investigations(
+        type, value, user_id=owner, exclude_inv=INV_ID, limit=limit
+    )
+    return {"hits": hits, "count": len(hits)}
+
+
 if __name__ == "__main__":
     mcp.run()

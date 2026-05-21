@@ -71,6 +71,29 @@ async def rdap_ip(ip: str) -> dict:
 
 
 @mcp.tool()
+async def whois_domain(domain: str) -> dict:
+    """Classic WHOIS lookup for a domain via TCP/43 (RFC 3912).
+
+    Complements rdap_domain: returns fields some registries don't yet
+    publish over RDAP — abuse contacts on certain ccTLDs, full registrant
+    org for thin TLDs after referral, registrar abuse mailbox. Use this
+    when rdap_domain returns sparse data or when you need the raw
+    registry text for audit purposes. Cached 24h."""
+    return with_hints("whois_domain", await _src("whois").whois_domain(domain), domain)
+
+
+@mcp.tool()
+async def whois_ip(ip_or_asn: str) -> dict:
+    """Classic WHOIS lookup for an IP address or ASN via TCP/43.
+
+    Accepts ``8.8.8.8``, ``2001:4860::``, or ``AS15169`` / ``15169``.
+    Two-hop: IANA refers to the responsible RIR (ARIN/RIPE/APNIC/LACNIC/
+    AFRINIC) which holds the allocation record. Yields netname, org,
+    country, CIDR, and OrgAbuseEmail. Cached 24h."""
+    return with_hints("whois_ip", await _src("whois").whois_ip(ip_or_asn), ip_or_asn)
+
+
+@mcp.tool()
 async def virustotal_domain(domain: str) -> dict:
     """VirusTotal v3 domain report."""
     return with_hints("virustotal_domain", await _src("virustotal").vt_domain(domain), domain)
@@ -447,6 +470,184 @@ async def opencti_search_report(name: str) -> dict:
     you want its description + external_references (links to the source
     analysis on the open web). Returns up to 5 matches."""
     return await _src("opencti").search_report(name)
+
+
+# ------------------------------------------------------------------ #
+# Tier 1 / Tier 2 sources (added 2026-05-21)
+# ------------------------------------------------------------------ #
+
+
+@mcp.tool()
+async def dnsdumpster_domain(domain: str) -> dict:
+    """DNSDumpster passive subdomain enum + DNS dump for a domain.
+    Free 50 req/day. Surfaces subdomains that never landed in CT logs."""
+    return with_hints("dnsdumpster_domain",
+                       await _src("dnsdumpster").domain_lookup(domain), domain)
+
+
+@mcp.tool()
+async def hackertarget_reverse_ip(ip: str) -> dict:
+    """HackerTarget reverse-IP: list of hosts pointing at an IP. Free
+    fallback for VirusTotal/Shodan reverse resolutions; works without an
+    API key but is throttled to ~50 anonymous queries/day per IP."""
+    return with_hints("hackertarget_reverse_ip",
+                       await _src("hackertarget").reverse_ip(ip), ip)
+
+
+@mcp.tool()
+async def hackertarget_hosts(domain: str) -> dict:
+    """HackerTarget passive subdomain discovery. Returns
+    ``sub.domain.tld,1.2.3.4`` lines."""
+    return with_hints("hackertarget_hosts",
+                       await _src("hackertarget").host_search(domain), domain)
+
+
+@mcp.tool()
+async def hackertarget_geoip(ip: str) -> dict:
+    """HackerTarget geoip — fallback for ip_api when the latter is
+    unreachable / quota-exhausted."""
+    return with_hints("hackertarget_geoip",
+                       await _src("hackertarget").geoip(ip), ip)
+
+
+@mcp.tool()
+async def leakix_host(value: str) -> dict:
+    """LeakIX aggregate: open ports, software banners, exposed
+    databases, leaked secrets, geoip for an IP or domain. Works
+    anonymously, richer with a free API key."""
+    return with_hints("leakix_host",
+                       await _src("leakix").host(value), value)
+
+
+@mcp.tool()
+async def leakix_search(query: str, page: int = 0, scope: str = "leak") -> dict:
+    """LeakIX generic search (Lucene). `scope` in {"leak","service"}.
+    Use for pivots on a specific software/banner string."""
+    return await _src("leakix").search(query, page=page, scope=scope)
+
+
+@mcp.tool()
+async def pulsedive_indicator(value: str) -> dict:
+    """Pulsedive lookup for an existing indicator (domain/IP/URL/hash).
+    Returns risk score, threat list, and linked threats. 1 req/call."""
+    return with_hints("pulsedive_indicator",
+                       await _src("pulsedive").indicator(value), value)
+
+
+@mcp.tool()
+async def pulsedive_analyze(value: str, probe: bool = False) -> dict:
+    """Pulsedive on-demand scan. ``probe=False`` returns cached/quick
+    verdict (1 req); ``probe=True`` schedules an active scan (bulk
+    credit). Default false to preserve quota."""
+    return await _src("pulsedive").analyze(value, probe=probe)
+
+
+@mcp.tool()
+async def pulsedive_threat(name: str) -> dict:
+    """Pulsedive threat profile by name (malware family / actor / campaign)
+    + linked indicators."""
+    return await _src("pulsedive").threat(name)
+
+
+@mcp.tool()
+async def phishtank_check(url: str) -> dict:
+    """PhishTank verdict for a URL. Independent of OpenPhish — useful
+    second opinion. Anonymous calls work but are rate-limited."""
+    return with_hints("phishtank_check",
+                       await _src("phishtank").check_url(url), url)
+
+
+@mcp.tool()
+async def circl_hash_lookup(value: str) -> dict:
+    """CIRCL Hashlookup — NSRL + known-good corpus lookup for an MD5,
+    SHA-1 or SHA-256 hex hash. A hit (``found=true``, ``source="NSRL"``)
+    means the file is a legitimate OS/vendor artefact. The graph layer
+    auto-tags the hash node with ``nsrl_known`` and stops further pivots.
+    No auth."""
+    return with_hints("circl_hash_lookup",
+                       await _src("circl_lu").hash_lookup(value), value)
+
+
+@mcp.tool()
+async def circl_cve(cve_id: str) -> dict:
+    """CIRCL Vulnerability-Lookup — full CVE record (NVD + CAPEC + CWE +
+    CPE). Use to translate a Shodan/Censys banner into a CVE list."""
+    return await _src("circl_lu").cve(cve_id)
+
+
+@mcp.tool()
+async def alienvault_reputation(ip: str) -> dict:
+    """AlienVault IP reputation feed lookup (mirrored locally, refreshed
+    every 6h). A hit corroborates VT/OTX/AbuseIPDB verdicts. No auth."""
+    return with_hints("alienvault_reputation",
+                       await _src("alienvault_rep").check_ip(ip), ip)
+
+
+@mcp.tool()
+async def censys_host(ip: str) -> dict:
+    """Censys host view — services, cert chain, names, location for an IP.
+    Free community tier: 250 queries / month."""
+    return with_hints("censys_host",
+                       await _src("censys").host_view(ip), ip)
+
+
+@mcp.tool()
+async def censys_search(query: str, per_page: int = 25) -> dict:
+    """Censys host search. Same query syntax as the web UI. Use for
+    pivots on a TLS cert SHA-256, JARM, or banner string."""
+    return await _src("censys").host_search(query, per_page=per_page)
+
+
+@mcp.tool()
+async def emailrep_check(email: str) -> dict:
+    """EmailRep.io reputation for an email address — useful to grade a
+    registrant email surfaced via RDAP/Whoxy. Free: 10/day anonymous,
+    250/month authenticated."""
+    return with_hints("emailrep_check",
+                       await _src("emailrep").check(email), email)
+
+
+@mcp.tool()
+async def project_honeypot_check(ip: str) -> dict:
+    """Project Honey Pot http:BL DNSBL lookup. Returns threat score
+    (0..255, 25+ is bad) and type flags (suspicious/harvester/comment
+    spammer). IPv4 only. Free, requires PROJECTHONEYPOT_API_KEY."""
+    return with_hints("project_honeypot_check",
+                       await _src("project_honeypot").check_ip(ip), ip)
+
+
+@mcp.tool()
+async def tor_exit_check(ip: str) -> dict:
+    """Check whether an IP is on the live Tor exit-relay list (refreshed
+    every 30 min from the Tor Project). A hit triggers a ``tor_exit``
+    defuse tag — passive DNS at a Tor exit represents thousands of
+    unrelated victims, not infrastructure."""
+    return with_hints("tor_exit_check",
+                       await _src("tor_exits").check_ip(ip), ip)
+
+
+@mcp.tool()
+async def dnstwist_permutations(domain: str, registered_only: bool = True,
+                                 mxcheck: bool = False) -> dict:
+    """Run a local dnstwist scan against ``domain`` to discover typosquat
+    / IDN-homoglyph / bitsquat permutations that resolve. ``registered_only``
+    (default true) restricts the output to live permutations. Strictly
+    passive — dnstwist only queries DNS/WHOIS, never the target itself."""
+    return with_hints("dnstwist_permutations",
+                       await _src("dnstwist").permutations(
+                           domain, registered_only=registered_only,
+                           mxcheck=mxcheck),
+                       domain)
+
+
+@mcp.tool()
+async def takeover_check(host: str) -> dict:
+    """Subdomain-takeover heuristic check — GET the host and inspect the
+    body for fingerprints of abandoned cloud services (S3, Azure,
+    GitHub Pages, Heroku, Netlify, Fastly, Shopify, Zendesk, ...).
+    Passive: only fetches the host's own root page."""
+    return with_hints("takeover_check",
+                       await _src("takeover").check_host(host), host)
 
 
 if __name__ == "__main__":

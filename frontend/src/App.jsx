@@ -13,13 +13,15 @@ const NODE_COLORS = {
   cert: '#3fb950', asn: '#e3b341', email: '#f78166', registrar: '#8b949e',
   ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f5a623',
   country: '#ff7b72', person: '#ff80b3', command_line: '#f0883e',
-  executable_name: '#ffb86b'
+  executable_name: '#ffb86b', wallet_address: '#f1c40f',
+  username: '#a371f7'
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
   cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'concave-hexagon',
   jarm: 'pentagon', url: 'cut-rectangle', country: 'tag', person: 'star',
-  command_line: 'rhomboid', executable_name: 'vee'
+  command_line: 'rhomboid', executable_name: 'vee',
+  email: 'round-tag', wallet_address: 'rhomboid', username: 'star'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
                        error: '#f85149', quota_exceeded: '#d29922' }
@@ -58,6 +60,8 @@ const MALTEGO_TYPES = {
   person:    () => 'maltego.Person',
   command_line: () => 'maltego.Phrase',
   executable_name: () => 'maltego.File',
+  wallet_address: () => 'maltego.Phrase',
+  username:  () => 'maltego.Alias',
   report:    () => null,
 }
 
@@ -131,6 +135,10 @@ function detectIOCType(raw) {
   if (/^(as|asn)\s*\d{1,10}$/i.test(v)) return 'asn'
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(v)) return 'ip'
   if (/^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(v)) return 'ip'
+  if (/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(v)) return 'email'
+  if (/^0x[a-fA-F0-9]{40}$/.test(v)) return 'wallet_address'
+  if (/^(bc1|tb1)[a-z0-9]{6,87}$/.test(v)) return 'wallet_address'
+  if (/^[48][1-9A-HJ-NP-Za-km-z]{94}$/.test(v)) return 'wallet_address'
   if (/^[0-9a-fA-F]{62}$/.test(v)) return 'jarm'
   if (/^[0-9a-fA-F]{64}$/.test(v)) return 'hash'
   if (/^[0-9a-fA-F]{40}$/.test(v)) return 'hash'
@@ -139,6 +147,9 @@ function detectIOCType(raw) {
   // too, but the filename interpretation is what the analyst wants.
   if (!/\s/.test(v) && EXEC_EXTENSIONS_RE.test(v)) return 'executable_name'
   if (/^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(v)) return 'domain'
+  // Legacy BTC Base58 — checked LAST because the 1.../3... pattern collides
+  // with arbitrary strings. Must be ≥25 chars and Base58 alphabet only.
+  if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(v)) return 'wallet_address'
   return 'domain'
 }
 
@@ -166,6 +177,297 @@ function HighlightedText({ text, nodeValues, onNodeClick }) {
         return <React.Fragment key={i}>{token}</React.Fragment>
       })}
     </span>
+  )
+}
+
+// ── ActionsPanel ─────────────────────────────────────────────────────────
+// Operational deliverables for a finished investigation. Three cards:
+// Blocklist, Detection rules, Takedown. Each opens a formatted artifact
+// the analyst can paste straight into a firewall / SIEM / abuse form.
+function ActionsPanel({ activeInv, graphReady }) {
+  const [mode, setMode] = React.useState(null)   // 'block' | 'detect' | 'takedown'
+  const [format, setFormat] = React.useState('plain')
+  const [includeDefused, setIncludeDefused] = React.useState(false)
+  const [content, setContent] = React.useState('')
+  const [takedown, setTakedown] = React.useState(null)
+  const [loading, setLoading] = React.useState(false)
+  const [copied, setCopied] = React.useState(false)
+  const [err, setErr] = React.useState('')
+
+  const blockFormats = [
+    { id: 'plain',     label: 'Plain text',  ext: 'txt'   },
+    { id: 'hosts',     label: 'hosts file',  ext: 'txt'   },
+    { id: 'unbound',   label: 'Unbound',     ext: 'conf'  },
+    { id: 'rpz',       label: 'BIND RPZ',    ext: 'zone'  },
+    { id: 'palo_edl',  label: 'Palo EDL',    ext: 'txt'   },
+    { id: 'cisco_acl', label: 'Cisco ACL',   ext: 'cfg'   },
+    { id: 'csv',       label: 'CSV',         ext: 'csv'   },
+  ]
+  const detectFormats = [
+    { id: 'sigma', label: 'Sigma', ext: 'yml'   },
+    { id: 'snort', label: 'Snort', ext: 'rules' },
+    { id: 'yara',  label: 'YARA',  ext: 'yar'   },
+  ]
+
+  React.useEffect(() => {
+    setMode(null)
+    setContent('')
+    setTakedown(null)
+    setErr('')
+  }, [activeInv])
+
+  const load = React.useCallback(async (which, fmt) => {
+    if (!activeInv) return
+    setLoading(true)
+    setErr('')
+    setContent('')
+    setTakedown(null)
+    try {
+      if (which === 'block') {
+        const params = new URLSearchParams({ fmt, include_defused: includeDefused ? '1' : '0' })
+        const r = await fetch(`/api/investigations/${activeInv}/actions/blocklist?${params}`,
+                              { credentials: 'same-origin' })
+        if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
+        const j = await r.json()
+        setContent(j.content || '')
+      } else if (which === 'detect') {
+        const params = new URLSearchParams({ fmt, include_defused: includeDefused ? '1' : '0' })
+        const r = await fetch(`/api/investigations/${activeInv}/actions/detection?${params}`,
+                              { credentials: 'same-origin' })
+        if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
+        const j = await r.json()
+        setContent(j.content || '')
+      } else if (which === 'takedown') {
+        const r = await fetch(`/api/investigations/${activeInv}/actions/takedown`,
+                              { credentials: 'same-origin' })
+        if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
+        const j = await r.json()
+        setTakedown(j)
+      }
+    } catch (e) {
+      setErr(String(e.message || e))
+    } finally {
+      setLoading(false)
+    }
+  }, [activeInv, includeDefused])
+
+  const open = (which) => {
+    setMode(which)
+    setCopied(false)
+    if (which === 'block') { setFormat('plain'); load('block', 'plain') }
+    else if (which === 'detect') { setFormat('sigma'); load('detect', 'sigma') }
+    else if (which === 'takedown') { load('takedown') }
+  }
+
+  const switchFormat = (fmt) => {
+    setFormat(fmt)
+    setCopied(false)
+    load(mode, fmt)
+  }
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1400)
+    } catch (_) {}
+  }
+
+  const download = () => {
+    if (!content) return
+    const formats = mode === 'block' ? blockFormats : detectFormats
+    const meta = formats.find(f => f.id === format) || { ext: 'txt' }
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `bounce-cti-${activeInv}.${mode}.${format}.${meta.ext}`
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  if (!activeInv) {
+    return <p className="hint">Pick an investigation first.</p>
+  }
+  if (!graphReady) {
+    return <p className="hint">Graph is still loading. Once nodes are in, come back here for blocklists / takedown emails / detection rules.</p>
+  }
+
+  return (
+    <div className="actions-panel">
+      <div className="actions-intro">
+        Operational deliverables built from the graph. Defused noise (CDN /
+        parking / sinkhole / Tor) is excluded by default — toggle the
+        checkbox if you have audited a defused indicator and want it
+        included.
+      </div>
+
+      <label className="actions-defuse-toggle">
+        <input
+          type="checkbox"
+          checked={includeDefused}
+          onChange={e => {
+            setIncludeDefused(e.target.checked)
+            if (mode === 'block' || mode === 'detect') load(mode, format)
+          }}
+        />
+        Include defused indicators
+      </label>
+
+      <div className="actions-cards">
+        <button
+          className={`action-card${mode === 'block' ? ' active' : ''}`}
+          onClick={() => open('block')}
+        >
+          <div className="action-card-icon">🛑</div>
+          <div className="action-card-body">
+            <div className="action-card-title">Blocklist</div>
+            <div className="action-card-desc">Firewall / DNS / EDR drop-list in 7 formats</div>
+          </div>
+        </button>
+
+        <button
+          className={`action-card${mode === 'takedown' ? ' active' : ''}`}
+          onClick={() => open('takedown')}
+        >
+          <div className="action-card-icon">✉</div>
+          <div className="action-card-body">
+            <div className="action-card-title">Takedown</div>
+            <div className="action-card-desc">Abuse-contact emails ready to send, one per host</div>
+          </div>
+        </button>
+
+        <button
+          className={`action-card${mode === 'detect' ? ' active' : ''}`}
+          onClick={() => open('detect')}
+        >
+          <div className="action-card-icon">🔍</div>
+          <div className="action-card-body">
+            <div className="action-card-title">Detection</div>
+            <div className="action-card-desc">Sigma / Snort / YARA starter rule</div>
+          </div>
+        </button>
+      </div>
+
+      {err && <div className="actions-error">⚠ {err}</div>}
+
+      {(mode === 'block' || mode === 'detect') && !err && (
+        <div className="actions-output">
+          <div className="actions-format-row">
+            {(mode === 'block' ? blockFormats : detectFormats).map(f => (
+              <button
+                key={f.id}
+                className={`format-pill${format === f.id ? ' active' : ''}`}
+                onClick={() => switchFormat(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
+            <div style={{ flex: 1 }} />
+            <button
+              className="btn-sm secondary"
+              onClick={copy}
+              disabled={!content}
+              title="Copy to clipboard"
+            >
+              {copied ? '✓ copied' : '⧉ copy'}
+            </button>
+            <button
+              className="btn-sm secondary"
+              onClick={download}
+              disabled={!content}
+              title="Download file"
+            >
+              ↓ file
+            </button>
+          </div>
+          {loading && <div className="actions-loading">Rendering…</div>}
+          {!loading && (
+            <pre className="actions-output-pre">{content || '(no actionable IOCs in this graph)'}</pre>
+          )}
+        </div>
+      )}
+
+      {mode === 'takedown' && !err && (
+        <div className="actions-takedown">
+          {loading && <div className="actions-loading">Building takedown bundles…</div>}
+          {!loading && takedown && takedown.count === 0 && (
+            <div className="actions-empty">
+              No host has a known abuse contact yet. Run the investigation
+              long enough for RDAP / WHOIS to populate the registrar /
+              abuse_email fields on the seed nodes.
+            </div>
+          )}
+          {!loading && takedown && takedown.count > 0 && (
+            <>
+              <div className="takedown-summary">
+                {takedown.count} target{takedown.count !== 1 ? 's' : ''} with known abuse contact
+              </div>
+              {takedown.items.map((t, i) => (
+                <TakedownCard key={i} item={t} />
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TakedownCard({ item }) {
+  const [copied, setCopied] = React.useState('')
+  const copyText = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(label)
+      setTimeout(() => setCopied(''), 1400)
+    } catch (_) {}
+  }
+  return (
+    <div className="takedown-card">
+      <div className="takedown-card-header">
+        <div className="takedown-card-target">
+          <span className="takedown-target-type">{item.target.type}</span>
+          <span className="takedown-target-value">{item.target.value}</span>
+        </div>
+        <div className="takedown-card-meta">
+          {item.registrar && <span title="Registrar / Network operator">{item.registrar}</span>}
+          {item.asn && <span className="takedown-asn">{item.asn}</span>}
+        </div>
+      </div>
+      <div className="takedown-card-row">
+        <span className="takedown-card-label">To:</span>
+        <span className="takedown-card-email">{item.abuse_email}</span>
+      </div>
+      <div className="takedown-card-row">
+        <span className="takedown-card-label">Subject:</span>
+        <span className="takedown-card-subject">{item.subject}</span>
+      </div>
+      <details className="takedown-card-body">
+        <summary>Preview email body</summary>
+        <pre className="takedown-body-pre">{item.body}</pre>
+      </details>
+      <div className="takedown-card-actions">
+        <a
+          href={item.mailto}
+          className="btn-sm"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open this in your default mail client"
+        >
+          ✉ Open in mail client
+        </a>
+        <button className="btn-sm secondary" onClick={() => copyText(item.abuse_email, 'email')}>
+          {copied === 'email' ? '✓' : '⧉'} address
+        </button>
+        <button className="btn-sm secondary" onClick={() => copyText(item.subject, 'subject')}>
+          {copied === 'subject' ? '✓' : '⧉'} subject
+        </button>
+        <button className="btn-sm secondary" onClick={() => copyText(item.body, 'body')}>
+          {copied === 'body' ? '✓' : '⧉'} body
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -231,6 +533,12 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [evidenceData, setEvidenceData] = useState(null)
   const [evidenceLoading, setEvidenceLoading] = useState(false)
   const [agentNotes, setAgentNotes] = useState([])
+  const [expandedReasoning, setExpandedReasoning] = useState(() => new Set())
+  // Cross-investigation hits for the currently selected node — fetched on
+  // demand once per (inv, node) pair. ``null`` = not loaded, ``[]`` = loaded
+  // and empty (no prior investigations contain this IOC).
+  const [crossInvHits, setCrossInvHits] = useState(null)
+  const [crossInvLoading, setCrossInvLoading] = useState(false)
   const [customPrompt, setCustomPrompt] = useState('')
   const [promptBusy, setPromptBusy] = useState(false)
   // Optimistic pending prompt: shows the user's message in the chat immediately
@@ -418,6 +726,24 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       setPromptBusy(false)
     }
   }, [promptHistoryLen, rightTab])
+
+  // ── Cross-investigation lookup for the selected node ─────────────────────
+  // When the analyst clicks a node we fetch the list of OTHER investigations
+  // (same user) where the same (type, value) was already observed. This is
+  // the convergence signal: repeat infrastructure across campaigns.
+  useEffect(() => {
+    setCrossInvHits(null)
+    if (!activeInv || !selected || selected.type === 'report') return
+    let cancelled = false
+    setCrossInvLoading(true)
+    fetch(`/api/investigations/${activeInv}/nodes/${selected.id}/cross_investigations`,
+          { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (!cancelled && j) setCrossInvHits(j.hits || []) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setCrossInvLoading(false) })
+    return () => { cancelled = true }
+  }, [activeInv, selected?.id, selected?.type])
 
   // ── Cytoscape init ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -967,6 +1293,32 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setBudgetLog([])
     setEvents([])
     setAgentNotes([])
+    setExpandedReasoning(new Set())
+    // Backfill the timeline from the persisted transcript so reasoning +
+    // tool calls survive a page reload. Live WS events appended on top.
+    fetch(`/api/investigations/${id}/transcript`, { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (!j || activeInvRef.current !== id) return
+        const notes = []
+        for (const e of (j.entries || [])) {
+          if (e.kind === 'reasoning' && e.text) {
+            notes.push({ ts: e.ts, noteKind: 'reasoning', text: e.text })
+          } else if (e.kind === 'tool') {
+            notes.push({
+              ts: e.ts, noteKind: 'tool', text: e.name,
+              detail: JSON.stringify(e.input || {}).slice(0, 200),
+            })
+          } else if (e.kind === 'tool_result' && e.is_error) {
+            notes.push({
+              ts: e.ts, noteKind: 'reasoning',
+              text: `⚠ ${e.name} returned an error: ${(e.result_preview || '').slice(0, 200)}`,
+            })
+          }
+        }
+        if (notes.length) setAgentNotes(notes)
+      })
+      .catch(() => {})
     setNodeValues(new Map())
     setExistingTypes(new Set())
     setFilterTypes(new Set())
@@ -1002,9 +1354,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         const toolBlocks = content.filter(b => b.type === 'tool_use')
         const notes = []
         if (textBlocks.length) {
-          // Agent reasoning — summarize to keep timeline compact
-          const full = textBlocks.join(' ')
-          if (full.trim().length > 5) notes.push({ ts: evtTs, noteKind: 'reasoning', text: full.slice(0, 300) })
+          // Agent reasoning — keep the full text (up to a 4000-char cap to
+          // bound a single runaway message). The timeline UI line-clamps
+          // for compactness and expands on click.
+          const full = textBlocks.join(' ').trim()
+          if (full.length > 5) notes.push({ ts: evtTs, noteKind: 'reasoning', text: full.slice(0, 4000) })
         }
         for (const t of toolBlocks) {
           notes.push({ ts: evtTs, noteKind: 'tool', text: t.name, detail: JSON.stringify(t.input || {}).slice(0, 120) })
@@ -2299,6 +2653,13 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             Timeline
           </button>
           <button
+            className={`panel-tab${rightTab === 'actions' ? ' active' : ''}`}
+            onClick={() => setRightTab('actions')}
+            title="Operational deliverables — blocklists, takedown templates, detection rules"
+          >
+            Actions
+          </button>
+          <button
             className={`panel-tab${rightTab === 'chat' ? ' active' : ''}`}
             onClick={() => setRightTab('chat')}
           >
@@ -2650,6 +3011,53 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     </div>
                   )}
 
+                  {/* MITRE ATT&CK mapping — agent-validated list of
+                      techniques the investigation observed. Each row links
+                      to the technique page on attack.mitre.org. */}
+                  {(() => {
+                    const m = report.mitre_attack_mapping
+                    let items = []
+                    if (Array.isArray(m)) items = m
+                    else if (m && Array.isArray(m.techniques)) items = m.techniques
+                    if (!items || items.length === 0) return null
+                    return (
+                      <div>
+                        <div className="section-label" style={{ margin: '8px 0 6px' }}>MITRE ATT&CK</div>
+                        <div className="mitre-list">
+                          {items.map((t, i) => {
+                            const tid = t.technique_id || t.id || '?'
+                            const name = t.technique_name || t.name || ''
+                            const tactics = Array.isArray(t.tactics) ? t.tactics : (t.tactic ? [t.tactic] : [])
+                            const ev = t.evidence || t.rationale || ''
+                            const conf = (t.confidence || '').toLowerCase()
+                            const url = `https://attack.mitre.org/techniques/${tid.replace('.', '/')}/`
+                            return (
+                              <div key={i} className={`mitre-item${conf ? ` mitre-${conf}` : ''}`}>
+                                <a href={url} target="_blank" rel="noopener noreferrer" className="mitre-id" title="Open on attack.mitre.org">
+                                  {tid}
+                                </a>
+                                <div className="mitre-body">
+                                  <div className="mitre-name">
+                                    {name}
+                                    {conf && <span className="mitre-conf">{conf}</span>}
+                                  </div>
+                                  {tactics.length > 0 && (
+                                    <div className="mitre-tactics">
+                                      {tactics.map(tac => (
+                                        <span key={tac} className="mitre-tactic">{String(tac).replace(/_/g, ' ').replace(/-/g, ' ')}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {ev && <div className="mitre-ev">{String(ev)}</div>}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
                   {report.pivot_suggestions?.length > 0 && (
                     <div>
                       <div className="section-label" style={{ margin: '8px 0 6px' }}>Pivot suggestions</div>
@@ -2812,6 +3220,63 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     )
                   })()}
 
+                  {/* Cross-investigation convergence — repeat infrastructure
+                      across the user's prior investigations. High signal:
+                      if the same JARM / registrant email / C2 IP shows up
+                      in several past campaigns, it's almost certainly the
+                      same actor cluster. */}
+                  {selected.type !== 'report' && (
+                    <div className="cross-inv-panel">
+                      {crossInvLoading && (
+                        <div className="cross-inv-loading">Checking prior investigations…</div>
+                      )}
+                      {!crossInvLoading && crossInvHits && crossInvHits.length === 0 && (
+                        <div className="cross-inv-empty">
+                          <span style={{ color: 'var(--on-dim)', fontSize: 10 }}>
+                            First time this IOC appears in your investigation history.
+                          </span>
+                        </div>
+                      )}
+                      {!crossInvLoading && crossInvHits && crossInvHits.length > 0 && (
+                        <div className="cross-inv-block">
+                          <div className="cross-inv-header">
+                            <span className="cross-inv-icon">↺</span>
+                            <span className="cross-inv-title">
+                              Also seen in {crossInvHits.length} prior investigation{crossInvHits.length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                          <div className="cross-inv-list">
+                            {crossInvHits.slice(0, 6).map(h => (
+                              <button
+                                key={h.investigation_id}
+                                className="cross-inv-item"
+                                onClick={() => openInv(h.investigation_id)}
+                                title={`Open this prior investigation (started ${new Date((h.investigation_created_at || 0) * 1000).toLocaleString()})`}
+                              >
+                                <span className="cross-inv-seed-type">{h.seed_type}</span>
+                                <span className="cross-inv-seed-value">
+                                  {h.title || h.seed_value}
+                                </span>
+                                {h.node_tags && h.node_tags.length > 0 && (
+                                  <span className="cross-inv-tags">
+                                    {h.node_tags.slice(0, 3).map(t => (
+                                      <span key={t} className={`tag-chip tag-${t}`} style={{ fontSize: 9, padding: '0 4px' }}>{t}</span>
+                                    ))}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                            {crossInvHits.length > 6 && (
+                              <div className="cross-inv-more">
+                                + {crossInvHits.length - 6} more
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div style={{ display: 'flex', gap: 6 }}>
                     {PIVOTABLE.includes(selected.type) && (
                       <>
@@ -2879,6 +3344,103 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                       </div>
                     </div>
                   )}
+
+                  {/* Static analysis (uploaded samples only). Surfaces the
+                      in-process PE/ELF + strings + entropy pass run on
+                      upload. The agent reads the same payload via
+                      metadata.static_analysis. */}
+                  {selected.type === 'hash' && selected.metadata?.static_analysis && (() => {
+                    const sa = selected.metadata.static_analysis
+                    if (!sa || sa.error) return null
+                    const pe = sa.pe || null
+                    const elf = sa.elf || null
+                    const packed = pe?.sections?.some(s => (s.entropy || 0) >= 7.5)
+                    return (
+                      <div className="static-analysis">
+                        <div className="section-label" style={{ margin: '6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          Static analysis
+                          {packed && <span className="sa-warn" title="A section has entropy ≥7.5 — likely packed/encrypted">packed?</span>}
+                        </div>
+                        <div className="sa-row">
+                          <span className="sa-key">size</span>
+                          <span className="sa-val">{sa.size?.toLocaleString()} bytes</span>
+                        </div>
+                        <div className="sa-row">
+                          <span className="sa-key">entropy</span>
+                          <span className="sa-val">{sa.entropy}</span>
+                        </div>
+                        {pe && (
+                          <>
+                            <div className="sa-row">
+                              <span className="sa-key">arch</span>
+                              <span className="sa-val">PE / {pe.machine}{pe.is_pe32_plus ? ' (PE32+)' : ''}</span>
+                            </div>
+                            {pe.compile_timestamp ? (
+                              <div className="sa-row">
+                                <span className="sa-key">compiled</span>
+                                <span className="sa-val">
+                                  {new Date(pe.compile_timestamp * 1000).toISOString().slice(0, 19).replace('T', ' ')}
+                                </span>
+                              </div>
+                            ) : null}
+                            {Array.isArray(pe.import_dlls) && pe.import_dlls.length > 0 && (
+                              <div className="sa-row sa-row-wrap">
+                                <span className="sa-key">imports</span>
+                                <span className="sa-val sa-chips">
+                                  {pe.import_dlls.map(d => (
+                                    <span key={d} className="sa-chip">{d}</span>
+                                  ))}
+                                </span>
+                              </div>
+                            )}
+                            {Array.isArray(pe.sections) && pe.sections.length > 0 && (
+                              <div className="sa-sections">
+                                <div className="sa-sections-header">sections</div>
+                                {pe.sections.map(s => (
+                                  <div key={s.name} className={`sa-section${s.entropy >= 7.5 ? ' sa-section-hot' : ''}`}>
+                                    <span className="sa-section-name">{s.name || '<?>'}</span>
+                                    <span className="sa-section-meta">
+                                      {(s.virtual_size || 0).toLocaleString()}b · entropy {s.entropy}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+                        {elf && (
+                          <div className="sa-row">
+                            <span className="sa-key">arch</span>
+                            <span className="sa-val">ELF{elf.ei_class} / {elf.machine}</span>
+                          </div>
+                        )}
+                        {sa.strings && (
+                          <div className="sa-row">
+                            <span className="sa-key">strings</span>
+                            <span className="sa-val">
+                              {sa.strings.ascii_total?.toLocaleString() || 0} ascii
+                              {sa.strings.utf16_total ? ` · ${sa.strings.utf16_total.toLocaleString()} utf16` : ''}
+                            </span>
+                          </div>
+                        )}
+                        {Array.isArray(sa.embedded_iocs) && sa.embedded_iocs.length > 0 && (
+                          <div className="sa-iocs">
+                            <div className="sa-iocs-header">{sa.embedded_iocs.length} IOCs embedded in strings</div>
+                            <div className="sa-chips">
+                              {sa.embedded_iocs.slice(0, 12).map((i, idx) => (
+                                <span key={idx} className="sa-chip" title={i.value}>
+                                  <span className="sa-chip-type">{i.type}</span>{i.value.length > 28 ? i.value.slice(0, 26) + '…' : i.value}
+                                </span>
+                              ))}
+                              {sa.embedded_iocs.length > 12 && (
+                                <span className="sa-chip-more">+ {sa.embedded_iocs.length - 12}</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   <div>
                     <div className="section-label" style={{ margin: '8px 0 6px' }}>Metadata</div>
@@ -3038,6 +3600,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                         )
                       }
                       if (tn._kind === 'reasoning') {
+                        const isExp = expandedReasoning.has(i)
                         return (
                           <div key={`note-${i}`} className="timeline-entry timeline-note">
                             <div className="timeline-line">
@@ -3045,7 +3608,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                               {i < merged.length - 1 && <span className="timeline-connector" />}
                             </div>
                             <div className="timeline-content">
-                              <div className="timeline-note-text">{tn.text}</div>
+                              <div
+                                className={`timeline-note-text${isExp ? ' expanded' : ''}`}
+                                title={isExp ? 'Click to collapse' : 'Click to expand full reasoning'}
+                                onClick={() => setExpandedReasoning(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(i)) next.delete(i); else next.add(i)
+                                  return next
+                                })}
+                              >{tn.text}</div>
                             </div>
                           </div>
                         )
@@ -3115,6 +3686,13 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                 )
               })()}
             </>
+          )}
+          {/* ── Actions tab — operational deliverables ── */}
+          {rightTab === 'actions' && (
+            <ActionsPanel
+              activeInv={activeInv}
+              graphReady={!!cyRef.current && cyRef.current.nodes().length > 0}
+            />
           )}
           {/* ── Chat tab ── */}
           {rightTab === 'chat' && (

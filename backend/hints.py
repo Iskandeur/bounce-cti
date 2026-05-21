@@ -407,6 +407,93 @@ def hint_for_dns_resolve(response: dict, domain: str) -> list[str]:
     return hints
 
 
+def hint_for_circl_hash_lookup(response: dict, value: str) -> list[str]:
+    """When CIRCL returns an NSRL hit, the hash is a known-good OS file.
+    Tell the agent to tag the hash with ``nsrl_known`` and STOP further
+    pivots — saves quota on legitimate files mis-classified as IOCs."""
+    if not isinstance(response, dict) or not response.get("found"):
+        return []
+    src = (response.get("source") or "").lower()
+    db = (response.get("db") or "").lower()
+    if "nsrl" in src or "nsrl" in db:
+        name = response.get("FileName") or response.get("file_name") or "<unknown>"
+        return [
+            f"PIVOT_HINT: hash {value} is a KNOWN-GOOD file in NSRL ('{name}'). "
+            "Call tag_node(type='hash', value=..., tag='nsrl_known') and STOP "
+            "further pivots on this hash — it is a legitimate OS/vendor artefact."
+        ]
+    return [
+        f"PIVOT_HINT: hash {value} is in the CIRCL known-good corpus "
+        f"(source={response.get('source','?')}). Verify before continuing."
+    ]
+
+
+def hint_for_tor_exit_check(response: dict, ip: str) -> list[str]:
+    if isinstance(response, dict) and response.get("exit_node"):
+        return [
+            f"PIVOT_HINT: IP {ip} is a Tor exit relay. Tag it with "
+            f"'tor_exit' and treat any passive DNS at this IP as noise "
+            f"(thousands of unrelated victims share Tor exits)."
+        ]
+    return []
+
+
+def hint_for_dnstwist_permutations(response: dict, domain: str) -> list[str]:
+    if not isinstance(response, dict):
+        return []
+    results = response.get("results") or []
+    if not results:
+        return []
+    live = [r for r in results if isinstance(r, dict) and (r.get("dns_a") or r.get("dns_aaaa"))]
+    if not live:
+        return []
+    sample = ", ".join(sorted({r.get("domain", "") for r in live[:5] if r.get("domain")}))
+    return [
+        f"PIVOT_HINT: dnstwist found {len(live)} live typosquat/permutation(s) "
+        f"of {domain} (e.g. {sample}). For each one that scores high (long "
+        "edit-distance match, recently registered, or already serving HTTP), "
+        "add_node(type='domain', value=...) so the standard domain workflow "
+        "fans out — these are prime phishing/fraud infrastructure candidates."
+    ]
+
+
+def hint_for_leakix_host(response: dict, value: str) -> list[str]:
+    if not isinstance(response, dict):
+        return []
+    services = response.get("Services") or response.get("services") or []
+    leaks = response.get("Leaks") or response.get("leaks") or []
+    hints: list[str] = []
+    if leaks:
+        hints.append(
+            f"PIVOT_HINT: LeakIX reports {len(leaks)} leak event(s) on {value} — "
+            "review for exposed credentials / databases / secrets that "
+            "confirm operator identity or breach scope."
+        )
+    if services:
+        hints.append(
+            f"PIVOT_HINT: LeakIX cataloged {len(services)} exposed service(s) on "
+            f"{value}. Cross-check banners against shodan_host / censys_host for "
+            "JARM/cert pivots."
+        )
+    return hints
+
+
+def hint_for_pulsedive_indicator(response: dict, value: str) -> list[str]:
+    if not isinstance(response, dict):
+        return []
+    risk = (response.get("risk") or "").lower()
+    threats = response.get("threats") or []
+    if risk in ("high", "critical") or threats:
+        names = ", ".join(t.get("name", "?") for t in threats[:5] if isinstance(t, dict))
+        return [
+            f"PIVOT_HINT: Pulsedive scores {value} as risk={risk!r}"
+            + (f", linked threats: {names}" if names else "")
+            + ". Call pulsedive_threat(name=<threat>) to expand the cluster "
+              "and corroborate against threatfox_search / opencti_lookup_indicator."
+        ]
+    return []
+
+
 # Dispatch table for cti_mcp wrappers to call.
 HINT_DISPATCH = {
     "rdap_domain": hint_for_rdap_domain,
@@ -419,6 +506,11 @@ HINT_DISPATCH = {
     "urlscan_search": hint_for_urlscan_search,
     "dns_resolve": hint_for_dns_resolve,
     "reverse_dns": hint_for_reverse_dns,
+    "circl_hash_lookup": hint_for_circl_hash_lookup,
+    "tor_exit_check": hint_for_tor_exit_check,
+    "dnstwist_permutations": hint_for_dnstwist_permutations,
+    "leakix_host": hint_for_leakix_host,
+    "pulsedive_indicator": hint_for_pulsedive_indicator,
 }
 
 

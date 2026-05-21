@@ -295,7 +295,7 @@ def list_models(user_id: int = Depends(current_user)):
 
 
 ALLOWED_SEED_TYPES = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line",
-                      "executable_name"}
+                      "executable_name", "email", "wallet_address", "username"}
 
 import re
 
@@ -321,6 +321,20 @@ _RE_EXECUTABLE_NAME = re.compile(
     r"^[^\s<>|?*\"]+\.(" + "|".join(_EXEC_EXTENSIONS) + r")$",
     re.I,
 )
+# RFC 5322-ish email — pragmatic, not exhaustive.
+_RE_EMAIL = re.compile(
+    r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$"
+)
+# Cryptocurrency wallet detection. We only auto-classify when the format is
+# unambiguous (ETH 0x prefix, BTC bech32 bc1 / tb1 prefix). The legacy BTC
+# Base58 forms (P2PKH/P2SH) collide with arbitrary strings, so we require
+# a leading 1 or 3 plus the canonical length window and Base58 alphabet.
+_RE_WALLET_ETH = re.compile(r"^0x[a-fA-F0-9]{40}$")
+_RE_WALLET_BTC_BECH32 = re.compile(r"^(bc1|tb1)[a-z0-9]{6,87}$")
+_RE_WALLET_BTC_BASE58 = re.compile(r"^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$")
+_RE_WALLET_XMR = re.compile(r"^[48][1-9A-HJ-NP-Za-km-z]{94}$")
+# Usernames are intentionally not auto-detected — too generic. The frontend
+# (and API) pass seed_type=username explicitly when the analyst means it.
 
 
 def detect_seed_type(value: str) -> str:
@@ -336,6 +350,16 @@ def detect_seed_type(value: str) -> str:
         return "ip"
     if _RE_IPV6.match(v):
         return "ip"
+    if _RE_EMAIL.match(v):
+        return "email"
+    if _RE_WALLET_ETH.match(v):
+        return "wallet_address"
+    if _RE_WALLET_BTC_BECH32.match(v):
+        return "wallet_address"
+    if _RE_WALLET_XMR.match(v):
+        return "wallet_address"
+    # Legacy BTC Base58 — checked AFTER hash/exec/domain because the
+    # 1.../3... pattern collides with arbitrary IOC strings.
     if _RE_JARM.match(v):
         return "jarm"
     if _RE_SHA256.match(v):
@@ -344,6 +368,8 @@ def detect_seed_type(value: str) -> str:
         return "hash"
     if _RE_MD5.match(v):
         return "hash"
+    if _RE_WALLET_BTC_BASE58.match(v):
+        return "wallet_address"
     # Executable filename before domain: "malware.exe" matches both _RE_DOMAIN
     # and _RE_EXECUTABLE_NAME, and the filename interpretation is what the
     # analyst pasting a binary's basename actually wants.
@@ -375,6 +401,22 @@ def _clean_seed(seed_type: str, seed_value: str) -> str:
             if sep in sv:
                 sv = sv.rsplit(sep, 1)[-1]
         sv = sv.lower()
+    elif seed_type == "email":
+        # Email addresses are case-insensitive on the domain part and
+        # almost-always-treated-case-insensitive on the local part. We
+        # lower-case the whole thing so "Foo@Bar.com" and "foo@bar.com"
+        # hash to the same node.
+        sv = sv.lower()
+    elif seed_type == "wallet_address":
+        # ETH addresses use EIP-55 mixed case for checksum. Keep case for
+        # ETH; lower-case Bech32 (BTC bc1/tb1) for canonical form.
+        if _RE_WALLET_BTC_BECH32.match(sv) or sv.lower().startswith(("bc1", "tb1")):
+            sv = sv.lower()
+        # Base58 (BTC legacy, XMR) and ETH 0x stay as provided.
+    elif seed_type == "username":
+        # Strip a leading @ if the analyst pasted "@handle". Keep case —
+        # some identifiers are case-sensitive (e.g. GitHub).
+        sv = sv.lstrip("@")
     return sv
 
 
@@ -497,6 +539,101 @@ def list_inv(user_id: int = Depends(current_user)):
 def graph(inv_id: str, user_id: int = Depends(current_user)):
     _require_owner(inv_id, user_id)
     return gs.get_graph(inv_id)
+
+
+@app.get("/api/investigations/{inv_id}/nodes/{node_id}/cross_investigations")
+def node_cross_investigations(inv_id: str, node_id: str,
+                               limit: int = 25,
+                               user_id: int = Depends(current_user)):
+    """Return prior investigations (owned by the caller) where a node with
+    the same (type, value) tuple already appeared. Surfaces cross-campaign
+    infrastructure reuse — when a registrant email / JARM / C2 IP shows up
+    in multiple investigations, that's a high-signal pivot the analyst
+    should not miss.
+
+    The node is resolved by ``node_id`` in the current investigation; the
+    lookup itself is by (type, value) across the user's full history,
+    excluding the current investigation. Up to ``limit`` rows, most recent
+    first.
+    """
+    _require_owner(inv_id, user_id)
+    with gs.conn() as c:
+        row = c.execute(
+            "SELECT type, value FROM nodes WHERE investigation_id=? AND id=?",
+            (inv_id, node_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="node not found")
+    hits = gs.find_node_across_investigations(
+        row["type"], row["value"], user_id=user_id,
+        exclude_inv=inv_id, limit=min(max(1, int(limit)), 100),
+    )
+    return {"type": row["type"], "value": row["value"], "hits": hits, "count": len(hits)}
+
+
+@app.get("/api/investigations/{inv_id}/transcript")
+def transcript(inv_id: str, user_id: int = Depends(current_user)):
+    """Return the agent's reasoning + tool-call transcript, ordered.
+
+    Used by the UI to rebuild the timeline after page reload (live WS events
+    only cover the current session — historical reasoning lives in the
+    events table). Each entry is one of:
+      {"kind": "reasoning", "ts": <epoch>, "text": "...", "phase": "..."}
+      {"kind": "tool",      "ts": <epoch>, "name": "...", "input": {...}}
+      {"kind": "tool_result","ts":<epoch>, "name": "...", "result_preview": "..."}
+      {"kind": "phase",     "ts": <epoch>, "phase": "main|followup|...", "stage": "starting|exit"}
+    Tool inputs are kept as-is; tool results are truncated to 800 chars for
+    rendering compactness — the full JSON is still in the events table for
+    deep audit if ever needed.
+    """
+    _require_owner(inv_id, user_id)
+    out: list[dict] = []
+    events = gs.get_events_since(inv_id, 0)
+    tool_use_id_to_name: dict[str, str] = {}
+    for e in events:
+        ts = e.get("_ts") or 0
+        kind = e.get("kind") or ""
+        msg = e.get("msg") or e.get("data") or {}
+        if kind == "agent_assistant":
+            content = (msg.get("message") or {}).get("content") or []
+            for block in content:
+                btype = block.get("type")
+                if btype == "text":
+                    txt = (block.get("text") or "").strip()
+                    if txt:
+                        out.append({"kind": "reasoning", "ts": ts, "text": txt})
+                elif btype == "tool_use":
+                    name = block.get("name") or "?"
+                    inp = block.get("input") or {}
+                    tool_use_id = block.get("id")
+                    if tool_use_id:
+                        tool_use_id_to_name[tool_use_id] = name
+                    out.append({"kind": "tool", "ts": ts, "name": name, "input": inp})
+        elif kind == "agent_user":
+            # Synthetic "user" events from the SDK carry tool results back.
+            content = (msg.get("message") or {}).get("content") or []
+            for block in content:
+                if block.get("type") == "tool_result":
+                    tool_use_id = block.get("tool_use_id") or ""
+                    name = tool_use_id_to_name.get(tool_use_id, "?")
+                    raw = block.get("content")
+                    if isinstance(raw, list):
+                        preview = " ".join(
+                            (b.get("text") or "")[:800] for b in raw
+                            if isinstance(b, dict) and b.get("type") == "text"
+                        )[:800]
+                    elif isinstance(raw, str):
+                        preview = raw[:800]
+                    else:
+                        preview = ""
+                    is_error = bool(block.get("is_error"))
+                    out.append({"kind": "tool_result", "ts": ts, "name": name,
+                                "result_preview": preview, "is_error": is_error})
+        elif kind.startswith("phase_") and kind.endswith(("_starting", "_exit")):
+            stage = "starting" if kind.endswith("_starting") else "exit"
+            phase = kind[len("phase_"):-len(f"_{stage}")]
+            out.append({"kind": "phase", "ts": ts, "phase": phase, "stage": stage})
+    return {"investigation_id": inv_id, "entries": out}
 
 
 @app.get("/api/quota")
@@ -792,6 +929,68 @@ def export_csv(inv_id: str, user_id: int = Depends(current_user)):
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="bounce-cti-{inv_id}.observables.csv"'},
     )
+
+
+@app.get("/api/investigations/{inv_id}/actions/blocklist")
+def export_blocklist(inv_id: str, fmt: str = "plain",
+                      include_defused: bool = False,
+                      user_id: int = Depends(current_user)):
+    """Render the investigation's network IOCs as a blocklist artefact.
+
+    ``fmt`` is one of ``plain | hosts | unbound | rpz | palo_edl |
+    cisco_acl | csv``. Defused nodes (CDN/parking/sinkhole/Tor/…) are
+    excluded by default — flip ``include_defused`` if the analyst has
+    audited that the indicator is genuinely malicious despite the tag."""
+    _require_owner(inv_id, user_id)
+    try:
+        from . import action_exports as ax
+        g = gs.get_graph(inv_id)
+        content = ax.render_blocklist(g["nodes"], fmt, include_defused=include_defused)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"blocklist render failed: {e}")
+    return {"format": fmt, "content": content,
+            "filename": f"bounce-cti-{inv_id}.blocklist.{fmt}.txt"}
+
+
+@app.get("/api/investigations/{inv_id}/actions/detection")
+def export_detection(inv_id: str, fmt: str = "sigma",
+                      include_defused: bool = False,
+                      user_id: int = Depends(current_user)):
+    """Render a starter detection rule (Sigma / Snort / YARA) from the
+    investigation's IOCs. Output is a starting point — the defender must
+    tune false positives and add environment context before deploying."""
+    _require_owner(inv_id, user_id)
+    try:
+        from . import action_exports as ax
+        g = gs.get_graph(inv_id)
+        content = ax.render_detection(g["nodes"], fmt,
+                                       investigation_id=inv_id,
+                                       include_defused=include_defused)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"detection render failed: {e}")
+    suffix = {"sigma": "yml", "snort": "rules", "yara": "yar"}.get(fmt, "txt")
+    return {"format": fmt, "content": content,
+            "filename": f"bounce-cti-{inv_id}.detection.{fmt}.{suffix}"}
+
+
+@app.get("/api/investigations/{inv_id}/actions/takedown")
+def export_takedown(inv_id: str, user_id: int = Depends(current_user)):
+    """Render a list of takedown-ready abuse-email bundles, one per
+    malicious host/IP with a known abuse contact. The analyst still owns
+    the send — bounce-cti never auto-emails anyone."""
+    _require_owner(inv_id, user_id)
+    try:
+        from . import action_exports as ax
+        g = gs.get_graph(inv_id)
+        bundles = ax.render_takedown(g["nodes"], g["edges"],
+                                       investigation_id=inv_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"takedown render failed: {e}")
+    return {"count": len(bundles), "items": bundles}
 
 
 @app.get("/api/investigations/{inv_id}/nodes/{node_id}/evidence")

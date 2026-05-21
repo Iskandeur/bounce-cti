@@ -185,6 +185,20 @@ def le_registrant_match(text: str) -> str | None:
     return None
 
 
+def is_tor_exit(ip: str) -> bool:
+    """Check the cached Tor exit-relay set (populated by ``tor_exits``).
+
+    Returns False when the set has not been built yet — the caller can
+    optionally call ``tor_exits.check_ip()`` first to populate it. We do
+    NOT trigger a network fetch here because ``defuse_check`` is a hot
+    synchronous path called from ``add_node``."""
+    try:
+        from .sources.tor_exits import _set as _tor_set  # type: ignore
+    except Exception:  # noqa: BLE001
+        return False
+    return ip.strip() in _tor_set
+
+
 def defuse_check(kind: str, value: str, *,
                  registrant: str | None = None,
                  registrar: str | None = None) -> dict:
@@ -221,6 +235,12 @@ def defuse_check(kind: str, value: str, *,
             tags.append("sinkhole")
             sinkhole_kind = "monitoring"
             reasons.append(f"IP {value} is a known monitoring sinkhole (vendor / LE / academic)")
+        if is_tor_exit(value):
+            tags.append("tor_exit")
+            reasons.append(
+                f"IP {value} is an advertised Tor exit relay — passive DNS hits here "
+                "represent thousands of unrelated victims, not attacker infrastructure"
+            )
     elif kind == "domain":
         if is_dyndns_domain(value):
             tags.append("dyndns")
@@ -249,12 +269,12 @@ def defuse_check(kind: str, value: str, *,
             )
             break
 
-    # Commercial-defuse short-circuit: parking / dyndns / cdn / blackhole stop the
-    # pivot. Monitoring sinkholes also stop NEW pivots (no live infra to chase) but
-    # historical pivots remain valuable. LE-seizures explicitly DO NOT stop —
-    # the agent must continue mining passive residue (VT historical resolutions,
-    # crtsh history, wayback, threatfox).
-    commercial_defuse = bool(set(tags) & {"cdn", "parking", "dyndns", "blackhole"})
+    # Commercial-defuse short-circuit: parking / dyndns / cdn / blackhole / tor_exit
+    # stop the pivot. Monitoring sinkholes also stop NEW pivots (no live infra to
+    # chase) but historical pivots remain valuable. LE-seizures explicitly DO NOT
+    # stop — the agent must continue mining passive residue (VT historical
+    # resolutions, crtsh history, wayback, threatfox).
+    commercial_defuse = bool(set(tags) & {"cdn", "parking", "dyndns", "blackhole", "tor_exit"})
     monitoring_sinkhole = sinkhole_kind == "monitoring"
     should_stop_pivot = commercial_defuse or monitoring_sinkhole
     if sinkhole_kind == "le_seized":

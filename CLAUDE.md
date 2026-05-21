@@ -2,9 +2,11 @@
 
 ## What this is
 
-Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submits a seed (domain / IP / hash / URL / JARM / ASN / command_line / executable_name), the backend spawns a headless `claude -p` agent that queries ~50 public CTI source tools via MCP (commercial scanners + abuse feeds + the OpenCTI community knowledge graph), builds an infrastructure graph in SQLite, and streams it live to a React + Cytoscape frontend over WebSocket. Investigations are scoped to PIN-authenticated users, can be shared via signed links, and can be exported as PDF or STIX 2.1.
+Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submits a seed (domain / IP / hash / URL / JARM / ASN / command_line / executable_name / email / wallet_address / username), the backend spawns a headless `claude -p` agent that queries ~50 public CTI source tools via MCP (commercial scanners + abuse feeds + the OpenCTI community knowledge graph), builds an infrastructure graph in SQLite, and streams it live to a React + Cytoscape frontend over WebSocket. Investigations are scoped to PIN-authenticated users, can be shared via signed links, and can be exported as PDF or STIX 2.1.
 
 The `executable_name` seed type lets the analyst paste just the basename of a malicious binary (e.g. `dropper.exe`) without uploading the file or knowing its hash — the agent pivots via MalwareBazaar's `get_filename` query to recover sample hashes and then runs the standard hash workflow on the top hits for family attribution.
+
+The `email`, `wallet_address`, and `username` seed types let the analyst start from an actor signal: a registrant / phishing-contact email triggers reverse-WHOIS over Whoxy + EmailRep reputation; a cryptocurrency wallet (auto-detected for ETH `0x…`, BTC bech32, BTC legacy, XMR) cross-references ransomware IOC feeds; a forum / Telegram handle is graphed as an opaque identifier and probed against the community KG. None of these require dedicated chain-tracing — the value is graph-level correlation across the existing source pool.
 
 ## Project layout
 
@@ -25,6 +27,34 @@ backend/
                         #   + pasted command-line / script — hashes binaries,
                         #   extracts IOCs from scripts, builds the command_line
                         #   context node + report_context for the agent
+  action_exports.py     # Operational deliverables for the Actions tab:
+                        #   render_blocklist (plain/hosts/unbound/rpz/palo_edl/
+                        #     cisco_acl/csv), render_detection (sigma/snort/
+                        #     yara), render_takedown (per-host abuse email
+                        #     bundle: To/Subject/Body + mailto link). Filters
+                        #     out defused indicators by default so accidental
+                        #     CDN / Tor / sinkhole blocks don't leak into
+                        #     production drop-lists.
+  mitre_mapping.py      # Heuristic MITRE ATT&CK technique mapper:
+                        #   TECHNIQUES catalog (44 enterprise techniques),
+                        #   _TAG_MAP (node-tag → technique candidates with
+                        #   rationale), _IMPORT_MAP (PE-import → technique).
+                        #   map_graph(graph) returns ranked candidates with
+                        #   merged rationales / evidence node IDs / confidence
+                        #   (low/medium/high based on signal count). Exposed
+                        #   to the agent as the mitre_attack_candidates MCP
+                        #   tool — the agent validates each candidate and
+                        #   writes the final report.metadata.mitre_attack_mapping.
+  sample_analysis.py    # Pure-Python static-analysis pass run on uploaded
+                        #   binaries: Shannon entropy (overall + per-section),
+                        #   printable string extraction (ASCII + UTF-16LE,
+                        #   ≥6/≥4 chars, deduped + ranked + capped at 500),
+                        #   IOC harvesting from those strings, PE walker
+                        #   (machine, compile_timestamp, sections w/ entropy,
+                        #   import-DLL list, imphash-lite), ELF walker
+                        #   (ei_class, machine, entry). Zero new deps; runs
+                        #   in-process so the binary never leaves the host.
+                        #   Output lands on hash_node.metadata.static_analysis
   pdf_report.py         # Render an investigation as a downloadable PDF
   stix_export.py        # Render an investigation as a STIX 2.1 bundle
   key_pool.py           # API key rotation pool: round-robin, cooldown on 429,
@@ -38,9 +68,10 @@ backend/
                         #   queue_status, coverage_matrix, requeue_missing,
                         #   gaps_report, quota_status). add_node auto-enqueues
                         #   pivots into pivot_tasks per pivot_mapping rules.
-    cti_mcp.py          # MCP server: ~50 async CTI source tools
+    cti_mcp.py          # MCP server: ~77 async CTI source tools
   sources/              # One file per CTI source (all async, all cached):
-                        #   Existing: crtsh, rdap, dns_tools, virustotal,
+                        #   Existing: crtsh, rdap, whois (RFC 3912 / port-43),
+                        #     dns_tools, virustotal,
                         #     urlscan, onyphe, shodan, otx, threatfox, wayback,
                         #     ip_api, mnemonic, abusech (URLhaus+MalwareBazaar)
                         #   Phase 2: fingerprints (favicon mmh3 hash, title
@@ -50,6 +81,19 @@ backend/
                         #   Community KG: opencti (GraphQL, read-only —
                         #     score, malware-family labels, actor/campaign
                         #     attribution, ATT&CK + linked report titles)
+                        #   Phase 4 (2026-05-21): dnsdumpster (passive subdomain),
+                        #     hackertarget (rev-IP / host search / geoip — free),
+                        #     leakix (exposed services + leak detection),
+                        #     pulsedive (risk-scored IOC enrichment),
+                        #     phishtank (URL verdict — independent of OpenPhish),
+                        #     circl_lu (CIRCL hashlookup NSRL + vuln-lookup),
+                        #     alienvault_rep (IP reputation feed, no auth),
+                        #     censys (Platform v3, JARM + cert search),
+                        #     emailrep (registrant-email reputation),
+                        #     project_honeypot (http:BL DNS lookup),
+                        #     tor_exits (live exit-relay list — auto-defuse),
+                        #     dnstwist (local typosquat enumeration),
+                        #     takeover (subdomain-takeover heuristic)
                         #   Shared: http_client
 frontend/
   src/
