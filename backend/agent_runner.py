@@ -21,14 +21,24 @@ _QUOTA_RESET_RE = re.compile(
     r'Claude\s+(?:AI\s+)?usage\s+limit\s+reached\s*\|\s*(\d{10,})',
     re.IGNORECASE,
 )
+# Quota-detection patterns. These are matched against the Claude CLI's
+# stream-json events AND stderr, so they must be specific enough to avoid
+# false positives from CTI tool responses (crt.sh / threatfox / VT free
+# tier all return strings like "too many requests" / "rate limit" on a 429,
+# which is NOT an Anthropic quota issue). The 2026-05-21 eval run measured
+# 4/12 cases mis-flagged as quota_exceeded on the FIRST CTI tool call —
+# diagnosed as the bare "too many requests" pattern matching a CTI 429.
 _QUOTA_KEYWORDS = [
     re.compile(r'Claude\s+(?:AI\s+)?usage\s+limit\s+reached', re.IGNORECASE),
     re.compile(r'usage\s+limit\s+reached', re.IGNORECASE),
     re.compile(r'5[- ]?hour\s+(?:usage\s+)?limit', re.IGNORECASE),
-    re.compile(r'\bplan\s+limit\b', re.IGNORECASE),
-    re.compile(r'quota\s+exceeded', re.IGNORECASE),
-    re.compile(r'rate\s+limit\s+reached', re.IGNORECASE),
-    re.compile(r'too\s+many\s+requests', re.IGNORECASE),
+    re.compile(r'\b(?:Anthropic|Claude)\s+plan\s+limit\b', re.IGNORECASE),
+    re.compile(r'(?:Anthropic|Claude)\s+quota\s+exceeded', re.IGNORECASE),
+    re.compile(r'(?:Anthropic|Claude)\s+rate\s+limit\s+reached', re.IGNORECASE),
+    # NB: bare "too many requests" / "quota exceeded" / "rate limit reached"
+    # removed 2026-05-21 — they fire on CTI source 429s and tank
+    # investigations on the FIRST tool call. The Claude CLI emits the
+    # branded variants above when its own 5h budget is exhausted.
 ]
 
 
