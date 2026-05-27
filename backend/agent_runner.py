@@ -13,14 +13,31 @@ from . import graph_store as gs
 
 
 # ── Claude-subscription quota detection ───────────────────────────────────
-# Claude Code emits a marker of the form "Claude AI usage limit reached|<epoch>"
-# when the subscription's rolling window is exhausted, plus a handful of
-# free-text variants. We scan stream-json events and stderr for any of these
-# and capture the reset epoch so the UI can show "resumes in HH:MM:SS".
+# When the subscription's rolling window is exhausted the Claude CLI signals
+# it two ways, both handled here:
+#   1. A structured stream-json event `{"type":"rate_limit_event",
+#      "rate_limit":{"status":"rejected","resetsAt":<epoch>}}`. status is
+#      "allowed"/"allowed_warning" on the normal informational events (one per
+#      turn) — those MUST NOT halt; only a non-allowed status is exhaustion.
+#   2. A human-readable string — the legacy "Claude AI usage limit
+#      reached|<epoch>" marker, or newer phrasings like
+#      "You've hit your limit · resets 1:50pm (UTC)".
+# We scan stream-json events and stderr for any of these and capture the reset
+# epoch so the UI can show "resumes in HH:MM:SS" and the global gate can refuse
+# fresh spawns until then.
 _QUOTA_RESET_RE = re.compile(
     r'Claude\s+(?:AI\s+)?usage\s+limit\s+reached\s*\|\s*(\d{10,})',
     re.IGNORECASE,
 )
+# Pull a reset epoch out of a json-dumped rate_limit_event, wherever the field
+# lands. Accepts seconds (10-digit) or milliseconds (13-digit) — small
+# durations like a retry_after of 60 won't match the digit floor.
+_RESET_EPOCH_RE = re.compile(
+    r'"(?:resets_?at|reset_?at|retry_?at)"\s*:\s*"?(\d{10,13})',
+    re.IGNORECASE,
+)
+# rate_limit.status values that are informational and must NOT trigger a halt.
+_RATE_LIMIT_OK_STATUSES = {"allowed", "allowed_warning", "warning", "ok", "active"}
 # Quota-detection patterns. These are matched against the Claude CLI's
 # stream-json events AND stderr, so they must be specific enough to avoid
 # false positives from CTI tool responses (crt.sh / threatfox / VT free
@@ -35,11 +52,34 @@ _QUOTA_KEYWORDS = [
     re.compile(r'\b(?:Anthropic|Claude)\s+plan\s+limit\b', re.IGNORECASE),
     re.compile(r'(?:Anthropic|Claude)\s+quota\s+exceeded', re.IGNORECASE),
     re.compile(r'(?:Anthropic|Claude)\s+rate\s+limit\s+reached', re.IGNORECASE),
+    # Newer CLI builds surface a human-readable usage-limit string instead of
+    # the "usage limit reached|<epoch>" marker, e.g.
+    #   "You've hit your limit · resets 1:50pm (UTC)"
+    #   "You've reached your usage limit"
+    # These phrasings are CLI-specific; a CTI source 429 never says
+    # "you've hit/reached your limit", so they don't reintroduce the
+    # false-positive class removed below.
+    re.compile(r"you'?ve\s+(?:hit|reached)\s+your\s+(?:usage\s+)?limit", re.IGNORECASE),
+    re.compile(r'\bhit\s+your\s+usage\s+limit', re.IGNORECASE),
     # NB: bare "too many requests" / "quota exceeded" / "rate limit reached"
     # removed 2026-05-21 — they fire on CTI source 429s and tank
     # investigations on the FIRST tool call. The Claude CLI emits the
     # branded variants above when its own 5h budget is exhausted.
 ]
+
+
+def _coerce_epoch(v) -> Optional[float]:
+    """Coerce a resetsAt-style value to a unix-epoch-seconds float. Treats
+    13-digit values as milliseconds. Returns None for junk / non-positive."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f <= 0:
+        return None
+    if f > 1e12:  # milliseconds
+        f /= 1000.0
+    return f
 
 
 def _detect_quota_error(text: str) -> tuple[bool, Optional[float], str]:
@@ -57,18 +97,45 @@ def _detect_quota_error(text: str) -> tuple[bool, Optional[float], str]:
     for pat in _QUOTA_KEYWORDS:
         m = pat.search(text)
         if m:
-            return (True, None, m.group(0))
+            # Best-effort: recover a reset epoch from a co-located resetsAt
+            # field (present when the match came from a json-dumped event).
+            rm = _RESET_EPOCH_RE.search(text)
+            reset_at = _coerce_epoch(rm.group(1)) if rm else None
+            return (True, reset_at, m.group(0))
     return (False, None, "")
 
 
 def _scan_event_for_quota(evt) -> tuple[bool, Optional[float], str]:
     """Walk a stream-json event payload (typically a dict) and look for a
-    quota-exhaustion marker in any string field."""
+    quota-exhaustion marker. Prefers the structured rate_limit_event status
+    over text matching so a benign status="allowed" event never halts."""
+    if isinstance(evt, dict) and evt.get("type") == "rate_limit_event":
+        rl = evt.get("rate_limit") or evt.get("rateLimit") or evt
+        if isinstance(rl, dict):
+            status = str(rl.get("status", "")).strip().lower()
+            if status and status not in _RATE_LIMIT_OK_STATUSES:
+                reset_at = _coerce_epoch(
+                    rl.get("resetsAt") or rl.get("resets_at")
+                    or rl.get("reset_at") or rl.get("retryAt"))
+                return (True, reset_at, f"rate_limit_event status={status}")
+        # status allowed / missing → not a halt; fall through to the text scan
+        # in case the payload also carries an explicit usage-limit string.
     try:
         blob = json.dumps(evt)
     except (TypeError, ValueError):
         blob = str(evt)
     return _detect_quota_error(blob)
+
+
+# When the CLI reports quota exhaustion but we can't recover an explicit reset
+# epoch (older text-only variants, or a rate_limit_event lacking resetsAt), we
+# still need a future reset time — otherwise get_quota_state() treats a None
+# `exhausted_until` as "not blocked" and every queued phase burns another
+# failed spawn. Claude's window is ~5h; a 1h floor keeps the Resume affordance
+# from being stuck forever while staying conservative.
+_QUOTA_FALLBACK_COOLDOWN_S = float(
+    os.environ.get("BOUNCE_QUOTA_FALLBACK_COOLDOWN_S", "3600")
+)
 
 
 # Global registry of running agent processes, keyed by investigation id.
@@ -2271,6 +2338,10 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
     def _note_quota(hit: bool, reset_at, msg: str, source: str):
         if not hit or quota_state["hit"]:
             return
+        # Guarantee a future reset epoch so the global gate engages (a None or
+        # stale epoch reads as "not blocked" in get_quota_state).
+        if not reset_at or reset_at <= time.time():
+            reset_at = time.time() + _QUOTA_FALLBACK_COOLDOWN_S
         quota_state["hit"] = True
         quota_state["reset_at"] = reset_at
         quota_state["message"] = msg

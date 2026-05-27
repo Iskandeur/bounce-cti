@@ -187,12 +187,19 @@ This repo has **automatic deployment via GitHub Actions**.
   `gaps_report`. Per-node fan-out cap: 8 high-priority + 4 low-priority pivots.
   The agent drains the queue via `next_pivot()` / `mark_pivot_done()`.
 - **Claude-subscription quota tracking**: `agent_runner` scans every
-  `claude -p` stream-json event + stderr line for the `Claude AI usage limit
-  reached|<epoch>` marker (and a handful of free-text variants) via
-  `_detect_quota_error`. On a hit, the agent is killed, the investigation
-  flips to status `quota_exceeded` with `quota_reset_at` stored, the global
-  `quota_state` row is updated, and a `quota_exceeded` event + `status_change`
-  event are emitted so the WebSocket clients refresh live. New spawns
+  `claude -p` stream-json event + stderr line for quota exhaustion two ways:
+  the structured `rate_limit_event` (a non-`allowed` `status`, with `resetsAt`
+  read for the reset epoch — `status: allowed`/`allowed_warning` are
+  informational and ignored, see `_scan_event_for_quota`), and human-readable
+  variants — the legacy `Claude AI usage limit reached|<epoch>` marker plus
+  newer phrasings like `You've hit your limit · resets …` (see
+  `_detect_quota_error`). When no reset epoch is recoverable, a fallback
+  cooldown (`BOUNCE_QUOTA_FALLBACK_COOLDOWN_S`, default 3600s) is applied so
+  the global gate still engages. On a hit, the agent is killed, the
+  investigation flips to status `quota_exceeded` with `quota_reset_at` stored,
+  the global `quota_state` row is updated, and a `quota_exceeded` event +
+  `status_change` event are emitted so the WebSocket clients refresh live.
+  New spawns
   (`/api/investigations`, `/batch`, `/rerun`, `/enrich`, `/add_seed`,
   `/prompt`, `/from_pdf`) are gated by `_require_quota_available()` and
   return HTTP 429 until the reset epoch passes. `POST /api/investigations/{id}/resume`
