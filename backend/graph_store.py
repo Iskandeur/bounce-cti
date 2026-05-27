@@ -1,5 +1,6 @@
 """SQLite-backed graph store. Single source of truth for the investigation."""
 import json
+import re
 import sqlite3
 import time
 import hashlib
@@ -117,6 +118,36 @@ def _node_id(inv: str, type_: str, value: str) -> str:
 
 def _edge_id(inv: str, src: str, dst: str, rel: str) -> str:
     return hashlib.sha1(f"{inv}|{src}|{dst}|{rel}".encode()).hexdigest()[:16]
+
+
+_RE_JARM_FP = re.compile(r"^[0-9a-fA-F]{62}$")   # JARM: 62-char active server FP
+_RE_JA3_FP = re.compile(r"^[0-9a-fA-F]{32}$")    # JA3/JA3S: 32-char MD5 digest
+
+
+def canonical_node_type(type_: str, value: str, metadata: dict | None = None) -> str:
+    """Disambiguate TLS-fingerprint node types that agents conflate.
+
+    JA3 (client) and JA3S (server) are 32-hex MD5 digests; JARM is a 62-char
+    active server fingerprint. They pivot differently, so a JA3 mislabelled as
+    `jarm` corrupts both the graph and STIX/OpenCTI exports. Resolution order:
+    explicit metadata hint first, then value shape. We never *upgrade* a value
+    to `jarm` purely because it's a TLS fingerprint — only the 62-hex shape does.
+    """
+    if type_ not in ("jarm", "ja3", "ja3s"):
+        return type_
+    md_type = str((metadata or {}).get("type", "")).lower()
+    if "ja3s" in md_type or "ja3 server" in md_type:
+        return "ja3s"
+    if "ja3" in md_type:                      # e.g. "JA3 client fingerprint"
+        return "ja3"
+    v = (value or "").strip()
+    if _RE_JARM_FP.match(v):
+        return "jarm"
+    if _RE_JA3_FP.match(v):
+        # 32-hex = JA3 family. Preserve an explicit ja3/ja3s; a bare `jarm`
+        # on a 32-hex value is exactly the mislabel we're correcting.
+        return type_ if type_ in ("ja3", "ja3s") else "ja3"
+    return type_
 
 
 @contextmanager
@@ -303,6 +334,7 @@ def find_node_across_investigations(type_: str, value: str,
 
 def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
              confidence: float = 0.8, source: str = "agent", tags: list[str] | None = None) -> dict:
+    type_ = canonical_node_type(type_, value, metadata)
     nid = _node_id(inv_id, type_, value)
     md = dict(metadata or {})
     # Track which sources have contributed data to this node (for multi-source convergence).
@@ -342,13 +374,32 @@ def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
     return {"id": nid, "type": type_, "value": value}
 
 
+def _canonical_edge_endpoint_type(c, inv_id: str, type_: str, value: str) -> str:
+    """Resolve a fingerprint endpoint type for an edge. add_edge has no
+    metadata, so prefer the type of a fingerprint node already stored under
+    this value (add_node corrected it); fall back to value-shape. Keeps edge
+    endpoints pointing at the real node id instead of a phantom `jarm` one."""
+    if type_ not in ("jarm", "ja3", "ja3s"):
+        return type_
+    row = c.execute(
+        "SELECT type FROM nodes WHERE investigation_id=? AND lower(value)=lower(?) "
+        "AND type IN ('jarm','ja3','ja3s') ORDER BY created_at LIMIT 1",
+        (inv_id, value or ""),
+    ).fetchone()
+    if row:
+        return row["type"]
+    return canonical_node_type(type_, value, None)
+
+
 def add_edge(inv_id: str, src_type: str, src_value: str, dst_type: str, dst_value: str,
              relation: str, evidence: str = "", source: str = "agent", confidence: float = 0.8) -> dict:
-    src = _node_id(inv_id, src_type, src_value)
-    dst = _node_id(inv_id, dst_type, dst_value)
-    eid = _edge_id(inv_id, src, dst, relation)
     now = time.time()
     with conn() as c:
+        src_type = _canonical_edge_endpoint_type(c, inv_id, src_type, src_value)
+        dst_type = _canonical_edge_endpoint_type(c, inv_id, dst_type, dst_value)
+        src = _node_id(inv_id, src_type, src_value)
+        dst = _node_id(inv_id, dst_type, dst_value)
+        eid = _edge_id(inv_id, src, dst, relation)
         try:
             c.execute(
                 "INSERT INTO edges(id, investigation_id, src, dst, relation, evidence, source, confidence, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -365,8 +416,9 @@ def add_edge(inv_id: str, src_type: str, src_value: str, dst_type: str, dst_valu
 
 
 def tag_node(inv_id: str, type_: str, value: str, tag: str):
-    nid = _node_id(inv_id, type_, value)
     with conn() as c:
+        type_ = _canonical_edge_endpoint_type(c, inv_id, type_, value)
+        nid = _node_id(inv_id, type_, value)
         row = c.execute("SELECT tags FROM nodes WHERE id=?", (nid,)).fetchone()
         if not row:
             return

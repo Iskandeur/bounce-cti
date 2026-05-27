@@ -8,12 +8,13 @@ const NODE_COLORS = {
   domain: '#79c0ff', ip: '#ffa657', hash: '#d2a8ff', url: '#56d364',
   cert: '#3fb950', asn: '#e3b341', email: '#f78166', registrar: '#8b949e',
   ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f5a623',
-  country: '#ff7b72',
+  country: '#ff7b72', ja3: '#caa6ff', ja3s: '#9d7fe0',
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
   cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'concave-hexagon',
   jarm: 'pentagon', url: 'cut-rectangle', country: 'tag',
+  ja3: 'heptagon', ja3s: 'octagon',
 }
 
 function iocString(v) {

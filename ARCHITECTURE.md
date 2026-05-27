@@ -205,6 +205,16 @@ SQLite-backed store. Tables:
 Node IDs are SHA1 hashes of `(investigation_id, type, value)` (lower-cased) —
 so upserts are idempotent.
 
+`canonical_node_type(type, value, metadata)` disambiguates the TLS-fingerprint
+node types agents tend to conflate: `jarm` (62-hex active server fingerprint)
+vs `ja3` (32-hex client MD5) vs `ja3s` (32-hex server MD5). It resolves from
+`metadata.type` ("JA3 client fingerprint" → `ja3`, "JA3S server fingerprint" →
+`ja3s`) then value shape, and is applied inside `add_node` (and mirrored in
+`add_edge`/`tag_node` via `_canonical_edge_endpoint_type`, which prefers the
+type of an already-stored fingerprint node with that value) so edges and tags
+land on the corrected node id instead of a phantom `jarm` one. JARM is never
+inferred merely because a value is a TLS fingerprint.
+
 `init_db()` runs idempotent migrations: it `_ensure_column`s `user_id`/`model`/
 `quota_reset_at` on `investigations` and `is_admin`/`allowed_models`/`label`
 on `users` for upgrades from earlier schemas.
@@ -375,7 +385,7 @@ Also exports `CLOUD_ASNS` (multi-tenant cloud/CDN ASN list, used by the
 convergence check), per-node fan-out caps (`MAX_HIGH_PRIO_PER_NODE=8`,
 `MAX_LOW_PRIO_PER_NODE=4`), per-hop cap (`MAX_NEW_NODES_PER_HOP=30`), and
 `discriminating_marker(type, tags, metadata)` — the predicate used by the
-convergence criterion (jarm, favicon_hash, cert_serial, tracking_id,
+convergence criterion (jarm, ja3, ja3s, favicon_hash, cert_serial, tracking_id,
 wallet_address, email, **person**, plus non-CDN/non-blackhole ip/domain/ns/asn).
 
 ### `backend/defuse_lists.py`

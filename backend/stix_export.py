@@ -237,7 +237,7 @@ _BUILDERS = {
 }
 
 # Types we intentionally skip (no standard STIX SCO/SDO equivalent)
-_SKIP_TYPES = {"report", "jarm", "favicon", "js_hash"}
+_SKIP_TYPES = {"report", "jarm", "ja3", "ja3s", "favicon", "js_hash"}
 
 
 def generate_stix_bundle(inv_id: str) -> dict:

@@ -205,6 +205,14 @@ This repo has **automatic deployment via GitHub Actions**.
   Cooldown on 429 (60s default), full-day cooldown on quota exhausted. Sources call
   `key_pool.acquire(src)` and degrade gracefully when None is returned.
 - **Node IDs are deterministic**: SHA1 of `(investigation_id, type, value)` — upserts are idempotent.
+  `graph_store.canonical_node_type()` first corrects the TLS-fingerprint types agents
+  conflate — `jarm` (62-hex server) vs `ja3` (32-hex client) vs `ja3s` (32-hex server),
+  resolved from `metadata.type` then value shape — and `add_edge`/`tag_node` mirror it so
+  edges/tags target the corrected node id, not a phantom `jarm`.
+- **Theme**: light/dark is toggled in the sidebar header and persisted in `localStorage`
+  (`bounce-theme`); `main.jsx` sets `<html data-theme>` before first paint. The UI is
+  CSS-variable-driven, so the theme lives almost entirely in `styles.css` `:root`
+  overrides. The Cytoscape canvas is theme-agnostic (dark label chips read on both).
 - **Auth is PIN + session cookie**: Set `ADMIN_PIN=<6-digit>` in the env before the first start
   so the bootstrap promotes that PIN to admin (idempotent; no auto-generation if unset).
   Each investigation is owned by a user; the WebSocket and every `/api/*` route check ownership.
