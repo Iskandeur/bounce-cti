@@ -56,8 +56,15 @@ def add_node(type: str, value: str, metadata: dict | None = None,
     """Add or merge a node in the investigation graph.
 
     type: one of domain, ip, hash, url, cert, asn, email, registrar, ns,
-          favicon_hash, jarm, ja3, cert_serial, tracking_id, form_action,
+          favicon_hash, jarm, ja3, ja3s, cert_serial, tracking_id, form_action,
           wallet_address, js_hash, title_hash, person, report
+
+          jarm / ja3 / ja3s are distinct TLS fingerprints and pivot
+          differently — do NOT file a JA3/JA3S under `jarm`. JARM is a
+          62-hex active server fingerprint; JA3 (client) and JA3S (server)
+          are 32-hex MD5 digests. The store auto-corrects an obvious
+          mislabel from metadata.type / value shape, but pass the right
+          type when you know it.
 
           person: create ONLY when multiple strong, convergent indicators
             point at the same individual / operator (e.g. the same operator

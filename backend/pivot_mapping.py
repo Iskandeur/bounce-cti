@@ -240,8 +240,8 @@ def discriminating_marker(node_type: str, tags: list[str] | None,
     metadata = metadata or {}
 
     # Always discriminating
-    if node_type in ("jarm", "favicon_hash", "cert_serial", "tracking_id",
-                      "wallet_address", "email", "person"):
+    if node_type in ("jarm", "ja3", "ja3s", "favicon_hash", "cert_serial",
+                      "tracking_id", "wallet_address", "email", "person"):
         return True
 
     # Defused tags neutralise the marker. `blackhole` joins the list — a

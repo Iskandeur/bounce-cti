@@ -4,6 +4,7 @@
 :root {
   --bg: #0d1117;
   --surface: #161b22;
+  --surface-1: #0d1117;
   --surface-2: #21262d;
   --surface-3: #2d333b;
   --on-bg: #e6edf3;
@@ -20,6 +21,34 @@
   --radius-sm: 4px;
   --radius-lg: 12px;
 }
+
+/* ── Light theme ──────────────────────────────────────────────────────────
+   Applied via <html data-theme="light">. The UI is variable-driven, so
+   redefining the core tokens flips the whole app; the few rules below patch
+   hardcoded dark accents that wouldn't read on a light surface. */
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --surface: #f6f8fa;
+  --surface-1: #f6f8fa;
+  --surface-2: #eaeef2;
+  --surface-3: #e2e7ec;
+  --on-bg: #1f2328;
+  --on-surface: #3d444d;
+  --on-dim: #636c76;
+  --primary: #0969da;
+  --primary-dim: #ddf4ff;
+  --error: #cf222e;
+  --warning: #9a6700;
+  --success: #1a7f37;
+  --outline: #d1d9e0;
+  --outline-dim: #e4e8ec;
+}
+:root[data-theme="light"] button:hover { background: var(--primary); color: #ffffff; }
+:root[data-theme="light"] .share-btn:hover,
+:root[data-theme="light"] .sidebar-share-btn:hover { background: var(--primary); color: #ffffff; }
+:root[data-theme="light"] .auth-btn { color: #ffffff; }
+:root[data-theme="light"] .format-pill.active { color: #ffffff; }
+:root[data-theme="light"] .ioc-link:hover { color: var(--primary); }
 
 html, body, #root {
   height: 100%;
@@ -139,7 +168,13 @@ button.secondary:hover {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 280px;
+  /* Grow to consume the sidebar's leftover height instead of a fixed cap,
+     so on short/wide viewports History isn't squeezed down to one card.
+     min-height guarantees a few rows are always visible; the sidebar
+     itself scrolls when everything together overflows. */
+  flex: 1 1 auto;
+  min-height: 200px;
+  max-height: 60vh;
   overflow-y: auto;
 }
 
@@ -1165,6 +1200,18 @@ button.secondary:hover {
   transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 .logout-btn:hover { color: var(--error); border-color: var(--error); background: rgba(248, 81, 73, 0.06); }
+.theme-toggle-btn {
+  background: transparent;
+  color: var(--on-dim);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.theme-toggle-btn:hover { color: var(--primary); border-color: var(--primary); background: var(--primary-dim); }
 /* ── Admin Panel ──────────────────────────────────────────────────────── */
 .admin-overlay {
   position: fixed; inset: 0;
@@ -2323,7 +2370,9 @@ button.secondary:hover {
     gap: 6px;
   }
   .event-log { max-height: 32vh; }
-  .inv-list  { max-height: none; }
+  /* In the mobile drawer the sidebar scrolls as one column, so let History
+     size to its content instead of growing to fill the viewport. */
+  .inv-list  { flex: 0 1 auto; min-height: 0; max-height: none; }
   /* Inline action buttons that aren't primary CTAs shouldn't grow to the
      full 40px touch height — they're meant to read as small toggles next
      to a section label, not as standalone buttons. */

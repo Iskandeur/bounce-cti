@@ -27,6 +27,8 @@ DOM fingerprints) building a live infrastructure graph in your browser.
   (server-side IOC extraction + refanging) and export the finished
   investigation as a PDF report or a STIX 2.1 bundle.
 - **Mobile-friendly**: drawer layout, touch-sized targets, single-finger pan.
+- **Light / dark theme**: toggle in the sidebar header (☀ / ☾); the choice is
+  persisted per browser and applied before first paint.
 - **Custom prompts on top of an existing graph**: ask the agent to dig further
   with the current graph (and a selection) as context.
 - **Noise defusing**: built-in CDN ranges, parking nameservers, sinkhole IPs

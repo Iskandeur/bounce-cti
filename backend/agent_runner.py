@@ -1282,6 +1282,12 @@ GRAPH SCHEMA — node types and edge relations
 ══════════════════════════════════════════════
 Node types (canonical):
   Core:     domain, ip, ns, registrar, cert, asn, email, url, hash, jarm, country, report
+  TLS fingerprints (distinct types — do NOT collapse into one another):
+            jarm — active TLS server fingerprint, 62-char hex.
+            ja3  — TLS *client* fingerprint, 32-char MD5 hex.
+            ja3s — TLS *server* fingerprint, 32-char MD5 hex.
+            They pivot via the same scanners but mean different things;
+            mislabelling a JA3/JA3S as `jarm` corrupts the graph and exports.
   Phase 2 (DOM fingerprints — when extracted via dom_fingerprints):
             favicon_hash (mmh3 int, Shodan http.favicon.hash compat),
             title_hash (sha1 of <title>),
@@ -1319,8 +1325,9 @@ Node types (canonical):
             domain / email / ns / cert nodes — NEVER fabricate a person node just
             to pad attribution.
   Aliases auto-resolved by the queue: 'favicon' -> 'favicon_hash',
-            'cert_sha1'/'cert_sha256'/'cert_thumbprint' -> 'cert_serial',
-            'ja3'/'ja3s' -> 'jarm'. Use canonical names when possible.
+            'cert_sha1'/'cert_sha256'/'cert_thumbprint' -> 'cert_serial'.
+            ja3 / ja3s keep their own type but SHARE jarm's scanner pivots
+            (they are not renamed to jarm). Use canonical names when possible.
 Tags to use: seed, suspicious, benign, cdn, parking, sinkhole, blackhole, dyndns,
              shared_hosting, c2, phishing, expired, le_seized
   - blackhole: IP is reserved / null-routed (0.0.0.0, 127.0.0.1, 240/4, TEST-NET).

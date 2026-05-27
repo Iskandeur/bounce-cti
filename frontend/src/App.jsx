@@ -14,14 +14,15 @@ const NODE_COLORS = {
   ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f5a623',
   country: '#ff7b72', person: '#ff80b3', command_line: '#f0883e',
   executable_name: '#ffb86b', wallet_address: '#f1c40f',
-  username: '#a371f7'
+  username: '#a371f7', ja3: '#caa6ff', ja3s: '#9d7fe0'
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
   cert: 'round-rectangle', asn: 'barrel', hash: 'triangle', report: 'concave-hexagon',
   jarm: 'pentagon', url: 'cut-rectangle', country: 'tag', person: 'star',
   command_line: 'rhomboid', executable_name: 'vee',
-  email: 'round-tag', wallet_address: 'rhomboid', username: 'star'
+  email: 'round-tag', wallet_address: 'rhomboid', username: 'star',
+  ja3: 'heptagon', ja3s: 'octagon'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
                        error: '#f85149', quota_exceeded: '#d29922' }
@@ -56,6 +57,8 @@ const MALTEGO_TYPES = {
   registrar: () => 'maltego.Organization',
   favicon:   () => 'maltego.Phrase',
   jarm:      () => 'maltego.Phrase',
+  ja3:       () => 'maltego.Phrase',
+  ja3s:      () => 'maltego.Phrase',
   country:   () => 'maltego.Location.Country',
   person:    () => 'maltego.Person',
   command_line: () => 'maltego.Phrase',
@@ -605,6 +608,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const isMobile = useIsMobile()
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false)
   const [mobileRightOpen, setMobileRightOpen] = useState(false)
+  const [theme, setTheme] = useState(() => {
+    try { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark' }
+    catch { return 'dark' }
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    try { localStorage.setItem('bounce-theme', theme) } catch { /* ignore */ }
+  }, [theme])
 
   const cyRef = useRef(null)
   const containerRef = useRef(null)
@@ -2080,7 +2092,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       )}
       {/* ── LEFT SIDEBAR ── */}
       <div className={`sidebar${mobileLeftOpen ? ' mobile-open' : ''}`}>
-        <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
+        <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div><button className="theme-toggle-btn" title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'} aria-label="Toggle theme" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '☾' : '☀'}</button>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
 
         <div className="section-label">New investigation</div>
         {/* Segmented control:
