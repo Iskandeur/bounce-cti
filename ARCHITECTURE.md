@@ -543,7 +543,7 @@ PULSEDIVE_API_KEY=          # free 500 req/month
 CENSYS_API_KEY=             # PAT format `censys_<id>_<secret>` (Platform v3) or `id:secret` (legacy Search v2)
 EMAILREP_API_KEY=           # optional — 250/month vs 10/day anonymous
 PROJECTHONEYPOT_API_KEY=    # http:BL access key, free
-# No-auth sources (no env var): circl_lu, alienvault_rep, phishtank, tor_exits, dnstwist (local), takeover
+# No-auth sources (no env var): whois (RFC 3912, TCP/43), circl_lu, alienvault_rep, phishtank, tor_exits, dnstwist (local), takeover
 
 # Multi-key rotation (optional; if set, takes precedence over the single-key form)
 # Useful for free tiers (VT, Netlas, CertSpotter, CriminalIP).
@@ -552,7 +552,7 @@ PROJECTHONEYPOT_API_KEY=    # http:BL access key, free
 # CERTSPOTTER_API_KEYS=...
 
 CLAUDE_BIN=claude      # path to claude CLI if not in PATH
-ADMIN_PIN=             # optional; if unset, an admin PIN is generated on first start
+ADMIN_PIN=             # optional 6-digit PIN; the matching user is promoted to admin on startup (idempotent). No auto-generation if unset.
 ```
 
 ## Development setup
