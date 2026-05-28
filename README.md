@@ -74,7 +74,8 @@ Make sure `claude` (Claude Code CLI) is on your `PATH`, or set `CLAUDE_BIN` in
 All free-tier or community keys; everything except VirusTotal is optional but
 strongly recommended for full coverage. See `.env.example` for the full list
 including the Phase 3 sources (AbuseIPDB, CertSpotter, Netlas, Whoxy, ZoomEye,
-CriminalIP).
+CriminalIP) and the Tier 1/2 sources (DNSDumpster, HackerTarget, LeakIX,
+Pulsedive, Censys, EmailRep, Project Honey Pot).
 
 ```
 # Core
@@ -97,6 +98,20 @@ CRIMINALIP_API_KEY=    #  ~50/day      https://www.criminalip.io
 # exposes a generous 10k/window quota; the token format is `flgrn_octi_tkn_…`.
 OPENCTI_URL=https://demo.opencti.io
 OPENCTI_API_KEY=
+
+# Tier 1/2 (added 2026-05-21). Required ones error out without a key;
+# HackerTarget / LeakIX / EmailRep also work anonymously (key lifts the cap).
+DNSDUMPSTER_API_KEY=     #   50 req/day  https://dnsdumpster.com/developer/  (required)
+PULSEDIVE_API_KEY=       #  500 req/mo   https://pulsedive.com/api/          (required)
+CENSYS_API_KEY=          #  250 req/mo   https://search.censys.io/account/api (required; `id:secret` or `censys_<id>_<secret>`)
+PROJECTHONEYPOT_API_KEY= #  free http:BL https://www.projecthoneypot.org/httpbl_configure.php (required, IPv4 only)
+HACKERTARGET_API_KEY=    #  ~50/day anon https://hackertarget.com            (optional)
+LEAKIX_API_KEY=          #  works anon   https://leakix.net                  (optional)
+EMAILREP_API_KEY=        #  10/day anon  https://emailrep.io/key             (optional)
+
+# No-auth sources (no key needed): CIRCL hashlookup + vuln-lookup, AlienVault
+# reputation feed, PhishTank, Tor exit-relay list, dnstwist (local binary —
+# `pip install dnstwist`, already in requirements.txt).
 
 # Multi-key rotation (optional). Supersedes the single-key form per source.
 # VIRUSTOTAL_API_KEYS=k1,k2,k3
