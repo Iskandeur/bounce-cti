@@ -228,7 +228,7 @@ export default function SharedView({ token }) {
     return (
       <div className="auth-screen">
         <div className="auth-card">
-          <img className="logo-mark logo-mark-auth" src="/logo-512.png" alt="Bounce-CTI" />
+          <span className="logo-mark logo-mark-auth" role="img" aria-label="Bounce-CTI" />
           <div className="logo">BOUNCE<span>CTI</span></div>
           <div className="auth-label">Lien partagé</div>
           <div className="auth-error">{err}</div>
@@ -261,7 +261,7 @@ export default function SharedView({ token }) {
     <div className="shared-view">
       <header className="shared-topbar">
         <div className="shared-topbar-left">
-          <img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" />
+          <span className="logo-mark logo-mark-sidebar" aria-hidden="true" />
           <div>
             <div className="shared-title">
               <span className="shared-badge">PARTAGÉ</span>

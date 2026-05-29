@@ -21,6 +21,10 @@ DOM fingerprints) building a live infrastructure graph in your browser.
 - **PIN auth + admin dashboard**: per-user model whitelist, account labels,
   one-click impersonation. Admin PIN is bootstrapped from `ADMIN_PIN` env var
   on first start (see "First login" below).
+- **Model + thinking-effort selection**: pick the Claude model (Sonnet 4.6,
+  Opus 4.6 / 4.7 / 4.8, Haiku 4.5) and an extended-thinking effort level
+  (low → max, or the model default) per investigation. Admins gate which
+  models each user may spawn.
 - **Shareable investigations**: signed share links with section opt-in
   (graph / report / timeline / evidence / chats), expiry, and import-into-account flow.
 - **PDF in / PDF out**: bootstrap an investigation from a vendor write-up

@@ -86,11 +86,19 @@ html, body, #root {
 .logo span { color: var(--primary); }
 
 /* ── Logo mark (4-point star) ──────────────────────────────────────────── */
+/* The source PNG is a near-white star on transparency, so on the light theme
+   it vanished against the pale sidebar. Render it as a CSS mask filled with a
+   theme-aware color instead of a raw <img>: near-white in dark mode (matching
+   the original look), brand primary in light mode. */
 .logo-mark {
   display: block;
   user-select: none;
   -webkit-user-drag: none;
+  -webkit-mask: url(/logo-256.png) center / contain no-repeat;
+  mask: url(/logo-256.png) center / contain no-repeat;
+  background-color: #f0f6fc;
 }
+:root[data-theme="light"] .logo-mark { background-color: var(--primary); }
 .logo-mark-sidebar {
   width: 26px; height: 26px;
   margin-right: 2px;
@@ -443,6 +451,10 @@ button.secondary:hover {
 }
 
 /* ── Node type filter bar ────────────────────────────────────────────────── */
+/* Wrapper is layout-transparent on desktop — each .filter-bar keeps its own
+   absolute position. On mobile it turns into a collapsible bottom sheet. */
+.filter-bars { display: contents; }
+
 .filter-bar {
   position: absolute;
   bottom: 44px;
@@ -452,6 +464,30 @@ button.secondary:hover {
   gap: 4px;
   z-index: 10;
 }
+
+/* Mobile-only affordances are hidden on desktop by default; the mobile media
+   query re-enables them. */
+.mobile-only { display: none; }
+.filter-toggle-btn {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 12;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  color: var(--on-surface);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--outline);
+  border-radius: 20px;
+  cursor: pointer;
+}
+.filter-toggle-btn:active { background: var(--surface-3); }
 
 .filter-chip {
   width: auto;
@@ -693,20 +729,25 @@ button.secondary:hover {
   letter-spacing: 0.5px;
   padding: 2px 8px;
   border-radius: 20px;
-  background: #58a6ff15;
-  color: #58a6ff;
-  border: 1px solid #58a6ff55;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
 }
+/* A small, calm spinner ring instead of a blinking dot — reads as "working"
+   without the jarring on/off pulse, and inherits the theme's primary color. */
 .report-refining-dot {
-  width: 7px;
-  height: 7px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: #58a6ff;
-  animation: report-refining-pulse 1.4s ease-in-out infinite;
+  border: 1.5px solid color-mix(in srgb, var(--primary) 28%, transparent);
+  border-top-color: var(--primary);
+  animation: report-refining-spin 0.7s linear infinite;
 }
-@keyframes report-refining-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.35; transform: scale(0.7); }
+@keyframes report-refining-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .report-refining-dot { animation-duration: 1.6s; }
 }
 
 /* ── Finding card ────────────────────────────────────────────────────────── */
@@ -2302,27 +2343,50 @@ button.secondary:hover {
   }
   .toolbar-separator { display: none; }
 
-  /* Filter bar / legend: keep scrollable, drop the 44px clearance for the
-     missing toolbar above. */
-  .filter-bar {
-    bottom: 6px;
-    left: 6px;
-    right: 6px;
-    max-height: 30vh;
+  /* Type / edge filter chips: collapsed behind the .filter-toggle-btn by
+     default so they don't permanently cover the lower half of the graph.
+     The toggle floats bottom-left; tapping it opens a single bottom-sheet
+     that holds both chip rows (and the legend) with one shared scroll. */
+  .mobile-only { display: inline-flex; }
+  .filter-toggle-btn { bottom: 8px; left: 8px; }
+
+  .graph:not(.mobile-filters-open) .filter-bars { display: none; }
+
+  .graph.mobile-filters-open .filter-bars {
+    display: flex;
+    flex-direction: column-reverse;   /* node-type row nearest the toggle */
+    gap: 8px;
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 52px;
+    max-height: 48vh;
     overflow-y: auto;
-    background: rgba(13, 17, 23, 0.78);
-    backdrop-filter: blur(6px);
+    overscroll-behavior: contain;
+    z-index: 12;
+    padding: 10px;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    backdrop-filter: blur(10px);
     border: 1px solid var(--outline);
     border-radius: var(--radius);
-    padding: 6px;
-    z-index: 11;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
   }
-  .legend {
-    bottom: 6px;
-    left: 6px;
-    right: 6px;
-    max-height: 30vh;
-    overflow-y: auto;
+  /* Inside the sheet each row flows normally — strip the desktop absolute
+     positioning / chrome so they stack cleanly. */
+  .graph.mobile-filters-open .filter-bar,
+  .graph.mobile-filters-open .filter-bar-relations,
+  .graph.mobile-filters-open .legend {
+    position: static;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    max-height: none;
+    overflow: visible;
+    background: none;
+    backdrop-filter: none;
+    border: none;
+    border-radius: 0;
+    padding: 0;
   }
 
   /* iOS zooms inputs whose computed font-size is < 16px on focus. Bump the

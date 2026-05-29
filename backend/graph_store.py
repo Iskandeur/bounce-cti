@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS investigations (
     status TEXT,
     user_id INTEGER,
     model TEXT,
+    effort TEXT,
     title TEXT
 );
 CREATE TABLE IF NOT EXISTS nodes (
@@ -172,6 +173,7 @@ def init_db():
         # Migrations: add columns to pre-existing tables before creating indexes
         _ensure_column(c, "investigations", "user_id", "user_id INTEGER")
         _ensure_column(c, "investigations", "model", "model TEXT")
+        _ensure_column(c, "investigations", "effort", "effort TEXT")
         _ensure_column(c, "investigations", "quota_reset_at", "quota_reset_at REAL")
         _ensure_column(c, "investigations", "title", "title TEXT")
         # users table may pre-date is_admin/allowed_models
@@ -183,12 +185,12 @@ def init_db():
 
 
 def create_investigation(seed_type: str, seed_value: str, user_id: Optional[int] = None,
-                         model: Optional[str] = None) -> str:
+                         model: Optional[str] = None, effort: Optional[str] = None) -> str:
     inv_id = hashlib.sha1(f"{time.time()}|{seed_type}|{seed_value}".encode()).hexdigest()[:12]
     with conn() as c:
         c.execute(
-            "INSERT INTO investigations(id, seed_type, seed_value, created_at, status, user_id, model) VALUES (?,?,?,?,?,?,?)",
-            (inv_id, seed_type, seed_value, time.time(), "running", user_id, model),
+            "INSERT INTO investigations(id, seed_type, seed_value, created_at, status, user_id, model, effort) VALUES (?,?,?,?,?,?,?,?)",
+            (inv_id, seed_type, seed_value, time.time(), "running", user_id, model, effort),
         )
     return inv_id
 
@@ -196,6 +198,21 @@ def create_investigation(seed_type: str, seed_value: str, user_id: Optional[int]
 def set_status(inv_id: str, status: str):
     with conn() as c:
         c.execute("UPDATE investigations SET status=? WHERE id=?", (status, inv_id))
+
+
+def set_effort(inv_id: str, effort: Optional[str]):
+    """Set or clear the per-investigation thinking-effort level. Read back by
+    the agent runner (via _build_env) to set CLAUDE_CODE_EFFORT_LEVEL for every
+    phase spawn, so resume / rerun / pivot reuse the analyst's chosen level."""
+    with conn() as c:
+        c.execute("UPDATE investigations SET effort=? WHERE id=?", (effort, inv_id))
+
+
+def get_effort(inv_id: str) -> Optional[str]:
+    """Return the stored thinking-effort level for an investigation, or None."""
+    with conn() as c:
+        row = c.execute("SELECT effort FROM investigations WHERE id=?", (inv_id,)).fetchone()
+    return row["effort"] if row else None
 
 
 def rename_investigation(inv_id: str, title: Optional[str]) -> bool:

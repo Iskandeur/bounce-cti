@@ -483,6 +483,14 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // what used to be 'single' and 'batch' (paste one IOC or a list, same input).
   const [inputMode, setInputMode] = useState('ioc')
   const [model, setModel] = useState('sonnet')
+  // Extended-thinking effort level passed to the agent (CLI --effort). ''
+  // means "use the model default". Persisted so it survives reloads.
+  const [effort, setEffort] = useState(() => {
+    try { return localStorage.getItem('bounce-effort') || '' } catch { return '' }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('bounce-effort', effort) } catch { /* ignore */ }
+  }, [effort])
   const [adminOpen, setAdminOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   // PDF-import: kind='pdf' adds a third option to the New Investigation
@@ -608,6 +616,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const isMobile = useIsMobile()
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false)
   const [mobileRightOpen, setMobileRightOpen] = useState(false)
+  // On phones the node-type / edge-type filter chips used to occupy the lower
+  // half of the graph permanently. They now collapse behind a toggle so the
+  // canvas stays usable; desktop always shows them (CSS gates the toggle).
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   const [theme, setTheme] = useState(() => {
     try { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark' }
     catch { return 'dark' }
@@ -1486,7 +1498,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       const cleaned = values[0]
       const r = await fetch('/api/investigations', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seed_type: detectIOCType(cleaned), seed_value: cleaned, model })
+        body: JSON.stringify({ seed_type: detectIOCType(cleaned), seed_value: cleaned, model, effort })
       })
       const { id } = await r.json()
       await refreshInvs()
@@ -1497,7 +1509,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     const items = values.map(v => ({ seed_type: detectIOCType(v), seed_value: v }))
     const r = await fetch('/api/investigations/batch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, model, combined: batchCombined })
+      body: JSON.stringify({ items, model, effort, combined: batchCombined })
     })
     const d = await r.json()
     await refreshInvs()
@@ -1517,6 +1529,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       const fd = new FormData()
       fd.append('file', pdfFile)
       fd.append('model', model)
+      if (effort) fd.append('effort', effort)
       const r = await fetch('/api/investigations/from_pdf', {
         method: 'POST', body: fd, credentials: 'same-origin'
       })
@@ -1550,6 +1563,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       if (sampleFile) fd.append('file', sampleFile)
       if (text)       fd.append('text', text)
       fd.append('model', model)
+      if (effort) fd.append('effort', effort)
       const r = await fetch('/api/investigations/from_sample', {
         method: 'POST', body: fd, credentials: 'same-origin'
       })
@@ -1581,6 +1595,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('model', model)
+      if (effort) fd.append('effort', effort)
       const r = await fetch(`/api/investigations/${activeInv}/from_pdf`, {
         method: 'POST', body: fd, credentials: 'same-origin'
       })
@@ -1647,7 +1662,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const rerunInv = async (id, ev) => {
     ev.stopPropagation()
     if (!confirm('Rerun this investigation? The existing graph is preserved; the agent will pivot from current state with a fresh budget.')) return
-    await fetch(`/api/investigations/${id}/rerun`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ model }) })
+    await fetch(`/api/investigations/${id}/rerun`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ model, effort }) })
     await refreshInvs()
     openInv(id)
   }
@@ -1710,7 +1725,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     const effectiveType = detectIOCType(v)
     await fetch(`/api/investigations/${activeInv}/add_seed`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed_type: effectiveType, seed_value: v, model })
+      body: JSON.stringify({ seed_type: effectiveType, seed_value: v, model, effort })
     })
     setEvents(e => [`▶ add seed: ${effectiveType} ${v}`, ...e])
     setAddSeedValue('')
@@ -1862,6 +1877,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       body: JSON.stringify({
         prompt: text,
         model,
+        effort,
         selected_nodes: selectedNodes.length > 0 ? selectedNodes : null,
       })
     })
@@ -1891,7 +1907,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (!PIVOTABLE.includes(n.type)) return
     await fetch(`/api/investigations/${activeInv}/enrich`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed_type: n.type, seed_value: n.value, model })
+      body: JSON.stringify({ seed_type: n.type, seed_value: n.value, model, effort })
     })
     setEvents(e => [`▶ enrich pivot: ${n.type} ${n.value}`, ...e])
     refreshInvs()
@@ -2070,7 +2086,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           <span className="mobile-burger" aria-hidden="true">☰</span>
         </button>
         <div className="mobile-topbar-title">
-          <img className="logo-mark mobile-topbar-logo" src="/logo-256.png" alt="" />
+          <span className="logo-mark mobile-topbar-logo" aria-hidden="true" />
           <span>BOUNCE<span className="primary">CTI</span></span>
         </div>
         <button
@@ -2092,7 +2108,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       )}
       {/* ── LEFT SIDEBAR ── */}
       <div className={`sidebar${mobileLeftOpen ? ' mobile-open' : ''}`}>
-        <div className="logo-row"><img className="logo-mark logo-mark-sidebar" src="/logo-256.png" alt="" /><div className="logo">BOUNCE<span>CTI</span></div><button className="theme-toggle-btn" title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'} aria-label="Toggle theme" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '☾' : '☀'}</button>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
+        <div className="logo-row"><span className="logo-mark logo-mark-sidebar" aria-hidden="true" /><div className="logo">BOUNCE<span>CTI</span></div><button className="theme-toggle-btn" title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'} aria-label="Toggle theme" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '☾' : '☀'}</button>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
 
         <div className="section-label">New investigation</div>
         {/* Segmented control:
@@ -2253,8 +2269,19 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         <select value={model} onChange={e => setModel(e.target.value)}>
           {(!allowedModels || allowedModels.includes('sonnet')) && <option value="sonnet">Sonnet 4.6 (recommended)</option>}
           {(!allowedModels || allowedModels.includes('opus')) && <option value="opus">Opus 4.6 (smarter, slower)</option>}
-          {(!allowedModels || allowedModels.includes('opus-4.7')) && <option value="opus-4.7">Opus 4.7 (latest, smartest)</option>}
+          {(!allowedModels || allowedModels.includes('opus-4.7')) && <option value="opus-4.7">Opus 4.7</option>}
+          {(!allowedModels || allowedModels.includes('opus-4.8')) && <option value="opus-4.8">Opus 4.8 (latest, smartest)</option>}
           {(!allowedModels || allowedModels.includes('haiku')) && <option value="haiku">Haiku 4.5 (faster, lighter)</option>}
+        </select>
+        <div className="section-label">Thinking effort</div>
+        <select value={effort} onChange={e => setEffort(e.target.value)}
+                title="Extended-thinking budget for the agent. Higher = deeper reasoning, slower & more quota. 'Default' lets the model decide.">
+          <option value="">Default (model decides)</option>
+          <option value="low">Low — fast, shallow</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="xhigh">Extra high</option>
+          <option value="max">Max — deepest, slowest</option>
         </select>
         <button
           onClick={
@@ -2492,7 +2519,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       <div className="resize-handle" onMouseDown={startDrag('left')} title="Drag to resize" />
 
       {/* ── GRAPH ── */}
-      <div className="graph">
+      <div className={`graph${mobileFiltersOpen ? ' mobile-filters-open' : ''}`}>
         <div id="cy" ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
         {/* Graph toolbar (search integrated) */}
@@ -2580,6 +2607,24 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           )}
         </div>
 
+        {/* Mobile-only toggle for the filter chips. They overlay the lower
+            graph, so on phones we keep them collapsed by default and let the
+            analyst reveal them on demand. Hidden on desktop via CSS. */}
+        {(existingTypeList.length > 0 || existingRelations.size >= 2) && (
+          <button
+            className="filter-toggle-btn mobile-only"
+            onClick={() => setMobileFiltersOpen(v => !v)}
+            aria-expanded={mobileFiltersOpen}
+            aria-label={mobileFiltersOpen ? 'Hide type filters' : 'Show type filters'}
+          >
+            {mobileFiltersOpen ? '✕ filters' : '⚑ filters'}
+          </button>
+        )}
+
+        {/* Filter chips wrapper. `display: contents` on desktop so each bar
+            keeps its own absolute position exactly as before; on mobile it
+            becomes a collapsible bottom-sheet (see .filter-bars in styles). */}
+        <div className="filter-bars">
         {/* Node type filter bar */}
         {existingTypeList.length > 0 && (
           <div className="filter-bar">
@@ -2637,6 +2682,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             ))}
           </div>
         )}
+        </div>{/* .filter-bars */}
       </div>
 
       {/* ── RIGHT RESIZE HANDLE ── */}
@@ -3935,7 +3981,7 @@ export default function AppRoot() {
     return (
       <div className="auth-screen">
         <div className="auth-card">
-          <img className="logo-mark logo-mark-auth" src="/logo-512.png" alt="Bounce-CTI" />
+          <span className="logo-mark logo-mark-auth" role="img" aria-label="Bounce-CTI" />
           <div className="logo">BOUNCE<span>CTI</span></div>
         </div>
       </div>
