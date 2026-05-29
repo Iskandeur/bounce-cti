@@ -172,8 +172,14 @@ This repo has **automatic deployment via GitHub Actions**.
   them, and recurses for up to `BOUNCE_PIVOT_DRAIN_ROUNDS` rounds (default 3,
   set to 0 to disable). Each round caps at `BOUNCE_PIVOT_DRAIN_MAX_TURNS`
   (default 60) and stops early when a round adds fewer than
-  `BOUNCE_PIVOT_DRAIN_CONVERGENCE` (default 3) new nodes. The state
-  machine in `PIVOT_MAPPING.md` informs the adaptive logic.
+  `BOUNCE_PIVOT_DRAIN_CONVERGENCE` (default 3) new nodes. A global
+  CTI-call ceiling `BOUNCE_TOTAL_CTI_BUDGET` (default 82) caps cumulative
+  `mcp__cti__*` calls across all phases: before each drain round the loop
+  counts raw CTI calls so far (`_count_cti_calls`), stops draining when
+  fewer than 8 calls of headroom remain, and clamps the round's turn budget
+  to what's left — this keeps fast-triage runs inside the EVAL_PROTOCOL §4.5
+  budget bands instead of overshooting to 115-127 calls on complex hubs. The
+  state machine in `PIVOT_MAPPING.md` informs the adaptive logic.
   Finally, a short **lessons-learned retrospective** phase
   (`phase_lessons_learned`) asks the agent to enumerate blockers, missing
   capabilities, and concrete codebase improvements it would make. The

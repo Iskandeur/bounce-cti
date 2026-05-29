@@ -5,7 +5,7 @@ CASES = [
         "name": "Salt Typhoon",
         "seed_type": "domain",
         "seed_value": "materialplies.com",
-        "inv_id": "1fbf31590d89",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("domain", "materialplies.com"),
             ("domain", "colourtinctem.com"),
@@ -42,7 +42,7 @@ CASES = [
         "name": "MuddyRot",
         "seed_type": "hash",
         "seed_value": "94278fa01900fdbfb58d2e373895c045c69c01915edc5349cd6f3e5b7130c472",
-        "inv_id": "23d2f573d3b7",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("hash", "94278fa01900fdbfb58d2e373895c045c69c01915edc5349cd6f3e5b7130c472"),
             ("hash", "b8703744"),
@@ -70,7 +70,7 @@ CASES = [
         "name": "Bumblebee→Akira",
         "seed_type": "hash",
         "seed_value": "186b26df63df3b7334043b47659cba4185c948629d857d47452cc1936f0aa5da",
-        "inv_id": "2c1aae4586c2",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("hash", "186b26df63df3b7334043b47659cba4185c948629d857d47452cc1936f0aa5da"),
             ("hash", "a6df0b49"),
@@ -105,7 +105,7 @@ CASES = [
         "name": "Interlock",
         "seed_type": "ip",
         "seed_value": "64.94.84.85",
-        "inv_id": "032cc9d8bc9b",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("ip", "64.94.84.85"),
             ("ip", "49.12.69.80"),
@@ -135,7 +135,7 @@ CASES = [
         "name": "Eye Pyramid cross-brand",
         "seed_type": "ip",
         "seed_value": "195.177.95.163",
-        "inv_id": "e37063640440",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("ip", "195.177.95.163"),
             ("asn", "as214943"),
@@ -165,7 +165,7 @@ CASES = [
         "name": "LummaC2 About-Cats",
         "seed_type": "domain",
         "seed_value": "rugtou.shop",
-        "inv_id": "d08267e46296",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("domain", "rugtou.shop"),
             ("cert_sha1", "80b9e0f6a81ab78ee4e01152958e1322e6d7b6fa"),
@@ -188,7 +188,7 @@ CASES = [
         "name": "SocGholish",
         "seed_type": "domain",
         "seed_value": "blackshelter.org",
-        "inv_id": "94141c548738",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("domain", "blackshelter.org"),
             ("ip", "176.53.147.97"),
@@ -218,7 +218,7 @@ CASES = [
         "name": "Amadey/StealC GitLab",
         "seed_type": "hash",
         "seed_value": "aad0a60cb86e3a56bcd356c6559b92c4dc4a1a960f409fb499cf76c9b5409fdb",
-        "inv_id": "b63cc7d6f160",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("hash", "aad0a60cb86e3a56bcd356c6559b92c4dc4a1a960f409fb499cf76c9b5409fdb"),
             ("ip", "62.60.226.159"),
@@ -244,7 +244,7 @@ CASES = [
         "name": "Tycoon 2FA",
         "seed_type": "domain",
         "seed_value": "rlcozx.es",
-        "inv_id": "2c9d38f0f614",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("domain", "rlcozx.es"),
             ("kit_fingerprint", "turnstile"),
@@ -266,7 +266,7 @@ CASES = [
         "name": "Contagious Interview",
         "seed_type": "ip",
         "seed_value": "37.211.126.117",
-        "inv_id": "68ac489be527",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("ip", "37.211.126.117"),
             ("domain", "lianxinxiao"),
@@ -297,8 +297,16 @@ CASES = [
         "case_id": 11,
         "name": "Smishing Triad",
         "seed_type": "domain",
-        "seed_value": "usps-deliveryupdate-package.top",
-        "inv_id": "756e3fc38e9c",
+        # Case 11 seed selection methodology (sandbox cannot live-check the Silent
+        # Push IOFA feed or DNS, per task §3): pick a fresh FQDN matching the
+        # Smishing Triad / Lighthouse-kit signature documented in Silent Push
+        # (2025-04-10) and Krebs (2025-12) — NameSilo bulk-registration +
+        # Cloudflare fronting (104.21/172.67) + abused short TLD + toll/USPS/
+        # retail/bank lure. Chosen distinct from the prior run
+        # (usps-deliveryupdate-package.top) to avoid a cached backend result.
+        # This run: toll-payment lure on .cc.
+        "seed_value": "ezpass-tollbill-pay.cc",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("registrar", "namesilo"),
             ("kit", "lighthouse"),
@@ -317,7 +325,7 @@ CASES = [
         "name": "ClearFake",
         "seed_type": "domain",
         "seed_value": "921hapudyqwdvy.com",
-        "inv_id": "80e64bc0adef",
+        "inv_id": "NEW",
         "gt_nodes": [
             ("domain", "921hapudyqwdvy.com"),
             ("cert_cn", "921hapudyqwdvy.com"),

@@ -1,0 +1,712 @@
+[
+  {
+    "case_id": 1,
+    "name": "Salt Typhoon",
+    "inv_id": "b8f06cc66476",
+    "nodes": 27,
+    "edges": 36,
+    "cti_calls": 4,
+    "phase3_tools_used": [],
+    "nr": 46.7,
+    "nr_hits": 7,
+    "nr_total": 15,
+    "nr_missing": [
+      "domain:colourtinctem.com",
+      "domain:solveblemten.com",
+      "domain:dateupdata.com",
+      "domain:infraredsen.com",
+      "domain:pulseathermakf.com",
+      "email:sdsdvxcdcbsgfe@protonmail.com",
+      "email:oklmdsfhjnfdsifh@protonmail.co",
+      "actor:unc2286"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 6,
+    "er_missing": [
+      "materialplies.com--registered_by-->sdsdvxcdcbsgfe@pro",
+      "colourtinctem.com--registered_by-->sdsdvxcdcbsgfe@pro",
+      "solveblemten.com--registered_by-->sdsdvxcdcbsgfe@pro",
+      "alpha--soa_mname_reuse-->beta",
+      "cluster--resolves_to-->hosting_ip",
+      "hosting_ip--overlaps_with-->unc4841"
+    ],
+    "pc": 50.0,
+    "pc_hits": 2,
+    "pc_total": 4,
+    "pc_missed": [
+      "reverse_whois_email",
+      "soa_mname_pivot"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 40,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": false,
+      "node_pct": 42.857142857142854,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "apt_targeted",
+      "history_len": 3,
+      "final_category": "apt_targeted (sinkholed)"
+    },
+    "hallucinations": [],
+    "overall": 56.1
+  },
+  {
+    "case_id": 2,
+    "name": "MuddyRot",
+    "inv_id": "a52a764cac5a",
+    "nodes": 89,
+    "edges": 104,
+    "cti_calls": 48,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_serial",
+      "netlas_jarm",
+      "whoxy_reverse",
+      "zoomeye_jarm"
+    ],
+    "nr": 55.6,
+    "nr_hits": 5,
+    "nr_total": 9,
+    "nr_missing": [
+      "hash:b8703744",
+      "ip:91.235.234.202",
+      "ip:146.19.143.14",
+      "url:egnyte"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 4,
+    "er_missing": [
+      "94278fa01900fdbfb--contacts-->91.235.234.202",
+      "b8703744--same_family-->94278fa",
+      "91.235.234.202--share_jarm-->146.19.143.14",
+      "91.235.234.202--tagged-->muddywater"
+    ],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "shodan_or_onyphe_banner"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 40,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": false,
+      "node_pct": 66.66666666666667,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "apt_targeted",
+      "history_len": 4,
+      "final_category": "apt_targeted"
+    },
+    "hallucinations": [],
+    "overall": 61.8
+  },
+  {
+    "case_id": 3,
+    "name": "Bumblebee\u2192Akira",
+    "inv_id": "031395ae5140",
+    "nodes": 52,
+    "edges": 55,
+    "cti_calls": 115,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_issuances",
+      "certspotter_serial",
+      "criminalip_domain",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "netlas_search",
+      "zoomeye_jarm",
+      "zoomeye_search"
+    ],
+    "nr": 47.1,
+    "nr_hits": 8,
+    "nr_total": 17,
+    "nr_missing": [
+      "domain:opmanager",
+      "domain:ev2sirbd269o5j",
+      "domain:angryipscanner",
+      "domain:axiscamerastation",
+      "domain:ip-scanner",
+      "ip:188.40.187.145",
+      "ip:172.96.137.160",
+      "ip:193.242.184.150",
+      "ip:185.174.100.203"
+    ],
+    "er": 66.7,
+    "er_hits": 2,
+    "er_total": 3,
+    "er_missing": [
+      "172.96.137.160--c2-->victim"
+    ],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 0,
+    "budget_extension_count": 1,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 58.8235294117647,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 3,
+      "final_category": "commodity_malware"
+    },
+    "hallucinations": [],
+    "overall": 64.0
+  },
+  {
+    "case_id": 4,
+    "name": "Interlock",
+    "inv_id": "2085ad721526",
+    "nodes": 77,
+    "edges": 83,
+    "cti_calls": 120,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_serial",
+      "criminalip_ip",
+      "netlas_jarm",
+      "netlas_search",
+      "openphish_check",
+      "whoxy_reverse",
+      "zoomeye_jarm"
+    ],
+    "nr": 23.1,
+    "nr_hits": 3,
+    "nr_total": 13,
+    "nr_missing": [
+      "ip:49.12.69.80",
+      "ip:96.62.214.11",
+      "ip:188.34.195.44",
+      "ip:45.61.136.202",
+      "domain:microsoft-msteams",
+      "domain:microstteams",
+      "domain:advanceipscaner",
+      "domain:ecologilives",
+      "url:additional-check",
+      "domain:trycloudflare"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 2,
+    "er_missing": [
+      "64.94.84.85--same_cluster-->49.12.69.80",
+      "advanceipscaner--delivery-->additional-check"
+    ],
+    "pc": 100.0,
+    "pc_hits": 5,
+    "pc_total": 5,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 0,
+    "budget_extension_count": 1,
+    "rq": 40,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": false,
+      "node_pct": 23.076923076923077,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 3,
+      "final_category": "commodity_malware"
+    },
+    "hallucinations": [],
+    "overall": 43.8
+  },
+  {
+    "case_id": 5,
+    "name": "Eye Pyramid cross-brand",
+    "inv_id": "b68f27c1ba88",
+    "nodes": 165,
+    "edges": 230,
+    "cti_calls": 56,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_issuances",
+      "certspotter_serial",
+      "criminalip_ip",
+      "netlas_jarm",
+      "whoxy_reverse",
+      "zoomeye_jarm"
+    ],
+    "nr": 15.4,
+    "nr_hits": 2,
+    "nr_total": 13,
+    "nr_missing": [
+      "asn:as215540",
+      "asn:as215439",
+      "framework:eye pyramid",
+      "ransomware:rhysida",
+      "ransomware:vice society",
+      "ransomware:blackcat",
+      "ransomware:ransomhub",
+      "ransomware:fog",
+      "malware:cobalt strike",
+      "malware:sliver",
+      "malware:rhadamanthys"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 2,
+    "er_missing": [
+      "195.177.95.163--uses_infra-->rhysida",
+      "eye pyramid--uses_infra-->blackcat"
+    ],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 2,
+    "rq": 0,
+    "rq_meta": {
+      "actor_hit": false,
+      "marker_hit": false,
+      "node_pct": 15.384615384615385,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "traffer_or_tds",
+      "history_len": 2,
+      "final_category": "lead_gen_scam_complex (multi-tier operator pool with 2 distinct hosting + identity infrastructures) + traffer_or_tds (rockettunnel.app monetisation arm)"
+    },
+    "hallucinations": [],
+    "overall": 52.6
+  },
+  {
+    "case_id": 6,
+    "name": "LummaC2 About-Cats",
+    "inv_id": "84b0ac0d1bd7",
+    "nodes": 29,
+    "edges": 27,
+    "cti_calls": 4,
+    "phase3_tools_used": [],
+    "nr": 50.0,
+    "nr_hits": 3,
+    "nr_total": 6,
+    "nr_missing": [
+      "cert_sha1:80b9e0f6a81ab78ee4e01152958e13",
+      "domain:pinkipinevazzey",
+      "domain:fanlumpactiras"
+    ],
+    "er": 100.0,
+    "er_hits": 2,
+    "er_total": 2,
+    "er_missing": [],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "urlscan_or_wayback_seed"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 1,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 50.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 2,
+      "final_category": "commodity_malware (LummaC2 \u2014 seized 2025-05-21, currently parked)"
+    },
+    "hallucinations": [],
+    "overall": 82.5
+  },
+  {
+    "case_id": 7,
+    "name": "SocGholish",
+    "inv_id": "18503f634e61",
+    "nodes": 167,
+    "edges": 160,
+    "cti_calls": 45,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_issuances",
+      "certspotter_serial",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "zoomeye_jarm"
+    ],
+    "nr": 41.7,
+    "nr_hits": 5,
+    "nr_total": 12,
+    "nr_missing": [
+      "ip:176.53.147.97",
+      "domain:packedbrick",
+      "domain:newgoodfoodmarket",
+      "domain:urban-orthodontics",
+      "domain:bestintownpro",
+      "ip:185.76.79.50",
+      "ip:166.88.182.126"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 3,
+    "er_missing": [
+      "blackshelter.org--resolves_to-->176.53.147.97",
+      "rednosehorse--share_ip-->176.53.147.97",
+      "blackshelter--known_ioc-->socgholish"
+    ],
+    "pc": 100.0,
+    "pc_hits": 5,
+    "pc_total": 5,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 1,
+    "rq": 40,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": false,
+      "node_pct": 33.333333333333336,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "socgholish_traffer_tds",
+      "history_len": 2,
+      "final_category": "traffer_or_tds"
+    },
+    "hallucinations": [],
+    "overall": 63.6
+  },
+  {
+    "case_id": 8,
+    "name": "Amadey/StealC GitLab",
+    "inv_id": "6e254e46e4d1",
+    "nodes": 97,
+    "edges": 126,
+    "cti_calls": 86,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_issuances",
+      "certspotter_serial",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_favicon",
+      "netlas_jarm",
+      "netlas_search",
+      "whoxy_reverse",
+      "zoomeye_favicon",
+      "zoomeye_jarm"
+    ],
+    "nr": 50.0,
+    "nr_hits": 4,
+    "nr_total": 8,
+    "nr_missing": [
+      "ip:185.215.113",
+      "asn:as51381",
+      "domain:gitlab.bzctoons.net",
+      "domain:bzctoons.net"
+    ],
+    "er": 33.3,
+    "er_hits": 1,
+    "er_total": 3,
+    "er_missing": [
+      "185.215.113--hosted_on_asn-->as51381",
+      "gitlab.bzctoons.ne--hosts_stager-->stealc"
+    ],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "rdap_ip"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 75,
+    "budget_extension_count": 1,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 50.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 3,
+      "final_category": "commodity_malware_operator_cluster_multi_family_panel"
+    },
+    "hallucinations": [],
+    "overall": 67.2
+  },
+  {
+    "case_id": 9,
+    "name": "Tycoon 2FA",
+    "inv_id": "aac25667cc20",
+    "nodes": 79,
+    "edges": 88,
+    "cti_calls": 127,
+    "phase3_tools_used": [
+      "certspotter_issuances",
+      "certspotter_serial",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "netlas_search",
+      "whoxy_reverse",
+      "zoomeye_jarm"
+    ],
+    "nr": 50.0,
+    "nr_hits": 3,
+    "nr_total": 6,
+    "nr_missing": [
+      "kit_fingerprint:turnstile",
+      "actor:storm-1747",
+      "phishing_kit:tycoon 2fa"
+    ],
+    "er": 100.0,
+    "er_hits": 1,
+    "er_total": 1,
+    "er_missing": [],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "ct_burst_window"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 0,
+    "budget_extension_count": 1,
+    "rq": 40,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": false,
+      "node_pct": 50.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "phishing_kit_cluster",
+      "history_len": 1,
+      "final_category": "phishing_kit_cluster"
+    },
+    "hallucinations": [],
+    "overall": 60.8
+  },
+  {
+    "case_id": 10,
+    "name": "Contagious Interview",
+    "inv_id": "baf4a41b439c",
+    "nodes": 8,
+    "edges": 8,
+    "cti_calls": 18,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "criminalip_ip",
+      "whoxy_reverse"
+    ],
+    "nr": 7.1,
+    "nr_hits": 1,
+    "nr_total": 14,
+    "nr_missing": [
+      "domain:lianxinxiao",
+      "domain:blocknovas",
+      "domain:angeloper",
+      "domain:softglide",
+      "domain:attisscmo",
+      "subdomain:gitlab.blocknovas",
+      "subdomain:status.blocknovas",
+      "subdomain:mail.blocknovas",
+      "malware:beavertail",
+      "malware:invisibleferret",
+      "malware:ottercookie",
+      "actor:famous chollima",
+      "actor:unc5342"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 3,
+    "er_missing": [
+      "37.211.126.117--resolves-->lianxinxiao",
+      "lianxinxiao--dns_txt_mx-->blocknovas",
+      "blocknovas--parent_of-->gitlab.blocknovas"
+    ],
+    "pc": 40.0,
+    "pc_hits": 2,
+    "pc_total": 5,
+    "pc_missed": [
+      "dns_txt_mx_cross_ref",
+      "crtsh_blocknovas",
+      "wayback_seized"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 0,
+    "rq_meta": {
+      "actor_hit": false,
+      "marker_hit": false,
+      "node_pct": 7.142857142857143,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "legitimate",
+      "history_len": 2,
+      "final_category": "legitimate"
+    },
+    "hallucinations": [],
+    "overall": 41.2
+  },
+  {
+    "case_id": 11,
+    "name": "Smishing Triad",
+    "inv_id": "f4b380c61e12",
+    "nodes": 4,
+    "edges": 1,
+    "cti_calls": 43,
+    "phase3_tools_used": [
+      "certspotter_issuances",
+      "dom_fingerprints",
+      "openphish_check",
+      "whoxy_reverse"
+    ],
+    "nr": 0.0,
+    "nr_hits": 0,
+    "nr_total": 5,
+    "nr_missing": [
+      "registrar:namesilo",
+      "kit:lighthouse",
+      "actor:smishing triad",
+      "actor:wang duo yu",
+      "ip:104.21"
+    ],
+    "er": null,
+    "er_hits": 0,
+    "er_total": 0,
+    "er_missing": [],
+    "pc": 100.0,
+    "pc_hits": 5,
+    "pc_total": 5,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 0,
+    "rq_meta": {
+      "actor_hit": false,
+      "marker_hit": false,
+      "node_pct": 0.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "smishing_hub",
+      "history_len": 3,
+      "final_category": "legitimate"
+    },
+    "hallucinations": [],
+    "overall": 60.0
+  },
+  {
+    "case_id": 12,
+    "name": "ClearFake",
+    "inv_id": "bcf2ed69810b",
+    "nodes": 60,
+    "edges": 77,
+    "cti_calls": 94,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_issuances",
+      "certspotter_serial",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "whoxy_reverse",
+      "zoomeye_jarm"
+    ],
+    "nr": 62.5,
+    "nr_hits": 5,
+    "nr_total": 8,
+    "nr_missing": [
+      "ip:*yacolo",
+      "asn:as203493",
+      "tool:keitaro"
+    ],
+    "er": 100.0,
+    "er_hits": 1,
+    "er_total": 1,
+    "er_missing": [],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 0,
+    "budget_extension_count": 2,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 66.66666666666667,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 2,
+      "final_category": "commodity_malware"
+    },
+    "hallucinations": [],
+    "overall": 72.1
+  }
+]

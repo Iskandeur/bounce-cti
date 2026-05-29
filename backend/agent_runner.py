@@ -233,6 +233,34 @@ def _get_called_cti_tools(inv_id: str) -> set:
     return tools
 
 
+def _count_cti_calls(inv_id: str) -> int:
+    """Raw count of CTI tool_use blocks across the whole investigation (NOT
+    deduplicated — every individual mcp__cti__* invocation counts once).
+
+    Used by the pivot-drain loop to enforce a global call ceiling so total
+    spend lands inside the EVAL_PROTOCOL §4.5 budget bands. A single agent
+    turn can emit several parallel tool_use blocks, so this counts blocks,
+    not turns — matching exactly how the eval scorer counts BD."""
+    with gs.conn() as c:
+        rows = c.execute(
+            "SELECT payload FROM events WHERE investigation_id=?",
+            (inv_id,)
+        ).fetchall()
+    n = 0
+    for (payload,) in rows:
+        try:
+            d = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if d.get("kind") != "agent_assistant":
+            continue
+        for block in d.get("msg", {}).get("message", {}).get("content", []):
+            if block.get("type") == "tool_use" and \
+               str(block.get("name", "")).startswith("mcp__cti__"):
+                n += 1
+    return n
+
+
 def _get_called_tool_invocations(inv_id: str) -> set:
     """Like _get_called_cti_tools but returns (tool_name, primary_arg_str_lower).
     Used by the adaptive-followup logic to detect which (tool, value) pairs
@@ -919,6 +947,13 @@ def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> li
     elif seed_type == "domain":
         mandatory = [
             ("rdap_domain", f'rdap_domain("{seed_value}")'),
+            # Live A-record resolution of the seed. Was NOT mandatory before —
+            # Case 7 (SocGholish) missed its primary marker 176.53.147.97 (the
+            # shared Keitaro-front IP and co-residency anchor) because the seed's
+            # own A record was never graphed. Also feeds the all-CDN origin-unmask
+            # branch in _adaptive_followup_targets for Cases 11/12 (the CDN IP
+            # node lets the cert-CN unmask fire reliably). One cheap call.
+            ("dns_resolve", f'dns_resolve("{seed_value}")'),
             ("virustotal_communicating_files", f'virustotal_communicating_files("domain", "{seed_value}")'),
             ("threatfox_search", f'threatfox_search("{seed_value}")'),
             ("virustotal_resolutions_domain", f'virustotal_resolutions_domain("{seed_value}")'),
@@ -3362,6 +3397,19 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
     PIVOT_DRAIN_MAX_ROUNDS = int(os.environ.get("BOUNCE_PIVOT_DRAIN_ROUNDS", "3"))
     PIVOT_DRAIN_MAX_TURNS = int(os.environ.get("BOUNCE_PIVOT_DRAIN_MAX_TURNS", "60"))
     PIVOT_DRAIN_CONVERGENCE = int(os.environ.get("BOUNCE_PIVOT_DRAIN_CONVERGENCE", "3"))
+    # Global CTI-call ceiling (EVAL_PROTOCOL §4.5 fast-triage budget). The drain
+    # loop is the discretionary expansion phase; left unbounded it pushes complex
+    # cases to 115-127 CTI calls (drain rounds overshoot because one agent turn
+    # can emit several parallel tool_use blocks), which trips BD>90 → score 0.
+    # We clamp each round's turn budget to the remaining global allowance and
+    # stop draining once we're near the ceiling, landing in the ≤90 / BD-75 band
+    # while preserving the early (high-yield) drain rounds. Set very high to
+    # disable. Counts raw CTI tool_use blocks (same as the scorer).
+    PIVOT_DRAIN_TOTAL_BUDGET = int(os.environ.get("BOUNCE_TOTAL_CTI_BUDGET", "82"))
+    # Don't bother starting a round with less than this much headroom — too few
+    # turns to make a meaningful dent, and avoids a multi-call overshoot landing
+    # us above 90.
+    PIVOT_DRAIN_MIN_HEADROOM = 8
 
     if (phase1_ok and not _is_parked(inv_id)
             and PIVOT_DRAIN_MAX_ROUNDS > 0):
@@ -3369,9 +3417,22 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             "max_rounds": PIVOT_DRAIN_MAX_ROUNDS,
             "max_turns_per_round": PIVOT_DRAIN_MAX_TURNS,
             "convergence_threshold": PIVOT_DRAIN_CONVERGENCE,
+            "total_cti_budget": PIVOT_DRAIN_TOTAL_BUDGET,
         })
 
         for round_idx in range(PIVOT_DRAIN_MAX_ROUNDS):
+            # Global budget gate: stop draining when cumulative CTI calls
+            # approach the ceiling; clamp this round to what's left.
+            calls_so_far = _count_cti_calls(inv_id)
+            remaining_budget = PIVOT_DRAIN_TOTAL_BUDGET - calls_so_far
+            if remaining_budget < PIVOT_DRAIN_MIN_HEADROOM:
+                _log(inv_id, "phase_pivot_drain_budget_stop", {
+                    "round": round_idx + 1,
+                    "cti_calls_so_far": calls_so_far,
+                    "total_cti_budget": PIVOT_DRAIN_TOTAL_BUDGET,
+                })
+                break
+            round_turns = min(PIVOT_DRAIN_MAX_TURNS, remaining_budget)
             try:
                 g_before = gs.get_graph(inv_id)
                 n_before = len(g_before.get("nodes", []))
@@ -3449,7 +3510,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 f"with the expanded ioc_list, refreshed pivot_suggestions, and "
                 f"any new key_findings/discriminating_markers. The report is a "
                 f"singleton — upsert it, do NOT create a second one.\n\n"
-                f"BUDGET this round: ≈ {PIVOT_DRAIN_MAX_TURNS} tool calls. STOP "
+                f"BUDGET this round: ≈ {round_turns} tool calls. STOP "
                 f"early if every remaining pivot would only return defused / "
                 f"already-graphed values. The next round will pick up where you "
                 f"left off if you didn't finish.\n"
@@ -3460,7 +3521,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 rc4, saw4, _, quota4 = await _run_claude_phase(
                     inv_id, drain_prompt, _FOLLOWUP_SYSTEM_PROMPT, model, env,
                     mcp_cfg_path, phase=f"pivot_drain_{round_idx + 1}",
-                    max_turns=PIVOT_DRAIN_MAX_TURNS,
+                    max_turns=round_turns,
                 )
                 if quota4["hit"]:
                     _finalise_quota_halt(inv_id, quota4)

@@ -53,19 +53,39 @@ def get_status(inv_id):
     return None
 
 
-def wait_for_terminal(inv_id, label, max_minutes=35):
-    """Poll until terminal, then save graph+transcript."""
-    deadline = time.time() + max_minutes * 60
+def wait_for_terminal(inv_id, label, max_minutes=60, hard_cap_minutes=120):
+    """Poll until terminal, then save graph+transcript.
+
+    Critical for one-by-one discipline: if we hit the soft deadline but the
+    backend still reports `running`, KEEP WAITING (up to hard_cap). Abandoning
+    a still-running investigation to submit the next case causes accidental
+    parallelism on the VPS — which burned quota on the prior partial run.
+    Only give up if status reads keep failing (None) past the soft deadline,
+    which indicates the inv genuinely stalled or the API is unreachable.
+    """
+    soft_deadline = time.time() + max_minutes * 60
+    hard_deadline = time.time() + hard_cap_minutes * 60
     last = None
-    while time.time() < deadline:
+    consec_none_after_soft = 0
+    while time.time() < hard_deadline:
         s = get_status(inv_id)
         if s != last:
             log(f"  [{label}] status={s}")
             last = s
         if s in TERMINAL:
             return s
+        if time.time() >= soft_deadline:
+            if s == "running":
+                consec_none_after_soft = 0  # genuinely still working
+            elif s is None:
+                consec_none_after_soft += 1
+                # 10 consecutive failed status reads (~3+ min) past soft
+                # deadline → API unreachable, give up gracefully.
+                if consec_none_after_soft >= 10:
+                    log(f"  [{label}] status unreadable past soft deadline — giving up")
+                    return "timeout"
         time.sleep(20)
-    log(f"  [{label}] TIMEOUT after {max_minutes} min")
+    log(f"  [{label}] HARD TIMEOUT after {hard_cap_minutes} min (backend still running)")
     return "timeout"
 
 
@@ -123,11 +143,15 @@ def run_one(case, force_new=False):
     label = f"c{cid:02d}"
     log(f"[c{cid:02d}] === {case['name']} (seed_type={case['seed_type']}) ===")
 
-    cur_status = get_status(inv_id)
+    cur_status = get_status(inv_id) if inv_id and inv_id != "NEW" else None
     log(f"  [{label}] existing status={cur_status}")
 
     needs_rerun = force_new or cur_status not in ("running", "done") or not has_useful_data(case)
-    if cur_status == "quota_exceeded":
+    if force_new:
+        # Fresh-iteration mode: always submit a new investigation so we measure
+        # the currently-deployed code, not a cached prior-run graph.
+        needs_rerun = True
+    elif cur_status == "quota_exceeded":
         # Try resume first
         log(f"  [{label}] resuming quota_exceeded inv")
         s, d = req("POST", f"/api/investigations/{inv_id}/resume")
@@ -146,7 +170,7 @@ def run_one(case, force_new=False):
         case["inv_id"] = new_id
         inv_id = new_id
 
-    status = wait_for_terminal(inv_id, label, max_minutes=35)
+    status = wait_for_terminal(inv_id, label)
     fetch_and_save(case, status)
     return status
 
@@ -173,7 +197,7 @@ def main():
     for case in CASES:
         if case["case_id"] not in target_ids:
             continue
-        force = False
+        force = os.environ.get("FORCE_NEW") == "1"
         if case["case_id"] in meta["cases"] and meta["cases"][str(case["case_id"])].get("status") in ("done",):
             # already complete
             log(f"[c{case['case_id']:02d}] already done in meta, skipping")

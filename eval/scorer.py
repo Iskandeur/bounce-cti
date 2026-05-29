@@ -380,8 +380,26 @@ def hypothesis_audit(nodes):
     }
 
 
+def _has_provenance(n):
+    """A node is traceable to a tool call (per protocol §4.6 hallucination
+    definition) if its metadata carries explicit provenance — an evidence
+    citation, a source/sources_seen field, or a provenance/origin tag. RDAP
+    registrant vcards (person nodes) land their name in metadata.evidence
+    rather than in the truncated transcript result_preview, so a corpus-only
+    check false-positives on them. Provenance metadata clears the suspect."""
+    md = n.get("metadata") or {}
+    for k in ("evidence", "source", "sources_seen", "provenance", "origin", "tool"):
+        v = md.get(k)
+        if v:  # non-empty string or non-empty list
+            return True
+    return False
+
+
 def hallucination_check(nodes, tx):
-    """Heuristic: actor/malware/family node values that don't appear in tool-result or reasoning corpus."""
+    """Heuristic + provenance pass: actor/malware/family/person node values that
+    appear in NEITHER the tool-result/reasoning corpus NOR carry provenance
+    metadata citing a source tool. A node with metadata.evidence='RIPE RDAP ...'
+    or source='rdap' is traceable to a tool call and is NOT a hallucination."""
     corpus = event_corpus_text(tx)
     suspects = []
     for n in nodes:
@@ -391,6 +409,9 @@ def hallucination_check(nodes, tx):
                 # also try simpler tokens
                 tokens = re.findall(r"[a-z0-9]{4,}", v)
                 if not any(t in corpus for t in tokens):
+                    # Final clearance: provenance metadata makes it traceable.
+                    if _has_provenance(n):
+                        continue
                     suspects.append((n["type"], n["value"]))
     return suspects
 

@@ -163,7 +163,10 @@ After the main run, additional phases run automatically:
   CLAUDE.md "Multi-phase agent loop"). Up to `BOUNCE_PIVOT_DRAIN_ROUNDS`
   rounds, each capped at `BOUNCE_PIVOT_DRAIN_MAX_TURNS`, with a
   convergence stop when a round adds < `BOUNCE_PIVOT_DRAIN_CONVERGENCE`
-  net-new nodes.
+  net-new nodes. A global ceiling `BOUNCE_TOTAL_CTI_BUDGET` (default 82)
+  caps cumulative `mcp__cti__*` calls across all phases — the loop counts
+  raw CTI calls (`_count_cti_calls`) before each round, stops when <8 calls
+  of headroom remain, and clamps the round's turn budget to the remainder.
 - **Phase 5 — `phase_lessons_learned`**: short retrospective. The agent
   reads the graph + `gaps_report()` + `queue_status()` and writes a
   single hidden `lessons_learned` report node listing blockers, missing

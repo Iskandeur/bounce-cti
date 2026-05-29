@@ -1,5 +1,5 @@
 """Render scorecard.md, deltas.md, failure_histogram.md, proposed_fixes.md,
-raw_scores.json into runs/2026-05-21_<sha>/."""
+raw_scores.json into runs/2026-05-28_<sha>/."""
 import json, os, sys
 from collections import Counter
 
@@ -10,12 +10,12 @@ RUN_DIR = os.path.join("/home/user/bounce-cti", open("/tmp/eval_run/dir.txt").re
 SCORED = json.load(open("/tmp/eval_run/scored.json"))
 META = json.load(open("/tmp/eval_run/meta.json")) if os.path.exists("/tmp/eval_run/meta.json") else {"cases": {}}
 
-# Prior run (a1903f4) for delta calculation
+# Prior run (2026-05-21 / e54dec1) for delta calculation
 PRIOR = {
-    1: 72.2, 2: 72.2, 3: 75.8, 4: 66.7, 5: 54.7, 6: 54.7,
-    7: 62.9, 8: 65.8, 9: 55.8, 10: 35.4, 11: 50.0, 12: 63.7,
+    1: 39.4, 2: 61.8, 3: 64.8, 4: 60.5, 5: 38.8, 6: 62.5,
+    7: 71.4, 8: 71.4, 9: 77.5, 10: 34.5, 11: 40.0, 12: 33.3,
 }
-PRIOR_MEAN = 60.8
+PRIOR_MEAN = 54.7
 APR20 = {
     1: 51.1, 2: 47.9, 3: 54.3, 4: 70.0, 5: 60.0, 6: 67.5,
     7: 48.1, 8: 54.2, 9: 70.5, 10: 37.9, 11: 60.8, 12: 72.5,
@@ -24,13 +24,13 @@ APR20 = {
 
 def render_scorecard(sha):
     lines = []
-    lines.append(f"# EVAL_PROTOCOL Scorecard — 2026-05-21 · commit {sha}")
+    lines.append(f"# EVAL_PROTOCOL Scorecard — 2026-05-28 · commit {sha}")
     lines.append("")
     lines.append("**Run environment**")
-    lines.append(f"- Branch: `claude/practical-mayer-VP8Ki` (local), against `main` deployed VPS at https://bounce.alexandre-pinoteau.fr/")
+    lines.append(f"- Branch: `claude/amazing-planck-s7mNi` (local), against `main` deployed VPS at https://bounce.alexandre-pinoteau.fr/")
     lines.append("- Model: `opus-4.7` (only model whitelisted on the eval account)")
     lines.append("- Mode: full 12 cases, **sequential one-by-one** submission (user-mandated to avoid 5-hour quota burn-down)")
-    lines.append("- Case 11 seed: `usps-deliveryupdate-package.top` — typical Smishing-Triad pattern (NameSilo + Cloudflare-fronted + USPS lure + .top TLD), distinct from prior runs. Live freshness not verified (sandbox DNS blocked).")
+    lines.append("- Case 11 seed: `ezpass-tollbill-pay.cc` — Smishing-Triad/Lighthouse-kit pattern (NameSilo + Cloudflare fronting + toll-payment lure + .cc TLD), distinct from prior run (`usps-deliveryupdate-package.top`) to dodge a cached backend result. Live freshness not verified (sandbox DNS blocked).")
     lines.append("")
     lines.append("## Scorecard")
     lines.append("")
@@ -86,7 +86,7 @@ def render_scorecard(sha):
             # primary cases per §8 marker map - check that marker not < 40
             if r["nr"] < 40 and r["case_id"] in (1,4,5,6,8,10,12):
                 breached.append(r["case_id"])
-    lines.append("| Metric                                       | Target           | This run           | 2026-05-06 prior   | Apr-20 baseline | Δ vs prior |")
+    lines.append("| Metric                                       | Target           | This run           | 2026-05-21 prior   | Apr-20 baseline | Δ vs prior |")
     lines.append("|----------------------------------------------|-----------------:|-------------------:|-------------------:|----------------:|-----------:|")
     lines.append(f"| Overall (mean)                               | ≥ 65             | **{mean:.1f}** | {PRIOR_MEAN} | {apr20_mean:.1f} | {delta_prior:+.1f} |")
     lines.append(f"| Pass rate (overall ≥ 70)                     | ≥ 60 %           | **{pass_rate}/12 ({100*pass_rate/12:.0f} %)** | 3/12 (25 %) | 3/12 (25 %) | {pass_rate - 3:+d} |")
@@ -100,7 +100,7 @@ def render_scorecard(sha):
     lines.append("")
     lines.append("## Delta vs prior runs")
     lines.append("")
-    lines.append("| Case | Apr-20 | 2026-05-06 prior | This run | Δ vs prior | Δ vs Apr-20 |")
+    lines.append("| Case | Apr-20 | 2026-05-21 prior | This run | Δ vs prior | Δ vs Apr-20 |")
     lines.append("|-----:|-------:|-----------------:|---------:|-----------:|------------:|")
     for r in SCORED:
         cid = r["case_id"]
@@ -146,7 +146,7 @@ def render_scorecard(sha):
 
 
 def render_deltas(sha):
-    lines = [f"# Deltas — 2026-05-21 · commit {sha}", "", "Per-case missing nodes / edges, noise, pivot misses, hand-audit notes.", ""]
+    lines = [f"# Deltas — 2026-05-28 · commit {sha}", "", "Per-case missing nodes / edges, noise, pivot misses, hand-audit notes.", ""]
     for r in SCORED:
         if "error" in r:
             lines.append(f"## Case {r['case_id']} — ERROR\n\n{r['error']}\n")
@@ -197,7 +197,7 @@ def render_deltas(sha):
 
 
 def render_histogram(sha):
-    lines = [f"# Failure histogram — 2026-05-21 · commit {sha}", "", "## Top-level F-codes", ""]
+    lines = [f"# Failure histogram — 2026-05-28 · commit {sha}", "", "## Top-level F-codes", ""]
     f_codes = Counter()
     f_cases = {}
     for r in SCORED:
