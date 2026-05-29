@@ -46,9 +46,15 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 - `PATCH /api/admin/users/{id}` — update label / allowed-models
 - `DELETE /api/admin/users/{id}`
 - `POST /api/admin/impersonate/{id}` — admin-only; swaps the session to the target user
-- `GET  /api/models` — models the caller is allowed to spawn
+- `GET  /api/models` — models the caller is allowed to spawn, plus the list
+  of extended-thinking `efforts` (`low`/`medium`/`high`/`xhigh`/`max`)
 
 **Investigations**
+
+> All spawn endpoints (`start`, `batch`, `rerun`, `add_seed`, `enrich`,
+> `prompt`, `from_pdf`, `from_sample`) accept an optional `model` and an
+> optional `effort` (extended-thinking level). The chosen `effort` is persisted
+> on the investigation row and reused by `resume` / subsequent phases.
 
 - `POST   /api/investigations` — start (auto-detects seed type from value if `seed_type=auto`; supported types: `domain`, `ip`, `hash`, `url`, `jarm`, `asn`, `command_line`, `executable_name` — the last being a bare filename of a malicious binary such as `dropper.exe`, pivoted via MalwareBazaar's `get_filename` — and `email` / `wallet_address` / `username` for actor-level seeds: an email triggers Whoxy reverse-WHOIS + EmailRep + Pulsedive + OpenCTI; a wallet (ETH `0x…`, BTC bech32 / legacy, XMR — auto-detected by address format) cross-references ThreatFox + Pulsedive + OpenCTI; a forum / Telegram handle is graphed as an opaque identifier and probed against ThreatFox / Pulsedive / OpenCTI / URLScan)
 - `POST   /api/investigations/batch` — start many at once; `combined=true` chains them on one graph
@@ -139,8 +145,14 @@ Spawns `claude -p` (Claude Code headless) with:
 - `--allowedTools` restricted to MCP tools only (graph + cti)
 - `--disallowedTools` blocking `Bash,Edit,Write,MultiEdit,Read,Glob,Grep,NotebookEdit,WebSearch,WebFetch,Task,TodoWrite`
 - `--permission-mode bypassPermissions`
-- Configurable `--model` (`sonnet` / `opus` / `opus-4.7` / `haiku`); the
-  `opus-4.7` alias maps to `claude-opus-4-7`
+- Configurable `--model` (`sonnet` / `opus` / `opus-4.7` / `opus-4.8` /
+  `haiku`); the `opus-4.7` / `opus-4.8` aliases map to `claude-opus-4-7` /
+  `claude-opus-4-8`
+- Configurable extended-thinking effort: the per-investigation `effort` level
+  (`low` / `medium` / `high` / `xhigh` / `max`, or unset = model default) is
+  stored on the `investigations` row and applied to every phase spawn via the
+  `CLAUDE_CODE_EFFORT_LEVEL` env var (equivalent to the CLI `--effort` flag),
+  set in `agent_runner._build_env`
 - `--max-turns` cap
 
 After the main run, additional phases run automatically:
@@ -194,7 +206,7 @@ SQLite-backed store. Tables:
 
 | Table            | Columns (essentials)                                                                                                          |
 |------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `quota_reset_at` (epoch when a Claude-subscription cooldown lifts), `title` (optional analyst-supplied rename; falls back to `seed_value` in the UI) |
+| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `effort` (extended-thinking level, or NULL = model default), `quota_reset_at` (epoch when a Claude-subscription cooldown lifts), `title` (optional analyst-supplied rename; falls back to `seed_value` in the UI) |
 | `nodes`          | `id`, `investigation_id`, `type`, `value`, `metadata` (JSON), `tags` (JSON), `confidence`, `source`, `created_at`, UNIQUE(inv,type,value) |
 | `edges`          | `id`, `investigation_id`, `src`, `dst`, `relation`, `evidence`, `source`, `confidence`, `created_at`, UNIQUE(inv,src,dst,relation) |
 | `events`         | `id` AUTOINCREMENT, `investigation_id`, `kind`, `payload` (JSON), `created_at` — full agent stream + state changes            |

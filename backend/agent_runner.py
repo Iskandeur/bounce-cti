@@ -1,5 +1,6 @@
 """Spawn Claude Code in headless mode to run an investigation."""
 import asyncio
+import datetime as _dt
 import json
 import os
 import re
@@ -10,6 +11,20 @@ from pathlib import Path
 from typing import Optional
 from .config import CLAUDE_BIN
 from . import graph_store as gs
+
+
+# Valid extended-thinking effort levels accepted by the Claude CLI's --effort
+# flag / CLAUDE_CODE_EFFORT_LEVEL env var. Anything outside this set is ignored
+# (the CLI default applies). Mirrored by ALLOWED_EFFORTS in backend/main.py.
+_VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+
+# Map a frontend model alias to the exact CLI model id. Aliases not listed pass
+# through untouched (e.g. "sonnet"/"opus"/"haiku" resolve via the CLI's own
+# latest-version aliasing).
+_MODEL_ALIASES = {
+    "opus-4.7": "claude-opus-4-7",
+    "opus-4.8": "claude-opus-4-8",
+}
 
 
 # ── Claude-subscription quota detection ───────────────────────────────────
@@ -36,6 +51,49 @@ _RESET_EPOCH_RE = re.compile(
     r'"(?:resets_?at|reset_?at|retry_?at)"\s*:\s*"?(\d{10,13})',
     re.IGNORECASE,
 )
+# Newer CLI builds print the reset time as a human-readable wall clock instead
+# of an epoch, e.g. "You've hit your limit · resets 1:50pm (UTC)". The CLI
+# reports this in UTC; we must anchor to UTC and NOT to the server's local
+# timezone, otherwise the reset epoch (and therefore the UI countdown, which is
+# reset_epoch − now) is off by the server↔UTC offset.
+_RESET_CLOCK_RE = re.compile(
+    r'reset(?:s|ting)?(?:\s+at)?\s+'
+    r'(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)?'      # hour[:min][am/pm]
+    r'\s*\(?\s*(UTC|GMT)?\s*\)?',                    # optional zero-offset label
+    re.IGNORECASE,
+)
+
+
+def _parse_reset_clock(text: str, now: Optional[float] = None) -> Optional[float]:
+    """Parse a human-readable reset wall-clock time (e.g. 'resets 1:50pm (UTC)')
+    into a unix epoch. The CLI reports the time in UTC, so we resolve it to the
+    NEXT future occurrence of that HH:MM in UTC. This keeps the countdown
+    correct for every viewer regardless of their local timezone — the bug being
+    that a wall-clock string interpreted in the wrong referential yields a
+    reset epoch that's off by the UTC offset. Returns None if no time is found."""
+    if not text:
+        return None
+    m = _RESET_CLOCK_RE.search(text)
+    if not m or m.group(1) is None:
+        return None
+    try:
+        hour = int(m.group(1))
+    except (TypeError, ValueError):
+        return None
+    minute = int(m.group(2)) if m.group(2) else 0
+    ampm = (m.group(3) or "").lower().replace(".", "")
+    if ampm == "pm" and hour < 12:
+        hour += 12
+    elif ampm == "am" and hour == 12:
+        hour = 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    now_dt = (_dt.datetime.now(_dt.timezone.utc) if now is None
+              else _dt.datetime.fromtimestamp(now, _dt.timezone.utc))
+    candidate = now_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= now_dt:
+        candidate += _dt.timedelta(days=1)
+    return candidate.timestamp()
 # rate_limit.status values that are informational and must NOT trigger a halt.
 _RATE_LIMIT_OK_STATUSES = {"allowed", "allowed_warning", "warning", "ok", "active"}
 # Quota-detection patterns. These are matched against the Claude CLI's
@@ -98,9 +156,14 @@ def _detect_quota_error(text: str) -> tuple[bool, Optional[float], str]:
         m = pat.search(text)
         if m:
             # Best-effort: recover a reset epoch from a co-located resetsAt
-            # field (present when the match came from a json-dumped event).
+            # field (present when the match came from a json-dumped event)…
             rm = _RESET_EPOCH_RE.search(text)
             reset_at = _coerce_epoch(rm.group(1)) if rm else None
+            # …or, failing that, from a human-readable "resets 1:50pm (UTC)"
+            # wall-clock string (newer CLI builds). Parsed as UTC so the
+            # countdown lands in the right referential.
+            if reset_at is None:
+                reset_at = _parse_reset_clock(text)
             return (True, reset_at, m.group(0))
     return (False, None, "")
 
@@ -2317,6 +2380,16 @@ def _build_env(inv_id: str) -> dict:
     env["MCP_TIMEOUT_MS"] = "30000"
     env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     env["BOUNCE_PYTHON"] = sys.executable
+    # Per-investigation extended-thinking budget. The chosen level is stored on
+    # the investigation row (set by the create endpoints) and applied to *every*
+    # phase spawn via CLAUDE_CODE_EFFORT_LEVEL — equivalent to the CLI's
+    # `--effort` flag — so resume / rerun / pivot all reuse the analyst's choice.
+    try:
+        effort = gs.get_effort(inv_id)
+    except Exception:
+        effort = None
+    if effort in _VALID_EFFORTS:
+        env["CLAUDE_CODE_EFFORT_LEVEL"] = effort
     return env
 
 
@@ -2334,7 +2407,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
 
     cmd = [
         claude_path, "-p", prompt,
-        "--model", {"opus-4.7": "claude-opus-4-7"}.get(model, model),
+        "--model", _MODEL_ALIASES.get(model, model),
         "--append-system-prompt", system_prompt,
         "--mcp-config", str(mcp_cfg_path),
         "--strict-mcp-config",

@@ -29,10 +29,25 @@ app = FastAPI(title="Bounce-CTI")
 app.add_middleware(CORSMiddleware, allow_origins=[], allow_methods=["*"], allow_headers=["*"])
 
 
-ALLOWED_MODELS = ["sonnet", "opus", "opus-4.7", "haiku"]
+ALLOWED_MODELS = ["sonnet", "opus", "opus-4.7", "opus-4.8", "haiku"]
 DEFAULT_MODEL = "opus"
 
+# Extended-thinking effort levels accepted by the Claude CLI (`--effort` /
+# CLAUDE_CODE_EFFORT_LEVEL). None / "" means "use the CLI default". Stored per
+# investigation and applied to every phase spawn by agent_runner._build_env.
+ALLOWED_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+
 SESSION_COOKIE = "session"
+
+
+def _check_effort(effort: Optional[str]) -> Optional[str]:
+    """Sanitize a requested thinking-effort level. Returns the level if valid,
+    else None (CLI default). Never raises — an unknown value silently degrades
+    to the default rather than failing the spawn."""
+    if not effort:
+        return None
+    effort = str(effort).strip().lower()
+    return effort if effort in ALLOWED_EFFORTS else None
 
 
 # ── Startup: ensure admin PIN exists ───────────────────────────────────────
@@ -291,7 +306,7 @@ def list_models(user_id: int = Depends(current_user)):
     allowed = _resolve_allowed_models(user_id)
     models = ALLOWED_MODELS if allowed is None else [m for m in ALLOWED_MODELS if m in allowed]
     default = DEFAULT_MODEL if (allowed is None or DEFAULT_MODEL in allowed) else (models[0] if models else DEFAULT_MODEL)
-    return {"models": models, "default": default}
+    return {"models": models, "default": default, "efforts": ALLOWED_EFFORTS}
 
 
 ALLOWED_SEED_TYPES = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line",
@@ -424,12 +439,14 @@ class StartReq(BaseModel):
     seed_type: str = "auto"
     seed_value: str
     model: str = "opus"
+    effort: Optional[str] = None
 
 
 @app.post("/api/investigations")
 async def start(req: StartReq, user_id: int = Depends(current_user)):
     _require_quota_available()
     model = _check_model(user_id, req.model)
+    effort = _check_effort(req.effort)
     seed_type = req.seed_type
     if seed_type == "auto":
         seed_type = detect_seed_type(req.seed_value)
@@ -438,7 +455,7 @@ async def start(req: StartReq, user_id: int = Depends(current_user)):
     sv = _clean_seed(seed_type, req.seed_value)
     if not sv:
         raise HTTPException(status_code=400, detail="seed_value required")
-    inv_id = gs.create_investigation(seed_type, sv, user_id=user_id, model=model)
+    inv_id = gs.create_investigation(seed_type, sv, user_id=user_id, model=model, effort=effort)
     asyncio.create_task(run_investigation(inv_id, seed_type, sv, model=model))
     return {"id": inv_id, "seed_type": seed_type}
 
@@ -451,6 +468,7 @@ class BatchItem(BaseModel):
 class BatchStartReq(BaseModel):
     items: list[BatchItem]
     model: str = "opus"
+    effort: Optional[str] = None
     combined: bool = False  # True → all IOCs on a single investigation graph
 
 
@@ -465,6 +483,7 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
     """
     _require_quota_available()
     model = _check_model(user_id, req.model)
+    effort = _check_effort(req.effort)
     items = req.items[:50]
     valid = []
     for it in items:
@@ -486,7 +505,7 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
         # detection. Peer-seed semantics live in run_add_seed's prompt —
         # the agent won't invent edges between seeds.
         st0, sv0 = valid[0]
-        inv_id = gs.create_investigation(st0, sv0, user_id=user_id, model=model)
+        inv_id = gs.create_investigation(st0, sv0, user_id=user_id, model=model, effort=effort)
         extra_seeds = valid[1:]
         # Pre-register the extra seeds as orphan seed-tagged nodes so the
         # listing panel shows the full multi-seed count immediately, instead
@@ -524,7 +543,7 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
         # Separate batch: one investigation per IOC
         ids = []
         for st, sv in valid:
-            inv_id = gs.create_investigation(st, sv, user_id=user_id, model=model)
+            inv_id = gs.create_investigation(st, sv, user_id=user_id, model=model, effort=effort)
             asyncio.create_task(run_investigation(inv_id, st, sv, model=model))
             ids.append({"id": inv_id, "seed_type": st, "seed_value": sv})
         return {"started": ids, "skipped": len(req.items) - len(ids)}
@@ -759,6 +778,7 @@ def merge_investigations(src_id: str, dst_id: str,
 
 class RerunReq(BaseModel):
     model: str = "opus"
+    effort: Optional[str] = None
 
 
 @app.post("/api/investigations/{inv_id}/rerun")
@@ -770,6 +790,9 @@ async def rerun(inv_id: str, req: RerunReq = RerunReq(), user_id: int = Depends(
     if not row:
         raise HTTPException(status_code=404, detail="not found")
     model = _check_model(user_id, req.model)
+    # A rerun may change the thinking-effort level; persist it so _build_env
+    # applies the new choice to every phase of the fresh run.
+    gs.set_effort(inv_id, _check_effort(req.effort))
     gs.clear_investigation(inv_id)
     with gs.conn() as c:
         c.execute("UPDATE investigations SET status='running' WHERE id=?", (inv_id,))
@@ -781,12 +804,14 @@ class EnrichReq(BaseModel):
     seed_type: str
     seed_value: str
     model: str = "opus"
+    effort: Optional[str] = None
 
 
 class AddSeedReq(BaseModel):
     seed_type: str = "auto"
     seed_value: str
     model: str = "opus"
+    effort: Optional[str] = None
 
 
 @app.post("/api/investigations/{inv_id}/add_seed")
@@ -808,6 +833,7 @@ async def add_seed(inv_id: str, req: AddSeedReq, user_id: int = Depends(current_
     if not sv:
         raise HTTPException(status_code=400, detail="seed_value required")
     model = _check_model(user_id, req.model)
+    gs.set_effort(inv_id, _check_effort(req.effort))
     gs.set_status(inv_id, "running")
     import json as _json, time as _time
     with gs.conn() as c:
@@ -829,6 +855,7 @@ async def enrich(inv_id: str, req: EnrichReq, user_id: int = Depends(current_use
     if not sv:
         raise HTTPException(status_code=400, detail="seed_value required")
     model = _check_model(user_id, req.model)
+    gs.set_effort(inv_id, _check_effort(req.effort))
     gs.set_status(inv_id, "running")
     # Emit a status_change event so any connected WebSocket clients can refresh
     # the sidebar status live (otherwise the sidebar keeps showing "done" while
@@ -851,6 +878,7 @@ class SelectedNode(BaseModel):
 class CustomPromptReq(BaseModel):
     prompt: str
     model: str = "opus"
+    effort: Optional[str] = None
     selected_nodes: Optional[list[SelectedNode]] = None
 
 
@@ -862,6 +890,7 @@ async def custom_prompt(inv_id: str, req: CustomPromptReq, user_id: int = Depend
     if not prompt_text:
         raise HTTPException(status_code=400, detail="prompt required")
     model = _check_model(user_id, req.model)
+    gs.set_effort(inv_id, _check_effort(req.effort))
     gs.set_status(inv_id, "running")
     import json as _json, time as _time
     with gs.conn() as c:
@@ -1085,16 +1114,18 @@ def _read_pdf_iocs(file: UploadFile) -> tuple[list[dict], str, bytes]:
 async def from_pdf(
     file: UploadFile = File(...),
     model: str = Form("sonnet"),
+    effort: str = Form(default=""),
     user_id: int = Depends(current_user),
 ):
     """Spin up a fresh investigation seeded from a CTI report PDF."""
     _require_quota_available()
     model = _check_model(user_id, model)
+    effort = _check_effort(effort)
     iocs, text, _blob = _read_pdf_iocs(file)
     seeds = iocs[:PDF_MAX_SEEDS]
     primary = seeds[0]
     extras = seeds[1:]
-    inv_id = gs.create_investigation(primary["type"], primary["value"], user_id=user_id, model=model)
+    inv_id = gs.create_investigation(primary["type"], primary["value"], user_id=user_id, model=model, effort=effort)
     # Stash the source text so the agent (and the UI later) can read what
     # the analyst actually uploaded — keyed by inv_id, capped to keep the
     # cache table small.
@@ -1192,6 +1223,7 @@ async def from_sample(
     file: UploadFile | None = File(default=None),
     text: str = Form(default=""),
     model: str = Form("sonnet"),
+    effort: str = Form(default=""),
     user_id: int = Depends(current_user),
 ):
     """Spin up a fresh investigation from a malware sample upload OR a
@@ -1203,6 +1235,7 @@ async def from_sample(
     """
     _require_quota_available()
     model = _check_model(user_id, model)
+    effort = _check_effort(effort)
     from . import sample_import as si
 
     blob: bytes | None = None
@@ -1237,7 +1270,7 @@ async def from_sample(
     hashes       = result["hashes"]
 
     inv_id = gs.create_investigation(primary["type"], primary["value"],
-                                     user_id=user_id, model=model)
+                                     user_id=user_id, model=model, effort=effort)
     # Stamp the seed node with the rich metadata up-front so the UI shows the
     # original filename / sha1 / md5 BEFORE the agent fires.
     gs.add_node(inv_id, primary["type"], primary["value"],

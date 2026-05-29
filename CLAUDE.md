@@ -198,10 +198,15 @@ This repo has **automatic deployment via GitHub Actions**.
   read for the reset epoch — `status: allowed`/`allowed_warning` are
   informational and ignored, see `_scan_event_for_quota`), and human-readable
   variants — the legacy `Claude AI usage limit reached|<epoch>` marker plus
-  newer phrasings like `You've hit your limit · resets …` (see
-  `_detect_quota_error`). When no reset epoch is recoverable, a fallback
-  cooldown (`BOUNCE_QUOTA_FALLBACK_COOLDOWN_S`, default 3600s) is applied so
-  the global gate still engages. On a hit, the agent is killed, the
+  newer phrasings like `You've hit your limit · resets 1:50pm (UTC)` (see
+  `_detect_quota_error`). When the phrasing carries a human-readable wall-clock
+  reset time instead of an epoch, `_parse_reset_clock` resolves it to the next
+  future occurrence of that `HH:MM` **in UTC** (the referential the CLI reports
+  in) — anchoring to UTC rather than the server's local timezone is what keeps
+  the UI countdown (`reset_epoch − now`) correct for any viewer. When no reset
+  epoch is recoverable at all, a fallback cooldown
+  (`BOUNCE_QUOTA_FALLBACK_COOLDOWN_S`, default 3600s) is applied so the global
+  gate still engages. On a hit, the agent is killed, the
   investigation flips to status `quota_exceeded` with `quota_reset_at` stored,
   the global `quota_state` row is updated, and a `quota_exceeded` event +
   `status_change` event are emitted so the WebSocket clients refresh live.
@@ -229,8 +234,17 @@ This repo has **automatic deployment via GitHub Actions**.
 - **Auth is PIN + session cookie**: Set `ADMIN_PIN=<6-digit>` in the env before the first start
   so the bootstrap promotes that PIN to admin (idempotent; no auto-generation if unset).
   Each investigation is owned by a user; the WebSocket and every `/api/*` route check ownership.
-- **Per-user model whitelist**: Admins can restrict which Claude models a user can spawn.
-  Admin accounts are unrestricted.
+- **Per-user model whitelist**: Admins can restrict which Claude models a user can spawn
+  (`sonnet`, `opus`, `opus-4.7`, `opus-4.8`, `haiku` — `ALLOWED_MODELS` in `main.py`;
+  the `opus-4.7`/`opus-4.8` aliases map to `claude-opus-4-7`/`claude-opus-4-8` in
+  `agent_runner._MODEL_ALIASES`). Admin accounts are unrestricted.
+- **Per-investigation thinking effort**: the analyst can pick an extended-thinking
+  effort level (`low`/`medium`/`high`/`xhigh`/`max`, or unset = model default). It's
+  stored in the `investigations.effort` column at create time and applied to every
+  phase spawn via the `CLAUDE_CODE_EFFORT_LEVEL` env var (the CLI `--effort` flag),
+  set in `agent_runner._build_env` by reading the row — so resume / rerun / pivot all
+  inherit the choice. `ALLOWED_EFFORTS` lives in `main.py`; `_VALID_EFFORTS` in
+  `agent_runner.py`.
 - **SQLite is the only datastore**: No external database. The `data/` directory must persist across deploys.
 - **Environment variables**: API keys and config are in `.env` (not in git). See `.env.example` for the full list.
 
