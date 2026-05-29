@@ -2335,6 +2335,7 @@ _ALLOWED_TOOLS = (
     "mcp__cti__threatfox_search,mcp__cti__wayback,"
     "mcp__cti__mnemonic_pdns,"
     "mcp__cti__urlhaus_host,mcp__cti__malwarebazaar_hash,mcp__cti__malwarebazaar_signature,"
+    "mcp__cti__malwarebazaar_imphash,"
     # CTI sources (Phase 3 — added 2026-05-03)
     "mcp__cti__abuseipdb_check,"
     "mcp__cti__certspotter_issuances,mcp__cti__certspotter_serial,"

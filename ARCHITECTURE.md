@@ -214,7 +214,7 @@ SQLite-backed store. Tables:
 | `users`          | `id`, `pin_hmac` (UNIQUE), `created_at`, `is_admin`, `allowed_models` (JSON or NULL), `label`                                 |
 | `sessions`       | `token` (PK), `user_id`, `expires_at`                                                                                         |
 | `shares`         | `token` (PK), `investigation_id`, `created_by`, `created_at`, `sections` (JSON), `expires_at`, `revoked`, `label`             |
-| `pivot_tasks`    | `id`, `investigation_id`, `node_type`, `node_value`, `pivot_op`, `priority`, `status` (pending\|running\|done\|skipped\|failed), `skip_reason`, `result_summary`, `attempts`, `enqueued_at`, `started_at`, `completed_at`, UNIQUE(inv,node_type,node_value,pivot_op) |
+| `pivot_tasks`    | `id`, `investigation_id`, `node_type`, `node_value`, `pivot_op`, `priority`, `status` (pending\|running\|done\|skipped\|failed\|deferred), `skip_reason` (defused\|no_api_key\|noise_filter\|queue_ceiling), `result_summary`, `attempts`, `enqueued_at`, `started_at`, `completed_at`, UNIQUE(inv,node_type,node_value,pivot_op). Direct CTI tool calls are auto-reconciled to `done` against the event log (`reconcile_pivots_from_events`); a global `BOUNCE_PIVOT_QUEUE_MAX` ceiling parks new enqueues as `deferred`. |
 | `quota_state`    | single-row table (`id=1`): `exhausted_until` (epoch), `message`, `last_seen` — Claude-subscription cooldown shared across the host account |
 
 Node IDs are SHA1 hashes of `(investigation_id, type, value)` (lower-cased) —
@@ -250,10 +250,17 @@ MCP server exposing graph write/read tools + the autonomy engine to the agent:
 **Graph CRUD**
 - `add_node(type, value, metadata, confidence, source, tags)` — also
   auto-enqueues all applicable pivots for this node into `pivot_tasks`
-  (defuse-aware, fan-out capped at 8 high + 4 low priority per node)
+  (defuse-aware, noise-filter-aware, fan-out capped at 8 high + 4 low priority
+  per node, queue-ceiling deferral). Auto-tags documented known-bad tool
+  defaults (`pivot_mapping.KNOWN_BAD_MARKERS`) and promotes a known
+  actor-handle tag (`ACTOR_HANDLES`) to a first-class `threat_actor` node +
+  `attributed_to` edge (provenance preserved).
 - `add_edge(src_type, src_value, dst_type, dst_value, relation, evidence, source, confidence)`
+  — auto-creates a `phantom_autostub`-tagged stub for any missing endpoint so
+  edges never dangle (the analyst can spot the unresolved reference)
 - `tag_node(type, value, tag)`
-- `get_graph(compact: bool = False)` — full or compact (slim metadata) snapshot
+- `get_graph(compact: bool = False, stats_only: bool = False)` — full, compact
+  (slim metadata), or stats-only (shape + tag counts, no node/edge lists)
 - `get_node(type, value)` — fetch one node's full metadata
 - `get_report()` — fetch the current `report` node payload (if any)
 - `defuse(kind, value, registrant?, registrar?)` — CDN / parking / sinkhole /
@@ -267,12 +274,17 @@ MCP server exposing graph write/read tools + the autonomy engine to the agent:
   mining historical residue. Lists live in `backend/defuse_lists.py`.
 
 **Autonomy engine** (drains `pivot_tasks`, drives convergence)
-- `next_pivot()` — pop highest-priority pending task, atomically marks `running`
+- `next_pivot()` — pop highest-priority pending task, atomically marks `running`;
+  attaches `source_state` (key-pool/quota state for the pivot's source) so the
+  agent can skip a tool it has no working key for
 - `mark_pivot_done(task_id, summary, status)` — close a task
-- `queue_status()` — counts: pending/running/done/skipped/failed + by-op breakdown
+- `queue_status()` — counts: pending/running/done/skipped/failed/deferred + by-op
+  (reconciles directly-invoked CTI calls into `done` first)
 - `coverage_matrix(only_with_gaps: bool = False)` — per-node pivot coverage
-- `requeue_missing()` — close coverage gaps idempotently
-- `gaps_report()` — group skipped/failed pivots by reason (no_api_key, defused, ...)
+- `requeue_missing()` — close coverage gaps idempotently; also promotes
+  queue-ceiling-`deferred` tasks back to `pending`
+- `gaps_report()` — group skipped/failed pivots by reason (no_api_key, defused,
+  noise_filter, queue_ceiling, ...)
 - `quota_status()` — per-source key pool snapshot
 
 `BOUNCE_INV_ID` env var selects which investigation the agent is writing to.
@@ -296,7 +308,7 @@ MCP server exposing ~50 async CTI source tools:
 - Shodan: `shodan_host`, `shodan_search`
 - OTX: `otx_domain`, `otx_ip`, `otx_file`
 - ThreatFox: `threatfox_search`
-- abuse.ch: `urlhaus_host`, `malwarebazaar_hash`, `malwarebazaar_signature`, `malwarebazaar_filename` (filename-only pivot — returns sample hashes ever reported under that name, used as the primary pivot for `executable_name` seeds)
+- abuse.ch: `urlhaus_host`, `malwarebazaar_hash`, `malwarebazaar_signature`, `malwarebazaar_filename` (filename-only pivot — returns sample hashes ever reported under that name, used as the primary pivot for `executable_name` seeds), `malwarebazaar_imphash` (PE imphash → sibling-sample cluster, one-call loader-family expansion)
 - ip-api: `ip_api_lookup`, `ip_api_batch_lookup`, `ip_api_edns`
 - Wayback: `wayback`
 - **Phase 3 (added 2026-05-03)**:

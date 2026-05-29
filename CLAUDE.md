@@ -59,16 +59,27 @@ backend/
   stix_export.py        # Render an investigation as a STIX 2.1 bundle
   key_pool.py           # API key rotation pool: round-robin, cooldown on 429,
                         #   per-day quota tracking, graceful degradation
-  pivot_mapping.py      # Per-node-type pivot rules + fan-out caps + cloud ASN
-                        #   list + discriminating_marker() for convergence
+  pivot_mapping.py      # Per-node-type pivot rules + fan-out caps + global
+                        #   pending-queue ceiling (MAX_PENDING_QUEUE) + cloud
+                        #   ASN list + discriminating_marker() for convergence
+                        #   + noise pre-filters (cloud_platform_domain,
+                        #   is_role_mailbox, is_hex_serial) + KNOWN_BAD_MARKERS
+                        #   (positive default-fingerprint table) + ACTOR_HANDLES
+                        #   (tag→threat_actor promotion) + key_source_for_op
   mcp_servers/
     graph_mcp.py        # MCP server: graph CRUD (add_node, add_edge, tag_node,
-                        #   get_graph, get_node, get_report, defuse) +
-                        #   autonomy engine (next_pivot, mark_pivot_done,
-                        #   queue_status, coverage_matrix, requeue_missing,
-                        #   gaps_report, quota_status). add_node auto-enqueues
-                        #   pivots into pivot_tasks per pivot_mapping rules.
-    cti_mcp.py          # MCP server: ~77 async CTI source tools
+                        #   get_graph[+stats_only], get_node, get_report, defuse)
+                        #   + autonomy engine (next_pivot[+source_state],
+                        #   mark_pivot_done, queue_status, coverage_matrix,
+                        #   requeue_missing[+promote_deferred], gaps_report,
+                        #   quota_status). add_node auto-enqueues pivots per
+                        #   pivot_mapping rules (with noise-filter suppression +
+                        #   queue-ceiling deferral), auto-tags known-bad
+                        #   defaults, and promotes known actor-handle tags to
+                        #   threat_actor nodes. add_edge auto-stubs missing
+                        #   endpoints (phantom_autostub).
+    cti_mcp.py          # MCP server: ~78 async CTI source tools
+                        #   (incl. malwarebazaar_imphash — PE imphash cluster)
   sources/              # One file per CTI source (all async, all cached):
                         #   Existing: crtsh, rdap, whois (RFC 3912 / port-43),
                         #     dns_tools, virustotal,
@@ -192,6 +203,21 @@ This repo has **automatic deployment via GitHub Actions**.
   are inserted as `skipped` with `skip_reason='defused'` for later visibility in
   `gaps_report`. Per-node fan-out cap: 8 high-priority + 4 low-priority pivots.
   The agent drains the queue via `next_pivot()` / `mark_pivot_done()`.
+  **Queue reconciliation** (`graph_store.reconcile_pivots_from_events`, called
+  on every `queue_status`/`coverage_matrix`/`gaps_report`/`next_pivot`): agents
+  drive most enrichment with direct `mcp__cti__*` calls and rarely call
+  `mark_pivot_done`, which left the queue stuck at hundreds-pending / 0-done on
+  every eval case. Reconciliation mechanically marks a pending/running/deferred
+  task `done` when the event log shows its tool was invoked with the matching
+  node value — so `queue_status`/`gaps_report` reflect reality. **Queue governor**:
+  a global ceiling `BOUNCE_PIVOT_QUEUE_MAX` (default 300) parks new auto-enqueues
+  as `deferred` (`skip_reason='queue_ceiling'`) once the pending backlog is large,
+  so drain budget goes to queued work rather than an exploding backlog;
+  `requeue_missing()` promotes deferred→pending. **Noise pre-filters** suppress
+  structurally-doomed pivots at enqueue (subdomain/whois on shared-SaaS parents
+  like `*.azurewebsites.net`; reverse-WHOIS on role mailboxes like `abuse@`;
+  serial lookups on non-hex cert serials) — surfaced as `skipped`
+  (`skip_reason='noise_filter'`), not silently dropped.
 - **Claude-subscription quota tracking**: `agent_runner` scans every
   `claude -p` stream-json event + stderr line for quota exhaustion two ways:
   the structured `rate_limit_event` (a non-`allowed` `status`, with `resetsAt`

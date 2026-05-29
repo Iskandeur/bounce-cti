@@ -416,6 +416,29 @@ def add_edge(inv_id: str, src_type: str, src_value: str, dst_type: str, dst_valu
         dst_type = _canonical_edge_endpoint_type(c, inv_id, dst_type, dst_value)
         src = _node_id(inv_id, src_type, src_value)
         dst = _node_id(inv_id, dst_type, dst_value)
+        # Dangling-endpoint guard: add_edge used to silently accept edges whose
+        # src/dst node never existed, producing orphan edges that referenced
+        # absent nodes (seen on multiple eval cases — verdict evidence pointing
+        # at a ghost). Auto-create a minimal stub tagged `phantom_autostub` for
+        # any missing endpoint so the relation is preserved AND the analyst can
+        # immediately spot the unresolved reference in the graph.
+        for nid, ntype, nval in ((src, src_type, src_value), (dst, dst_type, dst_value)):
+            exists = c.execute("SELECT 1 FROM nodes WHERE id=?", (nid,)).fetchone()
+            if exists:
+                continue
+            c.execute(
+                "INSERT INTO nodes(id, investigation_id, type, value, metadata, tags, confidence, source, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (nid, inv_id, ntype, nval, json.dumps({"sources_seen": ["edge_autostub"]}),
+                 json.dumps(["phantom_autostub"]), 0.3, "edge_autostub", now),
+            )
+            stub_evt = {"kind": "node_added", "node": {
+                "id": nid, "type": ntype, "value": nval,
+                "metadata": {"sources_seen": ["edge_autostub"]},
+                "tags": ["phantom_autostub"], "confidence": 0.3,
+                "source": "edge_autostub", "created_at": now}}
+            c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                      (inv_id, stub_evt["kind"], json.dumps(stub_evt), now))
         eid = _edge_id(inv_id, src, dst, relation)
         try:
             c.execute(
@@ -784,6 +807,9 @@ def enqueue_pivot(inv_id: str, node_type: str, node_value: str, pivot_op: str,
 def acquire_pivot(inv_id: str) -> Optional[dict]:
     """Pop the next pending pivot (lowest priority number first, then FIFO).
     Marks it 'running' atomically."""
+    # Clear out any already-executed work first so we never hand the agent a
+    # pivot it already ran directly.
+    reconcile_pivots_from_events(inv_id)
     now = time.time()
     with conn() as c:
         row = c.execute(
@@ -820,8 +846,75 @@ def complete_pivot(task_id: str, status: str = "done", summary: Optional[str] = 
         return cur.rowcount > 0
 
 
+def reconcile_pivots_from_events(inv_id: str) -> int:
+    """Mark pending/running pivot_tasks 'done' when their CTI tool was actually
+    invoked directly.
+
+    Agents overwhelmingly drive enrichment with direct ``mcp__cti__*`` calls
+    and almost never call ``mark_pivot_done`` afterwards, so every retrospective
+    showed the queue stuck at hundreds-pending / 0-done — making queue_status,
+    coverage_matrix and gaps_report useless to the analyst. This closes the gap
+    mechanically: a task ``(pivot_op, node_value)`` is reconciled to ``done`` when
+    the event log contains a tool_use block whose tool base-name == pivot_op AND
+    whose call arguments contain the node_value. Conservative substring match —
+    when in doubt we leave the task pending rather than falsely close it.
+
+    Returns the number of tasks reconciled. Idempotent; safe to call on every
+    queue read.
+    """
+    called: dict[str, list[str]] = {}
+    with conn() as c:
+        rows = c.execute(
+            "SELECT payload FROM events WHERE investigation_id=? AND kind='agent_assistant'",
+            (inv_id,),
+        ).fetchall()
+    for (payload,) in rows:
+        try:
+            d = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for block in d.get("msg", {}).get("message", {}).get("content", []):
+            if block.get("type") != "tool_use":
+                continue
+            name = block.get("name", "")
+            if not name.startswith("mcp__cti__"):
+                continue
+            op = name[len("mcp__cti__"):]
+            inp = block.get("input") or {}
+            blob = " ".join(
+                str(v).lower() for v in inp.values()
+                if isinstance(v, (str, int, float))
+            )
+            called.setdefault(op, []).append(blob)
+    if not called:
+        return 0
+    reconciled = 0
+    now = time.time()
+    with conn() as c:
+        tasks = c.execute(
+            "SELECT id, node_value, pivot_op FROM pivot_tasks"
+            " WHERE investigation_id=? AND status IN ('pending','running','deferred')",
+            (inv_id,),
+        ).fetchall()
+        for t in tasks:
+            blobs = called.get(t["pivot_op"])
+            if not blobs:
+                continue
+            nv = (t["node_value"] or "").lower()
+            if not nv:
+                continue
+            if any(nv in blob for blob in blobs):
+                c.execute(
+                    "UPDATE pivot_tasks SET status='done', result_summary=?, completed_at=? WHERE id=?",
+                    ("auto-reconciled: tool invoked directly", now, t["id"]),
+                )
+                reconciled += 1
+    return reconciled
+
+
 def pivot_queue_status(inv_id: str) -> dict:
     """Aggregate counts. Useful for queue_status() MCP tool."""
+    reconcile_pivots_from_events(inv_id)
     out = {"pending": 0, "running": 0, "done": 0, "skipped": 0, "failed": 0, "by_op": {}}
     with conn() as c:
         for r in c.execute(
@@ -833,6 +926,17 @@ def pivot_queue_status(inv_id: str) -> dict:
             op = r["pivot_op"]
             out["by_op"].setdefault(op, {})[r["status"]] = r["n"]
     return out
+
+
+def pending_pivot_count(inv_id: str) -> int:
+    """Cheap count of pending pivot tasks (no reconcile scan). Used by the
+    auto-enqueue governor to decide whether to park new pivots as 'deferred'."""
+    with conn() as c:
+        row = c.execute(
+            "SELECT COUNT(*) AS n FROM pivot_tasks WHERE investigation_id=? AND status='pending'",
+            (inv_id,),
+        ).fetchone()
+    return int(row["n"]) if row else 0
 
 
 def pivot_count_per_node(inv_id: str, node_type: str, node_value: str,
@@ -851,6 +955,7 @@ def pivot_count_per_node(inv_id: str, node_type: str, node_value: str,
 
 def coverage_matrix(inv_id: str) -> list[dict]:
     """For each node in the investigation, list the pivot tasks split by status."""
+    reconcile_pivots_from_events(inv_id)
     with conn() as c:
         nodes = c.execute(
             "SELECT id, type, value FROM nodes WHERE investigation_id=? ORDER BY created_at",
@@ -881,6 +986,7 @@ def coverage_matrix(inv_id: str) -> list[dict]:
 
 def gaps_report(inv_id: str) -> dict:
     """Group skipped/failed pivots by reason. Used for self-critique pre-report."""
+    reconcile_pivots_from_events(inv_id)
     out: dict = {"by_reason": {}, "total_skipped": 0, "total_failed": 0}
     with conn() as c:
         for r in c.execute(
@@ -900,6 +1006,25 @@ def gaps_report(inv_id: str) -> dict:
             else:
                 out["total_failed"] += 1
     return out
+
+
+def promote_deferred_pivots(inv_id: str, limit: int = 200) -> int:
+    """Flip up to `limit` queue-ceiling-deferred pivots back to 'pending'
+    (highest priority first). Called by requeue_missing so the agent can
+    recover parked work once the live backlog has drained. Returns count
+    promoted."""
+    with conn() as c:
+        rows = c.execute(
+            "SELECT id FROM pivot_tasks WHERE investigation_id=? AND status='deferred'"
+            " AND skip_reason='queue_ceiling' ORDER BY priority ASC, enqueued_at ASC LIMIT ?",
+            (inv_id, limit),
+        ).fetchall()
+        for r in rows:
+            c.execute(
+                "UPDATE pivot_tasks SET status='pending', skip_reason=NULL WHERE id=?",
+                (r["id"],),
+            )
+    return len(rows)
 
 
 def requeue_missing(inv_id: str, mapping_for_node) -> int:

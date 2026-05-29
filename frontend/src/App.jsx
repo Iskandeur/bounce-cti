@@ -14,7 +14,8 @@ const NODE_COLORS = {
   ns: '#58a6ff', favicon: '#e3b341', jarm: '#bc8cff', report: '#f5a623',
   country: '#ff7b72', person: '#ff80b3', command_line: '#f0883e',
   executable_name: '#ffb86b', wallet_address: '#f1c40f',
-  username: '#a371f7', ja3: '#caa6ff', ja3s: '#9d7fe0'
+  username: '#a371f7', ja3: '#caa6ff', ja3s: '#9d7fe0',
+  threat_actor: '#ff5c8a'
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
@@ -22,7 +23,7 @@ const NODE_SHAPES = {
   jarm: 'pentagon', url: 'cut-rectangle', country: 'tag', person: 'star',
   command_line: 'rhomboid', executable_name: 'vee',
   email: 'round-tag', wallet_address: 'rhomboid', username: 'star',
-  ja3: 'heptagon', ja3s: 'octagon'
+  ja3: 'heptagon', ja3s: 'octagon', threat_actor: 'star'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
                        error: '#f85149', quota_exceeded: '#d29922' }

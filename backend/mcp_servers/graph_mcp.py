@@ -8,17 +8,34 @@ from .. import graph_store as gs
 from .. import key_pool
 from ..defuse_lists import defuse_check
 from ..pivot_mapping import (
-    pivots_for, MAX_HIGH_PRIO_PER_NODE, MAX_LOW_PRIO_PER_NODE,
+    pivots_for, MAX_HIGH_PRIO_PER_NODE, MAX_LOW_PRIO_PER_NODE, MAX_PENDING_QUEUE,
+    canonical_type, cloud_platform_domain, _CLOUD_PLATFORM_SUPPRESSED_OPS,
+    is_role_mailbox, _EMAIL_PIVOT_OPS, is_hex_serial, _SERIAL_OPS,
+    known_bad_marker, actor_handle_for_tag, key_source_for_op,
 )
 
 INV_ID = os.environ.get("BOUNCE_INV_ID", "default")
 mcp = FastMCP("bounce-graph")
 
 
+def _suppressed_ops(type_: str, value: str) -> set:
+    """Ops to skip at enqueue time because they are structurally doomed /
+    pure noise for this specific node (not a defuse — a target-shape filter)."""
+    ctype = canonical_type(type_)
+    if type_ == "domain" and cloud_platform_domain(value):
+        return set(_CLOUD_PLATFORM_SUPPRESSED_OPS)
+    if type_ == "email" and is_role_mailbox(value):
+        return set(_EMAIL_PIVOT_OPS)
+    if ctype == "cert_serial" and not is_hex_serial(value):
+        return set(_SERIAL_OPS)
+    return set()
+
+
 def _auto_enqueue_pivots(type_: str, value: str) -> dict:
     """Idempotent: enqueue all applicable pivots for a node, respecting
-    defuse status, available API keys, and per-node fan-out caps. Returns
-    {enqueued, skipped} counts (0/0 if no pivots apply for this type)."""
+    defuse status, available API keys, per-node fan-out caps, target-shape
+    noise filters (shared-SaaS domains / role mailboxes / non-hex serials),
+    and a global pending-queue ceiling. Returns {enqueued, skipped, deferred}."""
     defused = False
     if type_ in ("ip", "domain", "ns"):
         try:
@@ -29,24 +46,44 @@ def _auto_enqueue_pivots(type_: str, value: str) -> dict:
 
     rules = pivots_for(type_, value, has_key=key_pool.has_any_key, defused=defused)
     if not rules:
-        return {"enqueued": 0, "skipped": 0}
+        return {"enqueued": 0, "skipped": 0, "deferred": 0}
 
-    pending_high = [r for r in rules if r[2] is None and r[1] <= 3]
-    pending_low = [r for r in rules if r[2] is None and r[1] >= 4]
+    suppress = _suppressed_ops(type_, value)
+
+    pending_high = [r for r in rules if r[2] is None and r[1] <= 3 and r[0] not in suppress]
+    pending_low = [r for r in rules if r[2] is None and r[1] >= 4 and r[0] not in suppress]
     skipped = [r for r in rules if r[2] is not None]
+    # Suppressed ops become visible 'skipped' rows (not silently dropped) so the
+    # analyst sees why they weren't run.
+    noise = [(op, prio, "noise_filter") for op, prio, reason in rules
+             if reason is None and op in suppress]
 
     pending_high = pending_high[:MAX_HIGH_PRIO_PER_NODE]
     pending_low = pending_low[:MAX_LOW_PRIO_PER_NODE]
 
+    # Global queue governor: once the backlog is large, park new auto-enqueues
+    # as 'deferred' (skip_reason='queue_ceiling') so drain budget goes to work
+    # already queued. requeue_missing() can promote them later if needed.
+    try:
+        over_ceiling = gs.pending_pivot_count(INV_ID) >= MAX_PENDING_QUEUE
+    except Exception:
+        over_ceiling = False
+
     enq = 0
+    deferred = 0
     for op, prio, _ in (pending_high + pending_low):
+        if over_ceiling:
+            gs.enqueue_pivot(INV_ID, type_, value, op, priority=prio,
+                             status="deferred", skip_reason="queue_ceiling")
+            deferred += 1
+            continue
         if gs.enqueue_pivot(INV_ID, type_, value, op, priority=prio,
                              status="pending")["was_new"]:
             enq += 1
-    for op, prio, reason in skipped:
+    for op, prio, reason in (skipped + noise):
         gs.enqueue_pivot(INV_ID, type_, value, op, priority=prio,
                          status="skipped", skip_reason=reason)
-    return {"enqueued": enq, "skipped": len(skipped)}
+    return {"enqueued": enq, "skipped": len(skipped) + len(noise), "deferred": deferred}
 
 
 @mcp.tool()
@@ -57,7 +94,13 @@ def add_node(type: str, value: str, metadata: dict | None = None,
 
     type: one of domain, ip, hash, url, cert, asn, email, registrar, ns,
           favicon_hash, jarm, ja3, ja3s, cert_serial, tracking_id, form_action,
-          wallet_address, js_hash, title_hash, person, report
+          wallet_address, js_hash, title_hash, person, threat_actor, report
+
+          threat_actor: a named adversary / intrusion set / campaign (e.g.
+            "UNC1549", "MuddyWater"). You normally don't create this by hand —
+            tag a node with a known actor handle and add_node auto-promotes it
+            to a threat_actor node + attributed_to edge. Create directly only
+            when you have explicit, corroborated attribution.
 
           jarm / ja3 / ja3s are distinct TLS fingerprints and pivot
           differently — do NOT file a JA3/JA3S under `jarm`. JARM is a
@@ -83,12 +126,45 @@ def add_node(type: str, value: str, metadata: dict | None = None,
     Side effect: pivots applicable to this node type are auto-enqueued in
     the pivot_tasks table. Call ``next_pivot()`` to drain the queue.
     """
+    # Auto-tag documented known-bad tool defaults (e.g. Cobalt Strike default
+    # cert serial) so the agent doesn't have to recall the fingerprint.
+    kb = known_bad_marker(type, value)
+    if kb:
+        tag, note = kb
+        tags = list(set((tags or []) + [tag]))
+        metadata = dict(metadata or {})
+        metadata.setdefault("known_bad_marker", note)
+
     result = gs.add_node(INV_ID, type, value, metadata=metadata,
                          confidence=confidence, source=source, tags=tags)
     enq = _auto_enqueue_pivots(type, value)
-    if enq["enqueued"] or enq["skipped"]:
+    if enq["enqueued"] or enq["skipped"] or enq.get("deferred"):
         result["pivots_queued"] = enq["enqueued"]
         result["pivots_skipped"] = enq["skipped"]
+        if enq.get("deferred"):
+            result["pivots_deferred"] = enq["deferred"]
+
+    # Promote a known threat-actor handle from this node's tags to a first-class
+    # `threat_actor` node + `attributed_to` edge. Normalisation of the agent's
+    # own finding (the tag is its evidence) — provenance preserved so it isn't a
+    # fabricated attribution.
+    promoted = []
+    for t in (tags or []):
+        actor = actor_handle_for_tag(t)
+        if not actor:
+            continue
+        gs.add_node(INV_ID, "threat_actor", actor,
+                    metadata={"promoted_from_tag": t,
+                              "evidence": f"tag '{t}' on {type}:{value}",
+                              "source": "tag_promotion"},
+                    confidence=min(confidence, 0.7), source="tag_promotion",
+                    tags=["attribution"])
+        gs.add_edge(INV_ID, type, value, "threat_actor", actor,
+                    "attributed_to", evidence=f"tag '{t}'", source="tag_promotion",
+                    confidence=min(confidence, 0.7))
+        promoted.append(actor)
+    if promoted:
+        result["threat_actors_promoted"] = promoted
     return result
 
 
@@ -124,7 +200,7 @@ def tag_node(type: str, value: str, tag: str | None = None,
 
 
 @mcp.tool()
-def get_graph(compact: bool = False) -> dict:
+def get_graph(compact: bool = False, stats_only: bool = False) -> dict:
     """Return the current investigation graph (nodes + edges).
 
     For large graphs (50+ nodes), use compact=True to get a summary that fits
@@ -135,11 +211,30 @@ def get_graph(compact: bool = False) -> dict:
     Report metadata is NOT included in compact mode — call get_report()
     separately to get the report.
 
+    stats_only=True returns ONLY {stats: {node_count, edge_count, type_counts,
+    tag_counts}} with no node/edge lists at all — use this in the
+    retrospective / report phases when you only need the graph SHAPE, not its
+    content (compact mode on a 150-node graph still blew the token limit at
+    ~69k chars). Cheapest possible call.
+
     Full mode (compact=False) returns all nodes and edges with full metadata.
     If the graph is very large, full mode may exceed output limits and fail;
     in that case, retry with compact=True and use get_node() for specific nodes.
     """
     graph = gs.get_graph(INV_ID)
+    if stats_only:
+        from collections import Counter
+        nodes = [n for n in graph.get("nodes", []) if n.get("type") != "report"]
+        tag_counts: Counter = Counter()
+        for n in nodes:
+            for t in (n.get("tags") or []):
+                tag_counts[t] += 1
+        return {"stats": {
+            "node_count": len(nodes),
+            "edge_count": len(graph.get("edges", [])),
+            "type_counts": dict(Counter(n["type"] for n in nodes)),
+            "tag_counts": dict(tag_counts),
+        }}
     if not compact:
         return graph
     # Compact mode: strip metadata from non-report nodes, simplify edges
@@ -232,8 +327,22 @@ def next_pivot() -> dict:
     After executing the pivot's tool, call mark_pivot_done(task_id, summary)
     so the queue stays consistent. If the queue is empty, call coverage_matrix
     and requeue_missing to ensure no expected pivots were skipped.
+
+    NOTE: directly-invoked CTI tools are now auto-reconciled into the queue, so
+    a pivot you already ran by hand won't be handed back to you here.
     """
-    return gs.acquire_pivot(INV_ID) or {}
+    task = gs.acquire_pivot(INV_ID) or {}
+    # Surface key-pool / quota state for the pivot's source so the agent can
+    # skip a tool it has no working key for instead of discovering the failure
+    # after the call.
+    if task.get("pivot_op"):
+        try:
+            src = key_source_for_op(task["pivot_op"])
+            if src:
+                task["source_state"] = key_pool.status(src)
+        except Exception:
+            pass
+    return task
 
 
 @mcp.tool()
@@ -299,8 +408,9 @@ def requeue_missing() -> dict:
                             defused=defused)
         return [(op, prio) for op, prio, reason in rules if reason is None]
 
+    promoted = gs.promote_deferred_pivots(INV_ID)
     n = gs.requeue_missing(INV_ID, mapping)
-    return {"enqueued": n}
+    return {"enqueued": n, "promoted_from_deferred": promoted}
 
 
 @mcp.tool()

@@ -190,6 +190,17 @@ async def malwarebazaar_filename(filename: str, limit: int = 20) -> dict:
 
 
 @mcp.tool()
+async def malwarebazaar_imphash(imphash: str, limit: int = 25) -> dict:
+    """abuse.ch MalwareBazaar — list PE samples sharing this import hash.
+
+    One-call cluster expansion for PE loaders: pass the imphash from a sample's
+    static analysis (or VT) to recover the sibling family without N manual VT
+    queries. Each entry exposes a sha256_hash you can graph as a `hash` node.
+    """
+    return await _src("abusech").mb_imphash(imphash, limit=limit)
+
+
+@mcp.tool()
 async def onyphe_domain(domain: str) -> dict:
     """Onyphe summary for a domain."""
     return await _src("onyphe").onyphe_summary_domain(domain)

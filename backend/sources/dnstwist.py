@@ -28,6 +28,60 @@ def _find_bin() -> str | None:
     return None
 
 
+# Homoglyph / common-typo substitution map for the pure-Python fallback.
+_HOMOGLYPHS = {
+    "o": "0", "0": "o", "l": "1", "1": "l", "i": "1", "e": "3",
+    "a": "4", "s": "5", "b": "8", "g": "9",
+}
+_COMMON_TLDS = (
+    "com", "net", "org", "info", "co", "io", "shop", "top", "xyz", "online",
+    "cc", "icu", "vip", "live", "store", "site", "click", "app",
+)
+
+
+def _builtin_permutations(domain: str, *, cap: int = 60) -> dict:
+    """Pure-Python typo/homoglyph/TLD-swap permutation generator used when the
+    dnstwist binary is unavailable on the host. Produces CANDIDATE permutations
+    only — it does NOT resolve them (unlike ``dnstwist --registered``), so every
+    entry is flagged ``resolved=False``. Honest fallback so the pivot degrades
+    to 'here are the campaign-keyword candidates' instead of silently failing.
+
+    Strictly passive: pure string generation, no network I/O at all.
+    """
+    d = (domain or "").strip().lower().strip(".")
+    if "." not in d:
+        return {"error": "invalid domain", "results": [], "count": 0}
+    label, _, tld = d.partition(".")
+    cands: set[str] = set()
+    for i in range(len(label)):                       # omission
+        cands.add(label[:i] + label[i + 1:] + "." + tld)
+    for i in range(len(label)):                       # repetition
+        cands.add(label[:i + 1] + label[i] + label[i + 1:] + "." + tld)
+    for i in range(len(label) - 1):                   # transposition
+        cands.add(label[:i] + label[i + 1] + label[i] + label[i + 2:] + "." + tld)
+    for i, ch in enumerate(label):                    # homoglyph / typo
+        if ch in _HOMOGLYPHS:
+            cands.add(label[:i] + _HOMOGLYPHS[ch] + label[i + 1:] + "." + tld)
+    for i in range(1, len(label)):                    # hyphen insertion
+        cands.add(label[:i] + "-" + label[i:] + "." + tld)
+    for t in _COMMON_TLDS:                             # TLD swap
+        if t != tld:
+            cands.add(label + "." + t)
+    cands.discard(d)
+    results = [{"domain": c, "fuzzer": "builtin", "resolved": False}
+               for c in sorted(cands)[:cap]]
+    return {
+        "domain": d,
+        "engine": "builtin_fallback",
+        "note": ("dnstwist binary unavailable — returning UNRESOLVED candidate "
+                 "permutations (string-generated, not DNS-verified). Pivot the "
+                 "promising ones via dns_resolve / rdap / virustotal_domain to "
+                 "confirm which are live."),
+        "results": results,
+        "count": len(results),
+    }
+
+
 async def permutations(domain: str, *, registered_only: bool = True,
                         mxcheck: bool = False) -> dict:
     """Run dnstwist for ``domain``.
@@ -38,7 +92,8 @@ async def permutations(domain: str, *, registered_only: bool = True,
     but catches phish kits that only host mail)."""
     binary = _find_bin()
     if not binary:
-        return {"error": "dnstwist binary not on PATH — `pip install dnstwist`"}
+        # Degrade to the pure-Python generator instead of failing the pivot.
+        return _builtin_permutations(domain)
     cache_key = f"dnstwist|{domain}|reg={registered_only}|mx={mxcheck}"
     cached = cache_get(cache_key, ttl=6 * 3600)
     if cached is not None:

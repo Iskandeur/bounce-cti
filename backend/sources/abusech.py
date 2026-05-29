@@ -80,3 +80,25 @@ async def mb_filename(filename: str, limit: int = 20) -> dict:
         raw = dict(raw)
         raw["data"] = [_slim_mb_sample(s) for s in raw["data"]]
     return raw
+
+
+async def mb_imphash(imphash: str, limit: int = 25) -> dict:
+    """List samples sharing a PE import hash (imphash) on MalwareBazaar.
+
+    The one-call cluster-expansion pivot for PE loaders: samples built from the
+    same import table share an imphash, so this surfaces the sibling family
+    (e.g. a Bumblebee loader DLL cluster) without N manual VT queries. Response
+    trimmed per-sample like ``mb_signature``.
+    """
+    ih = (imphash or "").strip().lower()
+    if not ih:
+        return {"error": "empty imphash", "data": []}
+    raw = await post_form("https://mb-api.abuse.ch/api/v1/",
+                          headers=_h(),
+                          form_data={"query": "get_imphash",
+                                     "imphash": ih, "limit": str(limit)},
+                          ttl=3600)
+    if isinstance(raw, dict) and isinstance(raw.get("data"), list):
+        raw = dict(raw)
+        raw["data"] = [_slim_mb_sample(s) for s in raw["data"]]
+    return raw
