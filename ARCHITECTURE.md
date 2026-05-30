@@ -285,7 +285,10 @@ MCP server exposing graph write/read tools + the autonomy engine to the agent:
   queue-ceiling-`deferred` tasks back to `pending`
 - `gaps_report()` — group skipped/failed pivots by reason (no_api_key, defused,
   noise_filter, queue_ceiling, ...)
-- `quota_status()` — per-source key pool snapshot
+- `quota_status()` — per-source key pool snapshot + `dead_sources` (sources
+  flagged systemically non-functional this run via `source_health`, e.g.
+  OpenCTI `AUTH_REQUIRED`; auto-skipped at enqueue with
+  `skip_reason='source_dead:<status>'`)
 
 `BOUNCE_INV_ID` env var selects which investigation the agent is writing to.
 

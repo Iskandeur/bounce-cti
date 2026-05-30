@@ -73,6 +73,17 @@ async def _gql(query: str, variables: dict, cache_key: str, ttl: float = 3600) -
         if "AUTH_REQUIRED" in codes or "FORBIDDEN" in codes:
             # Bad token — long cooldown so we don't burn the same call repeatedly.
             key_pool.mark_rate_limited("opencti", api_key, cooldown_seconds=600)
+            # Cross-process: mark OpenCTI dead so graph_mcp skips
+            # `opencti_lookup_indicator` at enqueue time on subsequent nodes
+            # instead of re-discovering the auth failure per node.
+            try:
+                from .. import source_health
+                source_health.mark_dead(
+                    "opencti", "auth_required",
+                    reason="GraphQL AUTH_REQUIRED — token expired/invalid; refresh OPENCTI_API_KEY",
+                )
+            except Exception:
+                pass
             return {"error": "opencti auth failed (check OPENCTI_API_KEY)",
                     "errors": errs[:3]}
         # Other GraphQL errors are kept in-band so the caller can inspect.

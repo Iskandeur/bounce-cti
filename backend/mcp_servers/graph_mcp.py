@@ -3,9 +3,11 @@
 Investigation id is read from env BOUNCE_INV_ID (set by backend when spawning claude).
 """
 import os
+from typing import Optional
 from mcp.server.fastmcp import FastMCP
 from .. import graph_store as gs
 from .. import key_pool
+from .. import source_health
 from ..defuse_lists import defuse_check
 from ..pivot_mapping import (
     pivots_for, MAX_HIGH_PRIO_PER_NODE, MAX_LOW_PRIO_PER_NODE, MAX_PENDING_QUEUE,
@@ -50,8 +52,29 @@ def _auto_enqueue_pivots(type_: str, value: str) -> dict:
 
     suppress = _suppressed_ops(type_, value)
 
-    pending_high = [r for r in rules if r[2] is None and r[1] <= 3 and r[0] not in suppress]
-    pending_low = [r for r in rules if r[2] is None and r[1] >= 4 and r[0] not in suppress]
+    # Source-health gate: if a pivot needs a source currently marked dead (e.g.
+    # OpenCTI token expired this run), skip it at enqueue time so we don't
+    # rediscover the auth failure on every node. Self-heals via TTL.
+    def _is_op_source_dead(op: str) -> Optional[str]:
+        src = key_source_for_op(op)
+        if not src:
+            return None
+        st = source_health.is_dead(src)
+        return f"source_dead:{st['status']}" if st else None
+
+    pending_high = []
+    pending_low = []
+    source_dead = []  # ops we skipped because their source is marked dead
+    for op, prio, key_required in rules:
+        if key_required is not None:
+            continue  # already classified as skipped (no_api_key/defused)
+        if op in suppress:
+            continue  # already classified as noise_filter
+        sd = _is_op_source_dead(op)
+        if sd:
+            source_dead.append((op, prio, sd))
+            continue
+        (pending_high if prio <= 3 else pending_low).append((op, prio, None))
     skipped = [r for r in rules if r[2] is not None]
     # Suppressed ops become visible 'skipped' rows (not silently dropped) so the
     # analyst sees why they weren't run.
@@ -80,10 +103,11 @@ def _auto_enqueue_pivots(type_: str, value: str) -> dict:
         if gs.enqueue_pivot(INV_ID, type_, value, op, priority=prio,
                              status="pending")["was_new"]:
             enq += 1
-    for op, prio, reason in (skipped + noise):
+    for op, prio, reason in (skipped + noise + source_dead):
         gs.enqueue_pivot(INV_ID, type_, value, op, priority=prio,
                          status="skipped", skip_reason=reason)
-    return {"enqueued": enq, "skipped": len(skipped) + len(noise), "deferred": deferred}
+    return {"enqueued": enq, "skipped": len(skipped) + len(noise) + len(source_dead),
+            "deferred": deferred}
 
 
 @mcp.tool()
@@ -340,6 +364,12 @@ def next_pivot() -> dict:
             src = key_source_for_op(task["pivot_op"])
             if src:
                 task["source_state"] = key_pool.status(src)
+                # Surface 'source_dead' (auth_required / quota_exhausted /
+                # zero_balance) flags too so the agent sees a systemic failure
+                # before calling the tool, not after.
+                dead = source_health.is_dead(src)
+                if dead:
+                    task["source_state"]["dead"] = dead
         except Exception:
             pass
     return task
@@ -426,10 +456,20 @@ def gaps_report() -> dict:
 @mcp.tool()
 def quota_status() -> dict:
     """Snapshot of API key pool state across all configured sources:
-      {source: {keys_total, keys_available, keys_cooldown, used_today_per_key}}.
-    Useful to redirect to alternative sources when a primary is rate-limited.
+      {sources: {source: {keys_total, keys_available, keys_cooldown,
+                          used_today_per_key}},
+       dead_sources: {source: {status, reason, since}}}.
+
+    `dead_sources` lists sources flagged as systemically non-functional for
+    this run (e.g. OpenCTI token expired). Pivots needing a dead source are
+    skipped at enqueue time and surface in gaps_report with
+    skip_reason='source_dead:<status>'. The flag self-heals after a short TTL
+    so a fixed key recovers automatically.
     """
-    return key_pool.status_all()
+    return {
+        "sources": key_pool.status_all(),
+        "dead_sources": source_health.snapshot(),
+    }
 
 
 @mcp.tool()

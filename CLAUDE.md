@@ -59,6 +59,10 @@ backend/
   stix_export.py        # Render an investigation as a STIX 2.1 bundle
   key_pool.py           # API key rotation pool: round-robin, cooldown on 429,
                         #   per-day quota tracking, graceful degradation
+  source_health.py      # Short-TTL dead-source cache (auth_required /
+                        #   tier_restricted / quota_exhausted / zero_balance)
+                        #   backed by the cache table so both MCP processes see
+                        #   it; auto-enqueue skips pivots needing a dead source
   pivot_mapping.py      # Per-node-type pivot rules + fan-out caps + global
                         #   pending-queue ceiling (MAX_PENDING_QUEUE) + cloud
                         #   ASN list + discriminating_marker() for convergence
@@ -217,7 +221,14 @@ This repo has **automatic deployment via GitHub Actions**.
   structurally-doomed pivots at enqueue (subdomain/whois on shared-SaaS parents
   like `*.azurewebsites.net`; reverse-WHOIS on role mailboxes like `abuse@`;
   serial lookups on non-hex cert serials) — surfaced as `skipped`
-  (`skip_reason='noise_filter'`), not silently dropped.
+  (`skip_reason='noise_filter'`), not silently dropped. **Source-health
+  cache** (`backend/source_health.py`, backed by the `cache` table so both MCP
+  processes see it): when a source returns a systemic failure (e.g. OpenCTI
+  GraphQL `AUTH_REQUIRED`, indicating the token is expired/invalid), it gets
+  marked dead with a short TTL (1h for auth, 4h for daily-quota, 2h for
+  zero-balance). New pivots needing that source are then skipped at enqueue
+  with `skip_reason='source_dead:<status>'` — eliminating the per-node
+  rediscovery cost. `quota_status` surfaces the dead-sources dict.
 - **Claude-subscription quota tracking**: `agent_runner` scans every
   `claude -p` stream-json event + stderr line for quota exhaustion two ways:
   the structured `rate_limit_event` (a non-`allowed` `status`, with `resetsAt`
