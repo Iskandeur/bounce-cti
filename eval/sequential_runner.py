@@ -1,6 +1,25 @@
-"""Sequential one-by-one runner. Submit a case, wait for terminal, log to file, next.
+"""Sequential one-by-one runner. Submit a case, wait for terminal, log, next.
 
-User mandated: NO PARALLELISM. Run each case fully before launching the next.
+User-mandated (EXCEPTIONAL MEASURE): NO PARALLELISM — run each case fully
+before launching the next, to avoid burning the shared Anthropic 5-hour
+window. The backend's `claude -p` investigations consume the SAME subscription
+quota as the eval-driver session, so a parallel burst exhausts it fast.
+
+Quota-survival design (the whole point of this rewrite):
+  * The shared subscription quota WILL be hit on a full-12 sequential run
+    (prior run spanned 3 windows). When it is, the in-flight investigation
+    flips to `quota_exceeded` and `POST /api/investigations` starts returning
+    429. This runner DETECTS that, reads the reset epoch from `/api/quota`,
+    SLEEPS until it passes, then `POST /resume`s the quota_exceeded inv in
+    place (graph preserved) and keeps going. Submits also retry through 429.
+  * Restart safety: the eval-driver session itself halts when quota dies and
+    is restarted manually. meta.json records each case's inv_id THE MOMENT it
+    is submitted (before waiting), so a mid-wait death is recoverable — on
+    restart a tracked inv is RESUMED/continued, never blindly re-submitted
+    (even in FORCE_NEW mode), so we never spawn duplicate investigations.
+  * If the container was reclaimed (fresh /tmp), reconstruct meta.json from the
+    dev-branch-committed copy before launching; the runner then re-attaches to
+    the recorded inv_ids and re-fetches their graphs.
 """
 import json, os, sys, time, urllib.request, urllib.error, http.cookiejar
 sys.path.insert(0, "/tmp/eval_run")
@@ -10,10 +29,19 @@ BASE = "https://bounce.alexandre-pinoteau.fr"
 CJ = http.cookiejar.MozillaCookieJar("/tmp/cookies.txt")
 CJ.load(ignore_discard=True, ignore_expires=True)
 OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CJ))
-TERMINAL = {"done", "failed", "stopped", "error", "cleared", "quota_exceeded"}
+
+# `quota_exceeded` is intentionally NOT in the "stop and move on" terminal set
+# here — it is handled specially (wait + resume). The genuinely-final statuses:
+FINAL = {"done", "failed", "stopped", "error", "cleared"}
 
 LOG_FILE = "/tmp/eval_run/runner.log"
 META_FILE = "/tmp/eval_run/meta.json"
+
+# Bounded per-iteration sleep while waiting for the quota window to refill, so
+# the log shows liveness and we re-probe for an early reset. Hard cap protects
+# against a stuck `exhausted_until`.
+QUOTA_POLL_MAX_SLEEP = 1500     # ≤25 min between probes
+QUOTA_HARD_CAP_SECONDS = 8 * 3600  # give up waiting after 8h
 
 
 def log(msg):
@@ -24,6 +52,7 @@ def log(msg):
 
 
 def req(method, path, body=None):
+    """Return (http_status:int, parsed_json_or_error_dict). 0 = network failure."""
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Content-Type": "application/json"} if body is not None else {}
     r = urllib.request.Request(BASE + path, data=data, headers=headers, method=method)
@@ -33,65 +62,142 @@ def req(method, path, body=None):
                 return resp.status, json.loads(resp.read())
         except urllib.error.HTTPError as e:
             try:
-                body_text = e.read().decode()[:200]
+                raw = e.read().decode()
             except Exception:
-                body_text = ""
-            return e.code, {"error": body_text}
-        except (urllib.error.URLError, TimeoutError) as e:
+                raw = ""
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                parsed = {"error": raw[:300]}
+            return e.code, parsed
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
             log(f"  net retry {path}: {e}")
             time.sleep(2 ** attempt)
     return 0, {"error": "timeout"}
 
+
+def save_meta(meta):
+    meta["updated"] = time.time()
+    json.dump(meta, open(META_FILE, "w"), indent=2)
+
+
+# ---------------------------------------------------------------- quota ----
+
+def quota_state():
+    """(exhausted: bool, reset_epoch: float|None)."""
+    s, d = req("GET", "/api/quota")
+    if s != 200 or not isinstance(d, dict):
+        return False, None
+    return bool(d.get("exhausted")), d.get("exhausted_until")
+
+
+def reset_from_detail(detail):
+    """Pull a reset epoch out of a 429/425 error body if present."""
+    if isinstance(detail, dict):
+        d2 = detail.get("detail") if isinstance(detail.get("detail"), dict) else detail
+        for k in ("reset_at", "exhausted_until"):
+            v = d2.get(k) if isinstance(d2, dict) else None
+            if v:
+                return v
+    return None
+
+
+def wait_for_quota(reason="", reset_hint=None):
+    """Block until the subscription quota window refills. Returns True if it
+    cleared, False if the hard cap elapsed. Survives a stuck epoch by re-probing
+    /api/quota every iteration (the gate may clear before the stated reset)."""
+    started = time.time()
+    log(f"  QUOTA WAIT ({reason}) — entering wait loop")
+    while time.time() - started < QUOTA_HARD_CAP_SECONDS:
+        exhausted, reset = quota_state()
+        if not exhausted:
+            log(f"  QUOTA CLEARED ({reason}) after {int(time.time()-started)}s")
+            return True
+        reset = reset or reset_hint
+        now = time.time()
+        if reset and reset > now:
+            sleep = min(QUOTA_POLL_MAX_SLEEP, int(reset - now) + 30)
+        else:
+            sleep = 600  # no epoch known → re-probe every 10 min
+        eta = time.strftime('%H:%M:%S', time.gmtime(reset)) if reset else "unknown"
+        log(f"  QUOTA still exhausted; reset≈{eta} UTC; sleeping {sleep}s")
+        time.sleep(max(30, sleep))
+    log(f"  QUOTA WAIT ({reason}) HARD-CAP {QUOTA_HARD_CAP_SECONDS}s elapsed — giving up")
+    return False
+
+
+# --------------------------------------------------------------- status ----
 
 def get_status(inv_id):
     status, data = req("GET", "/api/investigations")
     if status != 200 or not isinstance(data, list):
         return None
     for inv in data:
-        if inv["id"] == inv_id:
+        if inv.get("id") == inv_id:
             return inv.get("status")
     return None
 
 
-def wait_for_terminal(inv_id, label, max_minutes=60, hard_cap_minutes=120):
-    """Poll until terminal, then save graph+transcript.
-
-    Critical for one-by-one discipline: if we hit the soft deadline but the
-    backend still reports `running`, KEEP WAITING (up to hard_cap). Abandoning
-    a still-running investigation to submit the next case causes accidental
-    parallelism on the VPS — which burned quota on the prior partial run.
-    Only give up if status reads keep failing (None) past the soft deadline,
-    which indicates the inv genuinely stalled or the API is unreachable.
-    """
-    soft_deadline = time.time() + max_minutes * 60
-    hard_deadline = time.time() + hard_cap_minutes * 60
+def wait_for_terminal(inv_id, label, max_minutes=75, hard_cap_minutes=150):
+    """Poll until a FINAL or quota_exceeded status. KEEP WAITING past the soft
+    deadline while the backend still reports `running` (abandoning a live inv to
+    launch the next case causes accidental parallelism on the VPS)."""
+    soft = time.time() + max_minutes * 60
+    hard = time.time() + hard_cap_minutes * 60
     last = None
     consec_none_after_soft = 0
-    while time.time() < hard_deadline:
+    while time.time() < hard:
         s = get_status(inv_id)
         if s != last:
             log(f"  [{label}] status={s}")
             last = s
-        if s in TERMINAL:
+        if s in FINAL or s == "quota_exceeded":
             return s
-        if time.time() >= soft_deadline:
+        if time.time() >= soft:
             if s == "running":
-                consec_none_after_soft = 0  # genuinely still working
+                consec_none_after_soft = 0
             elif s is None:
                 consec_none_after_soft += 1
-                # 10 consecutive failed status reads (~3+ min) past soft
-                # deadline → API unreachable, give up gracefully.
                 if consec_none_after_soft >= 10:
                     log(f"  [{label}] status unreadable past soft deadline — giving up")
                     return "timeout"
         time.sleep(20)
-    log(f"  [{label}] HARD TIMEOUT after {hard_cap_minutes} min (backend still running)")
+    log(f"  [{label}] HARD TIMEOUT after {hard_cap_minutes} min (still running)")
     return "timeout"
 
 
-def fetch_and_save(case, status):
-    cid = case["case_id"]
-    inv_id = case["inv_id"]
+def drive_to_final(inv_id, label, meta, cid):
+    """wait_for_terminal, but transparently survive quota_exceeded: wait for the
+    window, resume in place, and keep waiting. Returns a FINAL status (or
+    quota_exceeded/timeout if we exhaust resume attempts / the hard cap)."""
+    attempts = 0
+    while True:
+        status = wait_for_terminal(inv_id, label)
+        if status != "quota_exceeded":
+            return status
+        attempts += 1
+        log(f"  [{label}] hit quota_exceeded (resume attempt {attempts})")
+        meta["cases"][str(cid)] = {"inv_id": inv_id, "status": "quota_exceeded",
+                                   "updated_at": time.time()}
+        save_meta(meta)
+        if attempts > 15:
+            log(f"  [{label}] too many quota resumes — leaving as quota_exceeded")
+            return "quota_exceeded"
+        if not wait_for_quota(reason=f"{label} resume"):
+            return "quota_exceeded"
+        s, d = req("POST", f"/api/investigations/{inv_id}/resume")
+        if s == 425:
+            # still cooling (race) — loop back, wait_for_quota again
+            log(f"  [{label}] resume 425 (still cooling); re-waiting")
+            time.sleep(60)
+            continue
+        if s != 200:
+            log(f"  [{label}] resume failed HTTP {s} {d}")
+            return "quota_exceeded"
+        log(f"  [{label}] resumed; continuing to wait")
+
+
+def fetch_and_save(cid, inv_id, status):
     out_dir = f"/tmp/eval_run/c{cid:02d}"
     os.makedirs(out_dir, exist_ok=True)
     _, g = req("GET", f"/api/investigations/{inv_id}/graph")
@@ -106,84 +212,112 @@ def fetch_and_save(case, status):
     log(f"  [c{cid:02d}] saved: {n} nodes, {e} edges, {t} entries, status={status}")
 
 
-def has_useful_data(case):
-    """Determine if previously-fetched data is meaningful (not just empty quota-fail)."""
-    cid = case["case_id"]
+def has_useful_data(cid):
     gf = f"/tmp/eval_run/c{cid:02d}/graph.json"
     tf = f"/tmp/eval_run/c{cid:02d}/transcript.json"
     if not (os.path.exists(gf) and os.path.exists(tf)):
         return False
     try:
-        g = json.load(open(gf))
-        tx = json.load(open(tf))
+        g = json.load(open(gf)); tx = json.load(open(tf))
     except Exception:
         return False
     n = len(g.get("nodes", []))
-    e = len(g.get("edges", []))
     tools = sum(1 for x in tx.get("entries", []) if x.get("kind") == "tool")
     return n >= 3 and tools >= 3
 
 
-def submit_new(case):
-    """Submit a fresh investigation (returns new inv_id)."""
-    body = {"seed_type": case["seed_type"], "seed_value": case["seed_value"], "model": "opus-4.7"}
-    status, data = req("POST", "/api/investigations", body)
-    if status != 200:
-        log(f"  [c{case['case_id']:02d}] submit failed: HTTP {status} {data}")
-        return None
-    new_id = data.get("id")
-    log(f"  [c{case['case_id']:02d}] submitted new inv_id={new_id}")
-    return new_id
-
-
-def run_one(case, force_new=False):
-    """Run a single case end-to-end. Returns status."""
+def submit_with_quota_retry(case, meta):
+    """Submit a fresh investigation; if the quota gate (429) fires, wait and
+    retry. Records the new inv_id into meta IMMEDIATELY (restart-safety)."""
     cid = case["case_id"]
-    inv_id = case["inv_id"]
+    body = {"seed_type": case["seed_type"], "seed_value": case["seed_value"], "model": "opus-4.7"}
+    for _ in range(20):
+        status, data = req("POST", "/api/investigations", body)
+        if status == 200:
+            new_id = data.get("id")
+            log(f"  [c{cid:02d}] submitted new inv_id={new_id}")
+            meta["cases"][str(cid)] = {"inv_id": new_id, "status": "submitted",
+                                       "updated_at": time.time()}
+            save_meta(meta)
+            return new_id
+        if status == 429:
+            log(f"  [c{cid:02d}] submit gated by quota (429); waiting")
+            if not wait_for_quota(reason=f"c{cid:02d} submit",
+                                  reset_hint=reset_from_detail(data)):
+                return None
+            continue
+        log(f"  [c{cid:02d}] submit failed: HTTP {status} {data}")
+        return None
+    return None
+
+
+def run_one(case, meta, force_new=False):
+    cid = case["case_id"]
     label = f"c{cid:02d}"
-    log(f"[c{cid:02d}] === {case['name']} (seed_type={case['seed_type']}) ===")
+    log(f"[c{cid:02d}] === {case['name']} (seed_type={case['seed_type']}, seed={case['seed_value']}) ===")
 
-    cur_status = get_status(inv_id) if inv_id and inv_id != "NEW" else None
-    log(f"  [{label}] existing status={cur_status}")
+    # 1. Resolve which inv_id to act on. A meta-tracked inv (from this run, even
+    #    a prior crashed session) ALWAYS wins over force_new — never resubmit a
+    #    case we've already launched.
+    tracked = meta["cases"].get(str(cid), {})
+    inv_id = tracked.get("inv_id")
+    if not inv_id and not force_new:
+        inv_id = case["inv_id"] if case["inv_id"] not in (None, "NEW") else None
 
-    needs_rerun = force_new or cur_status not in ("running", "done") or not has_useful_data(case)
-    if force_new:
-        # Fresh-iteration mode: always submit a new investigation so we measure
-        # the currently-deployed code, not a cached prior-run graph.
-        needs_rerun = True
-    elif cur_status == "quota_exceeded":
-        # Try resume first
-        log(f"  [{label}] resuming quota_exceeded inv")
-        s, d = req("POST", f"/api/investigations/{inv_id}/resume")
-        if s == 200:
-            needs_rerun = False
-        else:
-            log(f"  [{label}] resume failed: {s} {d} → submitting new")
-            needs_rerun = True
-    elif cur_status == "running":
-        needs_rerun = False
+    if inv_id:
+        cur = get_status(inv_id)
+        log(f"  [{label}] tracked inv_id={inv_id} status={cur}")
+        if cur == "done" and has_useful_data(cid):
+            log(f"  [{label}] already done with useful data — skipping re-run")
+            return "done", inv_id
+        if cur in ("running",):
+            status = drive_to_final(inv_id, label, meta, cid)
+            fetch_and_save(cid, inv_id, status)
+            return status, inv_id
+        if cur == "quota_exceeded":
+            # resume in place
+            if wait_for_quota(reason=f"{label} startup-resume"):
+                s, d = req("POST", f"/api/investigations/{inv_id}/resume")
+                if s in (200, 425):
+                    status = drive_to_final(inv_id, label, meta, cid)
+                    fetch_and_save(cid, inv_id, status)
+                    return status, inv_id
+            log(f"  [{label}] could not resume tracked quota inv → will submit fresh")
+            inv_id = None
+        elif cur == "done":
+            # done but no local data (fresh container) — just fetch it
+            fetch_and_save(cid, inv_id, cur)
+            if has_useful_data(cid):
+                return "done", inv_id
+            inv_id = None  # empty → resubmit
+        elif cur in FINAL:
+            # failed/stopped/error/cleared → resubmit fresh
+            inv_id = None
+        elif cur is None:
+            # inv vanished from list → resubmit
+            inv_id = None
 
-    if needs_rerun:
-        new_id = submit_new(case)
-        if new_id is None:
-            return "submit_failed"
-        case["inv_id"] = new_id
-        inv_id = new_id
+    # 2. No usable tracked inv → submit fresh (with quota retry).
+    if not inv_id:
+        inv_id = submit_with_quota_retry(case, meta)
+        if inv_id is None:
+            return "submit_failed", None
 
-    status = wait_for_terminal(inv_id, label)
-    fetch_and_save(case, status)
-    return status
+    status = drive_to_final(inv_id, label, meta, cid)
+    fetch_and_save(cid, inv_id, status)
+    return status, inv_id
 
 
 def main():
     if not os.path.exists(LOG_FILE):
         open(LOG_FILE, "w").close()
+    log("=== sequential_runner START (one-by-one, quota-survivable) ===")
 
-    # Persist meta
     if os.path.exists(META_FILE):
         meta = json.load(open(META_FILE))
     else:
         meta = {"started": time.time(), "cases": {}}
+    meta.setdefault("cases", {})
 
     case_ids = sys.argv[1:] if len(sys.argv) > 1 else [str(c["case_id"]) for c in CASES]
     target_ids = set()
@@ -194,22 +328,22 @@ def main():
         else:
             target_ids.add(int(x))
 
+    force = os.environ.get("FORCE_NEW") == "1"
+    log(f"targets={sorted(target_ids)} force_new={force}")
+
     for case in CASES:
         if case["case_id"] not in target_ids:
             continue
-        force = os.environ.get("FORCE_NEW") == "1"
-        if case["case_id"] in meta["cases"] and meta["cases"][str(case["case_id"])].get("status") in ("done",):
-            # already complete
-            log(f"[c{case['case_id']:02d}] already done in meta, skipping")
+        cid = case["case_id"]
+        tracked = meta["cases"].get(str(cid), {})
+        if tracked.get("status") == "done" and has_useful_data(cid):
+            log(f"[c{cid:02d}] already done in meta + data present — skipping")
             continue
-        status = run_one(case, force_new=force)
-        meta["cases"][str(case["case_id"])] = {
-            "inv_id": case["inv_id"],
-            "status": status,
-            "completed_at": time.time(),
-        }
-        json.dump(meta, open(META_FILE, "w"), indent=2)
-        log(f"[c{case['case_id']:02d}] DONE status={status}")
+        status, inv_id = run_one(case, meta, force_new=force)
+        meta["cases"][str(cid)] = {"inv_id": inv_id, "status": status,
+                                   "completed_at": time.time()}
+        save_meta(meta)
+        log(f"[c{cid:02d}] DONE status={status} inv_id={inv_id}")
 
     log("ALL DONE")
 

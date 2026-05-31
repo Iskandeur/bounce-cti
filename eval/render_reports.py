@@ -1,65 +1,77 @@
-"""Render scorecard.md, deltas.md, failure_histogram.md, proposed_fixes.md,
-raw_scores.json into runs/2026-05-28_<sha>/."""
+"""Render scorecard.md, deltas.md, failure_histogram.md, raw_scores.json into
+runs/<DATE>_<sha>/.  proposed_fixes.md is authored by hand (the agent), not
+generated here."""
 import json, os, sys
 from collections import Counter
 
 sys.path.insert(0, "/tmp/eval_run")
 from cases import CASES
 
+DATE = "2026-05-31"
 RUN_DIR = os.path.join("/home/user/bounce-cti", open("/tmp/eval_run/dir.txt").read().strip())
 SCORED = json.load(open("/tmp/eval_run/scored.json"))
 META = json.load(open("/tmp/eval_run/meta.json")) if os.path.exists("/tmp/eval_run/meta.json") else {"cases": {}}
+BRANCH = "claude/elegant-mendel-hvOvJ"
+CASE11_SEED = next(c["seed_value"] for c in CASES if c["case_id"] == 11)
 
-# Prior run (2026-05-21 / e54dec1) for delta calculation
+# Prior run (2026-05-28 / ccee7e3) per-case overalls for delta calculation.
 PRIOR = {
-    1: 39.4, 2: 61.8, 3: 64.8, 4: 60.5, 5: 38.8, 6: 62.5,
-    7: 71.4, 8: 71.4, 9: 77.5, 10: 34.5, 11: 40.0, 12: 33.3,
+    1: 56.1, 2: 61.8, 3: 64.0, 4: 43.8, 5: 52.6, 6: 82.5,
+    7: 63.6, 8: 67.2, 9: 60.8, 10: 41.2, 11: 60.0, 12: 72.1,
 }
-PRIOR_MEAN = 54.7
+PRIOR_LABEL = "2026-05-28 prior"
+PRIOR_MEAN = 60.5
+PRIOR_PASS = 2
+PRIOR_WH = 12
+PRIOR_P3 = 10
+PRIOR_ER_STR = "16.7 (n=6)"
+PRIOR_COVERAGE_BREACH = "[4, 5, 10]"
+# Apr-20 (46e59dc) last full-12 baseline before the autonomy/hypothesis-first refactors.
 APR20 = {
     1: 51.1, 2: 47.9, 3: 54.3, 4: 70.0, 5: 60.0, 6: 67.5,
     7: 48.1, 8: 54.2, 9: 70.5, 10: 37.9, 11: 60.8, 12: 72.5,
 }
 
 
+def status_of(cid):
+    return META.get("cases", {}).get(str(cid), {}).get("status", "done")
+
+
 def render_scorecard(sha):
-    lines = []
-    lines.append(f"# EVAL_PROTOCOL Scorecard — 2026-05-28 · commit {sha}")
-    lines.append("")
-    lines.append("**Run environment**")
-    lines.append(f"- Branch: `claude/amazing-planck-s7mNi` (local), against `main` deployed VPS at https://bounce.alexandre-pinoteau.fr/")
-    lines.append("- Model: `opus-4.7` (only model whitelisted on the eval account)")
-    lines.append("- Mode: full 12 cases, **sequential one-by-one** submission (user-mandated to avoid 5-hour quota burn-down)")
-    lines.append("- Case 11 seed: `ezpass-tollbill-pay.cc` — Smishing-Triad/Lighthouse-kit pattern (NameSilo + Cloudflare fronting + toll-payment lure + .cc TLD), distinct from prior run (`usps-deliveryupdate-package.top`) to dodge a cached backend result. Live freshness not verified (sandbox DNS blocked).")
-    lines.append("")
-    lines.append("## Scorecard")
-    lines.append("")
-    lines.append("| Case | Status | NR   | ER   | PC   | DC  | BD  | RQ  | Overall | Calls | Hypothesis path |")
-    lines.append("|-----:|:------:|-----:|-----:|-----:|----:|----:|----:|--------:|------:|:----------------|")
-    overalls = []
-    pass_rate = 0
-    halluc = 0
-    wh_count = 0
-    p3_count = 0
-    dc_floor = []
-    er_vals = []
+    L = []
+    L.append(f"# EVAL_PROTOCOL Scorecard — {DATE} · commit {sha}")
+    L.append("")
+    L.append("**Run environment**")
+    L.append(f"- Branch: `{BRANCH}` (local), against `main` deployed VPS at https://bounce.alexandre-pinoteau.fr/ (HEAD == origin/main == {sha} at run start)")
+    L.append("- Model: `opus-4.7` (only model whitelisted on the eval account)")
+    L.append("- Mode: full 12 cases, **sequential one-by-one** submission (user EXCEPTIONAL MEASURE: avoid the shared 5-hour Anthropic quota burn-down; quota-survivable runner waits + resumes in place).")
+    L.append(f"- Case 11 seed: `{CASE11_SEED}` — Smishing-Triad/Lighthouse-kit pattern (NameSilo + Cloudflare fronting + SunPass toll-billing lure + .icu TLD), distinct from the two prior runs (`usps-deliveryupdate-package.top`, `ezpass-tollbill-pay.cc`) to dodge a cached backend result. Live freshness not verified (sandbox DNS/IOFA-feed blocked) — NR expected ~0; case exercises PC/DC/BD.")
+    L.append("")
+    L.append("## Scorecard")
+    L.append("")
+    L.append("| Case | Status | NR   | ER   | PC   | DC  | BD  | RQ  | Overall | Calls | Hypothesis path |")
+    L.append("|-----:|:------:|-----:|-----:|-----:|----:|----:|----:|--------:|------:|:----------------|")
+    overalls, er_vals, dc_floor = [], [], []
+    pass_rate = halluc = wh_count = valid_hyp = p3_count = 0
     for r in SCORED:
         cid = r["case_id"]
         if "error" in r:
-            lines.append(f"| {cid:>2} | ERR | – | – | – | – | – | – | – | – | – |")
+            L.append(f"| {cid:>2} | ERR | – | – | – | – | – | – | – | – | – |")
             continue
-        st = META.get("cases", {}).get(str(cid), {}).get("status", "done")
+        st = status_of(cid)
         er_s = f"{r['er']:5.1f}" if r["er"] is not None else "  n/a"
-        if r["er"] is not None and cid in (1,2,3,7,8,10):  # cases with edge counts
+        if r["er"] is not None:
             er_vals.append(r["er"])
         if cid in (4, 6, 11, 12):
             dc_floor.append(r["dc"])
-        wh = r["hypothesis"]
-        if wh.get("wh_present"):
+        h = r["hypothesis"]
+        if h.get("wh_present"):
             wh_count += 1
-            wh_str = f"Y ({wh.get('category') or '(none)'})"
+            wh_str = f"Y ({h.get('category') or '(none)'})"
         else:
-            wh_str = f"absent (({wh.get('category') or 'none'}))"
+            wh_str = f"absent (({h.get('category') or 'none'}))"
+        if h.get("valid"):
+            valid_hyp += 1
         if r["phase3_tools_used"]:
             p3_count += 1
         overalls.append(r["overall"])
@@ -67,220 +79,158 @@ def render_scorecard(sha):
             pass_rate += 1
         if r["hallucinations"]:
             halluc += 1
-        lines.append(f"| {cid:>2} | {st} | {r['nr']:>4.1f} | {er_s} | {r['pc']:>4.1f} | {r['dc']:>3} | {r['bd']:>3} | {r['rq']:>3} | {r['overall']:>5.1f} | {r['cti_calls']:>4} | {wh_str} |")
+        L.append(f"| {cid:>2} | {st} | {r['nr']:>4.1f} | {er_s} | {r['pc']:>4.1f} | {r['dc']:>3} | {r['bd']:>3} | {r['rq']:>3} | {r['overall']:>5.1f} | {r['cti_calls']:>4} | {wh_str} |")
 
-    lines.append("")
-    lines.append("## Aggregate metrics")
-    lines.append("")
     mean = sum(overalls) / len(overalls) if overalls else 0
     apr20_mean = sum(APR20.values()) / 12
     er_mean = sum(er_vals) / len(er_vals) if er_vals else 0
     dc_mean = sum(dc_floor) / len(dc_floor) if dc_floor else 0
-    delta_prior = mean - PRIOR_MEAN
-    delta_apr = mean - apr20_mean
-    breached = []
-    for r in SCORED:
-        if "error" in r:
-            continue
-        if r["case_id"] in (1,2,3,4,5,6,7,8,9,10,11,12):
-            # primary cases per §8 marker map - check that marker not < 40
-            if r["nr"] < 40 and r["case_id"] in (1,4,5,6,8,10,12):
-                breached.append(r["case_id"])
-    lines.append("| Metric                                       | Target           | This run           | 2026-05-21 prior   | Apr-20 baseline | Δ vs prior |")
-    lines.append("|----------------------------------------------|-----------------:|-------------------:|-------------------:|----------------:|-----------:|")
-    lines.append(f"| Overall (mean)                               | ≥ 65             | **{mean:.1f}** | {PRIOR_MEAN} | {apr20_mean:.1f} | {delta_prior:+.1f} |")
-    lines.append(f"| Pass rate (overall ≥ 70)                     | ≥ 60 %           | **{pass_rate}/12 ({100*pass_rate/12:.0f} %)** | 3/12 (25 %) | 3/12 (25 %) | {pass_rate - 3:+d} |")
+    breached = sorted({r["case_id"] for r in SCORED if "error" not in r
+                       and r["nr"] < 40 and r["case_id"] in (1, 4, 5, 6, 8, 10, 12)})
+
+    L += ["", "## Aggregate metrics", ""]
+    L.append("| Metric                                       | Target           | This run           | "+PRIOR_LABEL+"   | Apr-20 baseline | Δ vs prior |")
+    L.append("|----------------------------------------------|-----------------:|-------------------:|-------------------:|----------------:|-----------:|")
+    L.append(f"| Overall (mean)                               | ≥ 65             | **{mean:.1f}** | {PRIOR_MEAN} | {apr20_mean:.1f} | {mean-PRIOR_MEAN:+.1f} |")
+    L.append(f"| Pass rate (overall ≥ 70)                     | ≥ 60 %           | **{pass_rate}/12 ({100*pass_rate/12:.0f} %)** | {PRIOR_PASS}/12 ({100*PRIOR_PASS/12:.0f} %) | 3/12 (25 %) | {pass_rate-PRIOR_PASS:+d} |")
     halluc_str = "✅" if halluc == 0 else "❌ BREACH"
-    lines.append(f"| Hallucination rate                           | **0 % hard gate**| **{halluc}/12 ({100*halluc/12:.0f} %)** {halluc_str} | 0/12 | 0/12 | — |")
-    lines.append(f"| Defuse floor (mean DC on cases 4/6/11/12)    | ≥ 75             | **{dc_mean:.0f}** | 100 | 100 | — |")
-    lines.append(f"| Coverage floor (no marker < 40 on primary)   | enforced         | {('breached: '+str(sorted(set(breached)))) if breached else '✅ none'} | breached: [4, 5, 6, 7, 9, 10, 11] | — | — |")
-    lines.append(f"| Working_hypothesis present                   | trend → 12/12    | **{wh_count}/12** | 1/12 | n/a | {wh_count-1:+d} |")
-    lines.append(f"| Phase 3 tools used (any case)                | trend ↑          | **{p3_count}/12** | 8/12 | n/a | {p3_count-8:+d} |")
-    lines.append(f"| ER aggregate (excluding null-denom)          | n/a              | {er_mean:.1f} (n={len(er_vals)}) | 1.8 (n=11) | n/a | — |")
-    lines.append("")
-    lines.append("## Delta vs prior runs")
-    lines.append("")
-    lines.append("| Case | Apr-20 | 2026-05-21 prior | This run | Δ vs prior | Δ vs Apr-20 |")
-    lines.append("|-----:|-------:|-----------------:|---------:|-----------:|------------:|")
-    for r in SCORED:
-        cid = r["case_id"]
-        if "error" in r:
-            continue
-        ov = r["overall"]
-        d_p = ov - PRIOR.get(cid, 0)
-        d_a = ov - APR20.get(cid, 0)
-        lines.append(f"| {cid:>2} | {APR20.get(cid,0):>5.1f} | {PRIOR.get(cid,0):>5.1f} | {ov:>5.1f} | {d_p:+5.1f} | {d_a:+5.1f} |")
-    lines.append("")
-    lines.append("## Borderline & throttle flags")
-    lines.append("")
-    border = []
+    L.append(f"| Hallucination rate                           | **0 % hard gate**| **{halluc}/12 ({100*halluc/12:.0f} %)** {halluc_str} | 0/12 | 0/12 | — |")
+    L.append(f"| Defuse floor (mean DC on cases 4/6/11/12)    | ≥ 75             | **{dc_mean:.0f}** | 100 | 100 | — |")
+    L.append(f"| Coverage floor (no marker < 40 on primary)   | enforced         | {('breached: '+str(breached)) if breached else '✅ none'} | breached: {PRIOR_COVERAGE_BREACH} | — | — |")
+    L.append(f"| Working_hypothesis present                   | trend → 12/12    | **{wh_count}/12** | {PRIOR_WH}/12 | n/a | {wh_count-PRIOR_WH:+d} |")
+    L.append(f"| Valid hypothesis (wh + history + final_cat)  | trend → 12/12    | **{valid_hyp}/12** | n/a | n/a | — |")
+    L.append(f"| Phase 3 tools used (any case)                | trend ↑          | **{p3_count}/12** | {PRIOR_P3}/12 | n/a | {p3_count-PRIOR_P3:+d} |")
+    L.append(f"| ER aggregate (excluding null-denom)          | n/a              | {er_mean:.1f} (n={len(er_vals)}) | {PRIOR_ER_STR} | n/a | — |")
+
+    L += ["", "## Delta vs prior runs", ""]
+    L.append(f"| Case | Apr-20 | {PRIOR_LABEL} | This run | Δ vs prior | Δ vs Apr-20 |")
+    L.append("|-----:|-------:|-----------------:|---------:|-----------:|------------:|")
     for r in SCORED:
         if "error" in r:
             continue
-        cid = r["case_id"]
-        st = META.get("cases", {}).get(str(cid), {}).get("status", "done")
-        if st not in ("done",):
-            border.append((cid, st))
+        cid, ov = r["case_id"], r["overall"]
+        L.append(f"| {cid:>2} | {APR20.get(cid,0):>5.1f} | {PRIOR.get(cid,0):>5.1f} | {ov:>5.1f} | {ov-PRIOR.get(cid,0):+5.1f} | {ov-APR20.get(cid,0):+5.1f} |")
+
+    L += ["", "## Borderline & throttle flags", ""]
+    border = [(r["case_id"], status_of(r["case_id"])) for r in SCORED
+              if "error" not in r and status_of(r["case_id"]) not in ("done",)]
     if border:
         for cid, st in border:
-            lines.append(f"- c{cid:02d}: terminal status `{st}`")
+            L.append(f"- c{cid:02d}: terminal status `{st}` — borderline; pivots may have dropped.")
     else:
-        lines.append("- Borderline terminals (rc=1 has_report=true): none")
-    lines.append("- Rate-limit-throttled (utilization ≥ 0.9): none observed (sequential execution avoided 5-hour overrun)")
-    lines.append("")
-    lines.append("## Hand audit (hallucination check, second pass)")
-    lines.append("")
+        L.append("- Borderline terminals (rc=1 has_report=true / non-done): none")
+    short = [r["case_id"] for r in SCORED if "error" not in r and r["cti_calls"] <= 8]
+    L.append(f"- Rate-limit-throttle suspects (≤8 CTI calls + tiny graph): {short or 'none'} — cross-check against freshness/decay notes before treating as code bug.")
+
+    L += ["", "## Hand audit (hallucination check, second pass)", ""]
     if halluc == 0:
-        lines.append("Heuristic = 0 across all 12 cases. Hand-audit spots:")
-        # pick largest 4 graphs
-        sorted_by_size = sorted([r for r in SCORED if "error" not in r], key=lambda x: -x["nodes"])[:4]
-        for r in sorted_by_size:
-            lines.append(f"- Case {r['case_id']} ({r['name']}, {r['nodes']} nodes): no fabricated actor/malware/kit values detected.")
-        lines.append("")
-        lines.append("**Halluc gate: cleared.**")
+        L.append("Heuristic + provenance pass = 0 across all 12 cases. Hand-audit spots (largest graphs + prior-hallucination cases):")
+        for r in sorted([r for r in SCORED if "error" not in r], key=lambda x: -x["nodes"])[:4]:
+            L.append(f"- Case {r['case_id']} ({r['name']}, {r['nodes']} nodes): spot-checked actor/malware/kit values — see deltas.md narrative.")
+        L.append("")
+        L.append("**Halluc gate: cleared (pending narrative cross-check in deltas.md).**")
     else:
         for r in SCORED:
             if r.get("hallucinations"):
-                lines.append(f"- Case {r['case_id']}: suspected hallucinations: {r['hallucinations']}")
-    return "\n".join(lines)
+                L.append(f"- Case {r['case_id']}: suspected hallucinations: {r['hallucinations']}")
+    return "\n".join(L)
 
 
 def render_deltas(sha):
-    lines = [f"# Deltas — 2026-05-28 · commit {sha}", "", "Per-case missing nodes / edges, noise, pivot misses, hand-audit notes.", ""]
+    L = [f"# Deltas — {DATE} · commit {sha}", "",
+         "Per-case missing nodes / edges, noise, pivot misses, hand-audit notes.", ""]
     for r in SCORED:
         if "error" in r:
-            lines.append(f"## Case {r['case_id']} — ERROR\n\n{r['error']}\n")
+            L.append(f"## Case {r['case_id']} — ERROR\n\n{r['error']}\n")
             continue
         cid = r["case_id"]
-        case = next(c for c in CASES if c["case_id"] == cid)
-        lines.append(f"## Case {cid} — {r['name']}")
-        lines.append("")
-        lines.append(f"- NR={r['nr']:.1f}  ({r['nr_hits']}/{r['nr_total']} GT nodes hit)")
-        if r['nr_missing']:
-            lines.append(f"  - Missing: " + ", ".join(r['nr_missing'][:8]) + (" ..." if len(r['nr_missing']) > 8 else ""))
-        er_s = f"{r['er']:.1f}" if r['er'] is not None else "n/a"
-        lines.append(f"- ER={er_s}  ({r['er_hits']}/{r['er_total']} GT edges hit)" if r['er'] is not None else f"- ER=n/a (no GT edges defined)")
-        if r.get('er_missing'):
-            lines.append(f"  - Missing edges: " + ", ".join(r['er_missing']))
-        lines.append(f"- PC={r['pc']:.1f}  ({r['pc_hits']}/{r['pc_total']} pivot rules fired)")
-        if r['pc_missed']:
-            lines.append(f"  - Pivot misses: " + ", ".join(r['pc_missed']))
-        lines.append(f"- DC={r['dc']}  (over_inclusion={r['over_inclusion']}, over_defuse={r['over_defuse']})")
-        lines.append(f"- BD={r['bd']}  (cti_calls={r['cti_calls']}, budget_extension_count={r['budget_extension_count']})")
-        rqm = r['rq_meta']
-        lines.append(f"- RQ={r['rq']}  (actor_in_report={rqm['actor_hit']}, marker_in_report={rqm['marker_hit']}, node_pct={rqm['node_pct']:.1f}%)")
-        hyp = r['hypothesis']
-        lines.append(f"- Hypothesis: present={hyp['wh_present']} category={hyp.get('category') or '(none)'} history_len={hyp.get('history_len',0)}")
-        if r['phase3_tools_used']:
-            lines.append(f"- Phase 3 tools used: {r['phase3_tools_used']}")
+        L.append(f"## Case {cid} — {r['name']}")
+        L.append("")
+        L.append(f"- NR={r['nr']:.1f}  ({r['nr_hits']}/{r['nr_total']} GT nodes hit)")
+        if r["nr_missing"]:
+            L.append("  - Missing: " + ", ".join(r["nr_missing"][:10]) + (" ..." if len(r["nr_missing"]) > 10 else ""))
+        if r["er"] is not None:
+            L.append(f"- ER={r['er']:.1f}  ({r['er_hits']}/{r['er_total']} GT edges hit)")
+            if r.get("er_missing"):
+                L.append("  - Missing edges: " + ", ".join(r["er_missing"]))
         else:
-            lines.append(f"- Phase 3 tools used: (none)")
-        lines.append(f"- Graph: {r['nodes']} nodes / {r['edges']} edges")
-        if r.get('hallucinations'):
-            lines.append(f"- **HALLUCINATIONS**: {r['hallucinations']}")
-        lines.append("")
-    # cross-case patterns
-    calls = [r['cti_calls'] for r in SCORED if "error" not in r]
+            L.append("- ER=n/a (no GT edges defined)")
+        L.append(f"- PC={r['pc']:.1f}  ({r['pc_hits']}/{r['pc_total']} pivot rules fired)")
+        if r["pc_missed"]:
+            L.append("  - Pivot misses: " + ", ".join(r["pc_missed"]))
+        L.append(f"- DC={r['dc']}  (over_inclusion={r['over_inclusion']}, over_defuse={r['over_defuse']})")
+        L.append(f"- BD={r['bd']}  (cti_calls={r['cti_calls']}, budget_extension_count={r['budget_extension_count']})")
+        m = r["rq_meta"]
+        L.append(f"- RQ={r['rq']}  (actor_in_report={m['actor_hit']}, marker_in_report={m['marker_hit']}, node_pct={m['node_pct']:.1f}%, has_summary={m['has_summary']})")
+        h = r["hypothesis"]
+        L.append(f"- Hypothesis: present={h['wh_present']} category={h.get('category') or '(none)'} history_len={h.get('history_len',0)} final_category={h.get('final_category') or '(none)'} valid={h.get('valid')}")
+        L.append(f"- Phase 3 tools used: {r['phase3_tools_used'] or '(none)'}")
+        L.append(f"- Graph: {r['nodes']} nodes / {r['edges']} edges")
+        if r.get("hallucinations"):
+            L.append(f"- **HALLUCINATIONS**: {r['hallucinations']}")
+        L.append("")
+    calls = [r["cti_calls"] for r in SCORED if "error" not in r]
     if calls:
-        median_calls = sorted(calls)[len(calls)//2]
-        wh_count = sum(1 for r in SCORED if "error" not in r and r['hypothesis']['wh_present'])
-        p3 = sum(1 for r in SCORED if "error" not in r and r['phase3_tools_used'])
-        short = [r['case_id'] for r in SCORED if "error" not in r and r['cti_calls'] <= 8]
-        lines.append("## Cross-case patterns")
-        lines.append("")
-        lines.append(f"- Median CTI calls per case: {median_calls}.")
-        lines.append(f"- Working_hypothesis present in {wh_count}/12 cases.")
-        lines.append(f"- Phase 3 tools used in {p3}/12 cases.")
-        if short:
-            lines.append(f"- Short-call cases (≤ 8 CTI calls = early termination): {short}.")
-    return "\n".join(lines)
+        L += ["## Cross-case patterns", ""]
+        L.append(f"- Median CTI calls per case: {sorted(calls)[len(calls)//2]}.")
+        L.append(f"- Working_hypothesis present in {sum(1 for r in SCORED if 'error' not in r and r['hypothesis']['wh_present'])}/12 cases.")
+        L.append(f"- Valid hypothesis (wh+history+final_cat) in {sum(1 for r in SCORED if 'error' not in r and r['hypothesis'].get('valid'))}/12 cases.")
+        L.append(f"- Phase 3 tools used in {sum(1 for r in SCORED if 'error' not in r and r['phase3_tools_used'])}/12 cases.")
+        sc = [r["case_id"] for r in SCORED if "error" not in r and r["cti_calls"] <= 8]
+        if sc:
+            L.append(f"- Short-call cases (≤8 CTI calls): {sc} — check freshness/decay (Case 1/6/10/11 are known decay/dead-seed risks).")
+    return "\n".join(L)
 
 
 def render_histogram(sha):
-    lines = [f"# Failure histogram — 2026-05-28 · commit {sha}", "", "## Top-level F-codes", ""]
-    f_codes = Counter()
-    f_cases = {}
+    L = [f"# Failure histogram — {DATE} · commit {sha}", "", "## Top-level F-codes", ""]
+    fc = Counter(); fcase = {}
+    def hit(code, cid):
+        fc[code] += 1; fcase.setdefault(code, []).append(cid)
     for r in SCORED:
         if "error" in r:
-            f_codes["F-RUN-ERROR"] += 1
-            f_cases.setdefault("F-RUN-ERROR", []).append(r["case_id"])
-            continue
-        if r["cti_calls"] <= 8:
-            f_codes["F-EARLY-TERMINATION (≤ 8 CTI calls)"] += 1
-            f_cases.setdefault("F-EARLY-TERMINATION (≤ 8 CTI calls)", []).append(r["case_id"])
-        if not r["hypothesis"]["wh_present"]:
-            f_codes["F-HYPOTHESIS-ABSENT (no working_hypothesis node)"] += 1
-            f_cases.setdefault("F-HYPOTHESIS-ABSENT (no working_hypothesis node)", []).append(r["case_id"])
-        if r["nr"] < 50:
-            f_codes["F-NODE-RECALL (NR < 50)"] += 1
-            f_cases.setdefault("F-NODE-RECALL (NR < 50)", []).append(r["case_id"])
-        if r["pc"] < 60:
-            f_codes["F-PIVOT-MISS (PC < 60)"] += 1
-            f_cases.setdefault("F-PIVOT-MISS (PC < 60)", []).append(r["case_id"])
-        if r["rq"] < 70:
-            f_codes["F-REPORT (RQ < 70)"] += 1
-            f_cases.setdefault("F-REPORT (RQ < 70)", []).append(r["case_id"])
-        if r["er"] is not None and r["er"] < 50:
-            f_codes["F-EDGE-RECALL (ER < 50, when GT edges exist)"] += 1
-            f_cases.setdefault("F-EDGE-RECALL (ER < 50, when GT edges exist)", []).append(r["case_id"])
-        if r["dc"] < 75:
-            f_codes["F-DEFUSE-MISS (DC < 75)"] += 1
-            f_cases.setdefault("F-DEFUSE-MISS (DC < 75)", []).append(r["case_id"])
-        if r["bd"] < 100:
-            f_codes["F-BUDGET (BD < 100)"] += 1
-            f_cases.setdefault("F-BUDGET (BD < 100)", []).append(r["case_id"])
+            hit("F-RUN-ERROR", r["case_id"]); continue
+        cid = r["case_id"]
+        if r["cti_calls"] <= 8: hit("F-EARLY-TERMINATION (≤ 8 CTI calls)", cid)
+        if not r["hypothesis"]["wh_present"]: hit("F-HYPOTHESIS-ABSENT (no working_hypothesis node)", cid)
+        if not r["hypothesis"].get("valid"): hit("F-HYPOTHESIS-INVALID (missing history/final_category)", cid)
+        if r["nr"] < 50: hit("F-NODE-RECALL (NR < 50)", cid)
+        if r["pc"] < 60: hit("F-PIVOT-MISS (PC < 60)", cid)
+        if r["rq"] < 70: hit("F-REPORT (RQ < 70)", cid)
+        if r["er"] is not None and r["er"] < 50: hit("F-EDGE-RECALL (ER < 50, when GT edges exist)", cid)
+        if r["dc"] < 75: hit("F-DEFUSE-MISS (DC < 75)", cid)
+        if r["bd"] < 100: hit("F-BUDGET (BD < 100)", cid)
         if r["bd"] < 100 and r["budget_extension_count"] == 0 and r["cti_calls"] > 60:
-            f_codes["F-BUDGET::no_extension_log"] += 1
-            f_cases.setdefault("F-BUDGET::no_extension_log", []).append(r["case_id"])
-        if r["hallucinations"]:
-            f_codes["F-HALLUCINATION"] += 1
-            f_cases.setdefault("F-HALLUCINATION", []).append(r["case_id"])
-
-    # ensure always-show codes present
+            hit("F-BUDGET::no_extension_log", cid)
+        if r["hallucinations"]: hit("F-HALLUCINATION", cid)
     for code in ("F-HYPOTHESIS-ABSENT (no working_hypothesis node)",
-                 "F-NODE-RECALL (NR < 50)",
-                 "F-PIVOT-MISS (PC < 60)",
-                 "F-REPORT (RQ < 70)",
-                 "F-EDGE-RECALL (ER < 50, when GT edges exist)",
-                 "F-DEFUSE-MISS (DC < 75)",
-                 "F-BUDGET (BD < 100)",
-                 "F-BUDGET::no_extension_log",
-                 "F-HALLUCINATION"):
-        f_codes.setdefault(code, 0)
-        f_cases.setdefault(code, [])
-
-    lines.append("| F-code                          | Cases hit | Cases (1-indexed) |")
-    lines.append("|---------------------------------|----------:|:------------------|")
-    for code, count in sorted(f_codes.items(), key=lambda kv: -kv[1]):
-        lines.append(f"| {code:s} | {count} | {sorted(f_cases[code])} |")
-
-    lines.append("")
-    lines.append("## F-PIVOT-MISS breakdown by abstract pivot")
-    lines.append("")
-    pivot_misses = Counter()
-    pivot_cases = {}
+                 "F-HYPOTHESIS-INVALID (missing history/final_category)",
+                 "F-NODE-RECALL (NR < 50)", "F-PIVOT-MISS (PC < 60)",
+                 "F-REPORT (RQ < 70)", "F-EDGE-RECALL (ER < 50, when GT edges exist)",
+                 "F-DEFUSE-MISS (DC < 75)", "F-BUDGET (BD < 100)",
+                 "F-BUDGET::no_extension_log", "F-HALLUCINATION"):
+        fc.setdefault(code, 0); fcase.setdefault(code, [])
+    L.append("| F-code                          | Cases hit | Cases (1-indexed) |")
+    L.append("|---------------------------------|----------:|:------------------|")
+    for code, n in sorted(fc.items(), key=lambda kv: -kv[1]):
+        L.append(f"| {code} | {n} | {sorted(fcase[code])} |")
+    L += ["", "## F-PIVOT-MISS breakdown by abstract pivot", ""]
+    pm = Counter(); pcase = {}
     for r in SCORED:
-        if "error" in r:
-            continue
+        if "error" in r: continue
         for p in r["pc_missed"]:
-            pivot_misses[p] += 1
-            pivot_cases.setdefault(p, []).append(r["case_id"])
-    lines.append("| Pivot rule | Cases that missed it |")
-    lines.append("|----|----|")
-    for p, _ in sorted(pivot_misses.items()):
-        lines.append(f"| `{p}` | {sorted(pivot_cases[p])} |")
-
-    lines.append("")
-    lines.append("## Per-case CTI call count + graph size")
-    lines.append("")
-    lines.append("| Case | CTI calls | Nodes | Edges | P3 tools used |")
-    lines.append("|-----:|----------:|------:|------:|----:|")
+            pm[p] += 1; pcase.setdefault(p, []).append(r["case_id"])
+    L.append("| Pivot rule | Cases that missed it |")
+    L.append("|----|----|")
+    for p, _ in sorted(pm.items()):
+        L.append(f"| `{p}` | {sorted(pcase[p])} |")
+    L += ["", "## Per-case CTI call count + graph size", ""]
+    L.append("| Case | CTI calls | Nodes | Edges | P3 tools used | BD | budget_ext |")
+    L.append("|-----:|----------:|------:|------:|----:|---:|---:|")
     for r in SCORED:
-        if "error" in r:
-            continue
-        lines.append(f"| {r['case_id']} | {r['cti_calls']} | {r['nodes']} | {r['edges']} | {len(r['phase3_tools_used'])} |")
-
-    return "\n".join(lines)
+        if "error" in r: continue
+        L.append(f"| {r['case_id']} | {r['cti_calls']} | {r['nodes']} | {r['edges']} | {len(r['phase3_tools_used'])} | {r['bd']} | {r['budget_extension_count']} |")
+    return "\n".join(L)
 
 
 def main():
@@ -289,9 +239,8 @@ def main():
     open(f"{RUN_DIR}/scorecard.md", "w").write(render_scorecard(sha))
     open(f"{RUN_DIR}/deltas.md", "w").write(render_deltas(sha))
     open(f"{RUN_DIR}/failure_histogram.md", "w").write(render_histogram(sha))
-    # raw scores
     json.dump(SCORED, open(f"{RUN_DIR}/raw_scores.json", "w"), indent=2)
-    print(f"Wrote scorecard, deltas, histogram, raw_scores to {RUN_DIR}/")
+    print(f"Wrote scorecard, deltas, histogram, raw_scores to {RUN_DIR}/ (proposed_fixes.md authored separately)")
 
 
 if __name__ == "__main__":

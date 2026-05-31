@@ -372,11 +372,16 @@ def hypothesis_audit(nodes):
     if wh:
         md = wh.get("metadata") or {}
         category = md.get("category") or md.get("candidate_category")
+    # "valid" behavioural metric (task): working_hypothesis node present AND the
+    # final summary carries a hypothesis_history array AND a final_category.
+    valid = bool(wh is not None and len(history) >= 1 and final_category)
     return {
         "wh_present": wh is not None,
         "category": category,
         "history_len": len(history),
+        "hypothesis_history": history,
         "final_category": final_category,
+        "valid": valid,
     }
 
 

@@ -300,12 +300,21 @@ CASES = [
         # Case 11 seed selection methodology (sandbox cannot live-check the Silent
         # Push IOFA feed or DNS, per task §3): pick a fresh FQDN matching the
         # Smishing Triad / Lighthouse-kit signature documented in Silent Push
-        # (2025-04-10) and Krebs (2025-12) — NameSilo bulk-registration +
-        # Cloudflare fronting (104.21/172.67) + abused short TLD + toll/USPS/
-        # retail/bank lure. Chosen distinct from the prior run
-        # (usps-deliveryupdate-package.top) to avoid a cached backend result.
-        # This run: toll-payment lure on .cc.
-        "seed_value": "ezpass-tollbill-pay.cc",
+        # (2025-04-10), Unit42 (2025-10, "global smishing campaign" — toll lures
+        # are the #1 category at ~90k FQDNs, USPS the single most-impersonated
+        # brand at ~28k; NameSilo is the #2 Western registrar in the cluster;
+        # Cloudflare AS13335 fronts the lures) and Krebs (2025-12). Pattern:
+        # NameSilo bulk-registration + Cloudflare fronting (104.21/172.67) +
+        # abused short TLD + toll/USPS/retail/bank lure. Chosen distinct from
+        # the two prior runs (usps-deliveryupdate-package.top, then
+        # ezpass-tollbill-pay.cc) to avoid a cached backend result.
+        # This run (2026-05-31): SunPass toll-billing lure on .icu (SunPass is a
+        # heavily-impersonated US toll authority; .icu is a listed abused TLD
+        # distinct from .top/.cc used previously). Live freshness NOT verified
+        # (sandbox cannot poll the IOFA feed or DNS) — NR is expected ~0; the
+        # case still exercises PC/DC/BD (the mandatory + adaptive Cloudflare-
+        # origin-unmask pivots fire against whatever the seed resolves to).
+        "seed_value": "sunpass-tollservices.icu",
         "inv_id": "NEW",
         "gt_nodes": [
             ("registrar", "namesilo"),
