@@ -56,14 +56,18 @@ corpus:
   PC=100 (all mandatory + Cloudflare-origin-unmask pivots fired against the
   dead seed).
 
-**#1 operator action item (cannot be code-fixed from here — secret in `.env`):**
-**Refresh the OpenCTI token.** OpenCTI is the designated community-KG
-attribution source; with it dead, actor/family/campaign labels are blocked on
-*every* case that needs them (c5 cross-brand, c10 actor, RQ `actor_hit` drag).
-The source-health cache (shipped 6e6aaeb) correctly marks it dead and skips its
-pivots, so there is no per-node rediscovery cost — but the attribution itself is
-gone until `OPENCTI_TOKEN` is renewed on the VPS. This is the single
-highest-leverage change available and it is an ops task, not a code task.
+**#1 operator action item — UPDATE 2026-06-01: OpenCTI permanently retired.**
+At run time OpenCTI returned `AUTH_REQUIRED` (token expired); the operator has
+since confirmed the instance is **gone for good** and removed the key from
+`.env`. OpenCTI was the designated community-KG attribution source; with it gone,
+actor/family/campaign labels are blocked on *every* case that needs them (c5
+cross-brand, c10 actor, RQ `actor_hit` drag). With no key configured its pivots
+are auto-skipped at enqueue (`no_api_key`), so there is no per-node rediscovery
+cost — but the attribution gap is now **structural**, not a token refresh. Next
+step: wire a replacement attribution KG or accept the gap and lean on
+ThreatFox/OTX tags. (OpenCTI can also be cleanly dropped from
+`pivot_mapping._PIVOT_RULES` + the email/wallet/username mandatory lists so the
+agent stops attempting it at all.)
 
 ---
 

@@ -74,7 +74,7 @@ A pivot is "executed" the moment the agent *calls the right tool on the right up
 
 | Case | Reason |
 |------|--------|
-| 2 (MuddyRot) | C2 IPs aged out of VT contacted-files |
+| 2 (MuddyWater) | refreshed 2026-06-01 to the 2026 Chaos/Stagecomp cluster (Rapid7/ESET) after the MuddyRot seed decayed; re-verify liveness per run |
 | 6 (LummaC2) | Operation Endgame seizure + sinkholing |
 | 7 (SocGholish) | live A-record re-pointed; anchor IP gone from passive DNS |
 | 10 (Contagious Interview) | BlockNovas FBI-seized; lost passive-DNS anchor |
@@ -288,7 +288,20 @@ If DC < 50: tool over-clustered on ProtonMail substring.
 
 ---
 
-### Case 2 — MuddyRot JARM + banner fingerprint
+### Case 2 — MuddyWater JARM + banner fingerprint
+
+> **REFRESHED 2026-06-01.** The live seed + ground truth now live in
+> `eval/cases.py` (case 2): a fresh **MuddyWater (Seedworm)** sample
+> `3df9dcc4…` from Rapid7 "Muddying the Tracks: the State-Sponsored Shadow
+> Behind Chaos Ransomware" (2026, corroborated by ESET Dec-2025), with C2s
+> `moonzonet[.]com` / `uploadfiler[.]com` (+ IPs `172.86.126.208`,
+> `116.203.208.186`) and a "Donald Gay" code-signing cert
+> (`B674578D4BDB24CD58BF2DC884EAA658B7AA250C`). Same actor (Iran MOIS), same
+> hash→C2→sibling→JARM pivot. The **MuddyRot (Sekoia 2024) writeup below is
+> retained as the historical reference** — `eval/cases.py` is the operative
+> ground truth for the harness.
+
+<details><summary>Historical reference — original MuddyRot case (Sekoia 2024)</summary>
 
 | Field | Value |
 |-------|-------|
@@ -332,6 +345,8 @@ If DC < 50: tool over-clustered on ProtonMail substring.
 #### Diagnostic signal
 If PC < 40: **non-DNS pivots are broken** (JARM/Shodan not wired up). Canonical "DNS-only tool" shakeout.
 If BD < 50: tool thrashed on the down IP.
+
+</details>
 
 ---
 

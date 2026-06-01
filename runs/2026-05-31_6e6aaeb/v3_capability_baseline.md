@@ -50,6 +50,12 @@ transcripts.
   in any queryable feed (and OpenCTI is token-dead). That is a *data/ops* gap, not
   a tool gap — exactly what v3 stops penalizing.
 
-**Top ops-action carried into v3:** refresh `OPENCTI_TOKEN` on the VPS (unblocks
-attribution recall on c5/c10); refresh the stalest seeds (c2/c7/c10) so REC has
-more than 3 LIVE cases.
+**Top ops-action carried into v3 (updated 2026-06-01):** OpenCTI is permanently
+retired (no instance; key removed from `.env`) — the c5/c10 attribution gap is
+**structural**, so either wire a replacement KG or accept it. Stalest-seed
+refresh status: **c2 done** (refreshed to the 2026 MuddyWater/Chaos cluster,
+Rapid7/ESET — turns a dead case LIVE); **c7 re-anchored** on a durable
+co-resident sibling (cluster still active per Silent Push); **c10** needs a fresh
+IOFA-feed seed (like c11); **c1** is a *capability* gap, not a stale seed —
+`whoxy_history` recovers the original ProtonMail registrant from Whoxy's
+historical DB even after the benign re-registration.

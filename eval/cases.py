@@ -39,31 +39,43 @@ CASES = [
     },
     {
         "case_id": 2,
-        "name": "MuddyRot",
+        # REFRESHED 2026-06-01. The original MuddyRot seed
+        # (94278fa01900fdbfb58d2e373895c045c69c01915edc5349cd6f3e5b7130c472,
+        # Sekoia 2024) went DATA_DECAYED in the 2026-05-31 run — its C2 IP
+        # 91.235.234.202 aged out of VT contacted-files. Replaced with a fresh
+        # MuddyWater (Seedworm) sample from Rapid7 "Muddying the Tracks: the
+        # State-Sponsored Shadow Behind Chaos Ransomware" (2026), corroborated by
+        # ESET (Dec 2025). Same actor (Iran MOIS), same hash->C2->sibling pivot;
+        # marker is the contacted C2 (moonzonet/uploadfiler) + the "Donald Gay"
+        # code-signing cert (thumbprint B674578D4BDB24CD58BF2DC884EAA658B7AA250C).
+        # JARM remains testable via Shodan on the live C2. liveness_probe gates it.
+        "name": "MuddyWater (Chaos/Stagecomp, 2026)",
         "seed_type": "hash",
-        "seed_value": "94278fa01900fdbfb58d2e373895c045c69c01915edc5349cd6f3e5b7130c472",
+        "seed_value": "3df9dcc45d2a3b1f639e40d47eceeafb229f6d9e7f0adcd8f1731af1563ffb90",
         "inv_id": "NEW",
         "gt_nodes": [
-            ("hash", "94278fa01900fdbfb58d2e373895c045c69c01915edc5349cd6f3e5b7130c472"),
-            ("hash", "b8703744"),
-            ("hash", "73c677dd"),
-            ("ip", "91.235.234.202"),
-            ("ip", "146.19.143.14"),
-            ("url", "egnyte"),
+            ("hash", "3df9dcc45d2a3b1f639e40d47eceeafb229f6d9e7f0adcd8f1731af1563ffb90"),
+            ("hash", "24857fe82f454719cd18bcbe19b0cfa5387bee1022008b7f5f3a8be9f05e4d14"),
+            ("hash", "1319d474d19eb386841732c728acf0c5fe64aa135101c6ceee1bd0369ecf97b6"),
+            ("domain", "moonzonet"),
+            ("domain", "uploadfiler"),
+            ("ip", "172.86.126.208"),
+            ("ip", "116.203.208.186"),
             ("actor", "muddywater"),
-            ("malware", "muddyrot"),
-            ("malware", "bugsleep"),
+            ("actor", "seedworm"),
+            ("malware", "chaos"),
+            ("malware", "darkcomp"),
         ],
         "gt_edges": [
-            ("94278fa01900fdbfb", "contacts", "91.235.234.202"),
-            ("b8703744", "same_family", "94278fa"),
-            ("91.235.234.202", "share_jarm", "146.19.143.14"),
-            ("91.235.234.202", "tagged", "muddywater"),
+            ("3df9dcc45d2a3b1f", "contacts", "uploadfiler"),
+            ("24857fe82f454719", "hosted_on", "172.86.126.208"),
+            ("24857fe82f454719", "contacts", "moonzonet"),
         ],
         "pivot_rules": ["virustotal_file", "shodan_or_onyphe_banner", "jarm_search", "threatfox_ip"],
-        "primary_marker": "91.235.234.202",
+        "primary_marker": "moonzonet",
+        "liveness_probe": "moonzonet",
         "category_hint": "apt_infrastructure",
-        "expected_actor": ["muddywater"],
+        "expected_actor": ["muddywater", "seedworm"],
     },
     {
         "case_id": 3,
@@ -210,6 +222,15 @@ CASES = [
         ],
         "pivot_rules": ["dns_resolve_seed", "vt_pdns_ip", "wayback_or_urlscan_seed", "vt_pdns_stage2", "threatfox_stage2"],
         "primary_marker": "176.53.147.97",
+        # liveness_probe refreshed 2026-06-01: the original anchor IP
+        # 176.53.147.97 rotated (DATA_DECAYED in the 2026-05-31 run), but Silent
+        # Push confirms the TDS-front cluster itself is still very much alive
+        # (blackshelter.org 1,297 redirects, rednosehorse.com 932,
+        # newgoodfoodmarket.com 550). Gate on a durable co-resident SIBLING
+        # rather than the rotating shared IP: if VT/passive-DNS surfaces
+        # rednosehorse the co-residency cluster is live (and the new shared IP is
+        # discoverable), independent of which IP the front currently resolves to.
+        "liveness_probe": "rednosehorse",
         "category_hint": "tds_traffer",
         "expected_actor": ["socgholish"],
     },
