@@ -180,7 +180,10 @@ This repo has **automatic deployment via GitHub Actions**.
   (`phase_main`), then mechanically enforces a `working_hypothesis` report node
   if the main phase skipped one (`phase_hypothesis_write`, added 2026-05),
   then injects a follow-up phase that fills mandatory tools and surfaces
-  graph-state-aware Phase 3 gaps (`phase_followup`), then ensures a final
+  graph-state-aware Phase 3 gaps (`phase_followup`; CDN cert-CN unmask pivots
+  promoted from adaptive hints to mandatory — `shodan_search("ssl.cert.subject.CN:...")`
+  fires for Cloudflare-fronted seeds even when the agent would otherwise skip the
+  adaptive suggestion), then ensures a final
   `investigation_summary` report node (`phase_report_write`), then runs an
   autonomous pivot-drain loop (`phase_pivot_drain_<N>`, added 2026-05) that
   reads the report's own `pivot_suggestions` and the pivot queue, executes

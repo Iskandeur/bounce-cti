@@ -3120,6 +3120,22 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
         called = _get_called_cti_tools(inv_id)
         missing = _missing_mandatory_tools(seed_type, seed_value, called)
         adaptive_targets = _adaptive_followup_targets(inv_id)
+        # Promote cert-CN origin-unmask from adaptive hints to mandatory.
+        # The CDN Cloudflare-defuse pivot (shodan_search("ssl.cert.subject.CN:...")
+        # + onyphe_datascan("tls.cert.subject.commonname:...")) was classified as
+        # an adaptive suggestion but the agent repeatedly ignores it even when
+        # explicitly listed. Elevating it to mandatory gives it the "MUST call"
+        # enforcement language in the followup prompt. Affects Cases 11 + 12
+        # (canonical Cloudflare-defuse: PS 50→100 on c12, CDN-origin-unmask test).
+        _cn_unmask = [t for t in adaptive_targets if any(
+            "ssl.cert.subject.cn" in c.lower()
+            or "tls.cert.subject.commonname" in c.lower()
+            for c in t[2]
+        )]
+        if _cn_unmask:
+            for _, _, _calls, _ in _cn_unmask:
+                missing.extend(_calls)
+            adaptive_targets = [t for t in adaptive_targets if t not in _cn_unmask]
         if missing or adaptive_targets:
             _log(inv_id, "phase2_needed", {
                 "missing": missing,

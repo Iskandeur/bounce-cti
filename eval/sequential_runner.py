@@ -24,6 +24,12 @@ Quota-survival design (the whole point of this rewrite):
 import json, os, sys, time, urllib.request, urllib.error, http.cookiejar
 sys.path.insert(0, "/tmp/eval_run")
 from cases import CASES
+try:
+    from cases import NEGATIVE_CASES
+except ImportError:
+    NEGATIVE_CASES = []
+
+MODEL = "opus-4.8"
 
 BASE = "https://bounce.alexandre-pinoteau.fr"
 CJ = http.cookiejar.MozillaCookieJar("/tmp/cookies.txt")
@@ -197,8 +203,9 @@ def drive_to_final(inv_id, label, meta, cid):
         log(f"  [{label}] resumed; continuing to wait")
 
 
-def fetch_and_save(cid, inv_id, status):
-    out_dir = f"/tmp/eval_run/c{cid:02d}"
+def fetch_and_save(cid, inv_id, status, out_dir=None):
+    if out_dir is None:
+        out_dir = f"/tmp/eval_run/c{cid:02d}"
     os.makedirs(out_dir, exist_ok=True)
     _, g = req("GET", f"/api/investigations/{inv_id}/graph")
     _, tx = req("GET", f"/api/investigations/{inv_id}/transcript")
@@ -209,12 +216,14 @@ def fetch_and_save(cid, inv_id, status):
     n = len((g or {}).get("nodes", []))
     e = len((g or {}).get("edges", []))
     t = len((tx or {}).get("entries", []))
-    log(f"  [c{cid:02d}] saved: {n} nodes, {e} edges, {t} entries, status={status}")
+    log(f"  [{os.path.basename(out_dir)}] saved: {n} nodes, {e} edges, {t} entries, status={status}")
 
 
-def has_useful_data(cid):
-    gf = f"/tmp/eval_run/c{cid:02d}/graph.json"
-    tf = f"/tmp/eval_run/c{cid:02d}/transcript.json"
+def has_useful_data(cid, out_dir=None):
+    if out_dir is None:
+        out_dir = f"/tmp/eval_run/c{cid:02d}"
+    gf = f"{out_dir}/graph.json"
+    tf = f"{out_dir}/transcript.json"
     if not (os.path.exists(gf) and os.path.exists(tf)):
         return False
     try:
@@ -230,7 +239,7 @@ def submit_with_quota_retry(case, meta):
     """Submit a fresh investigation; if the quota gate (429) fires, wait and
     retry. Records the new inv_id into meta IMMEDIATELY (restart-safety)."""
     cid = case["case_id"]
-    body = {"seed_type": case["seed_type"], "seed_value": case["seed_value"], "model": "opus-4.7"}
+    body = {"seed_type": case["seed_type"], "seed_value": case["seed_value"], "model": MODEL}
     for _ in range(20):
         status, data = req("POST", "/api/investigations", body)
         if status == 200:
@@ -308,6 +317,72 @@ def run_one(case, meta, force_new=False):
     return status, inv_id
 
 
+def run_one_negative(neg, meta, force_new=False):
+    """Run a negative/restraint case (§9b). Uses the same inv logic as run_one
+    but saves data to the neg's own directory (n01/n02/n03) and uses a distinct
+    meta key (neg_<cid>) so case IDs 101-103 don't collide with positives."""
+    cid = neg["case_id"]
+    out_dir = f"/tmp/eval_run/{neg.get('dir') or ('n%02d' % (cid - 100))}"
+    meta_key = f"neg_{cid}"
+    label = neg.get("dir") or f"n{cid - 100:02d}"
+    log(f"[{label}] === {neg['name']} (seed_type={neg['seed_type']}, seed={neg['seed_value']}) ===")
+
+    tracked = meta["cases"].get(meta_key, {})
+    inv_id = tracked.get("inv_id")
+
+    if inv_id:
+        cur = get_status(inv_id)
+        log(f"  [{label}] tracked inv_id={inv_id} status={cur}")
+        if cur == "done" and has_useful_data(cid, out_dir):
+            log(f"  [{label}] already done — skipping")
+            return "done", inv_id
+        if cur in ("running",):
+            status = drive_to_final(inv_id, label, meta, meta_key)
+            fetch_and_save(cid, inv_id, status, out_dir)
+            return status, inv_id
+        if cur == "quota_exceeded":
+            if wait_for_quota(reason=f"{label} startup-resume"):
+                s, d = req("POST", f"/api/investigations/{inv_id}/resume")
+                if s in (200, 425):
+                    status = drive_to_final(inv_id, label, meta, meta_key)
+                    fetch_and_save(cid, inv_id, status, out_dir)
+                    return status, inv_id
+            inv_id = None
+        elif cur == "done":
+            fetch_and_save(cid, inv_id, cur, out_dir)
+            if has_useful_data(cid, out_dir):
+                return "done", inv_id
+            inv_id = None
+        elif cur is None or cur in FINAL:
+            inv_id = None
+
+    if not inv_id:
+        body = {"seed_type": neg["seed_type"], "seed_value": neg["seed_value"], "model": MODEL}
+        for _ in range(20):
+            s, d = req("POST", "/api/investigations", body)
+            if s == 200:
+                inv_id = d.get("id")
+                log(f"  [{label}] submitted inv_id={inv_id}")
+                meta["cases"][meta_key] = {"inv_id": inv_id, "status": "submitted",
+                                           "updated_at": time.time()}
+                save_meta(meta)
+                break
+            if s == 429:
+                log(f"  [{label}] submit gated by quota (429); waiting")
+                if not wait_for_quota(reason=f"{label} submit",
+                                      reset_hint=reset_from_detail(d)):
+                    return "submit_failed", None
+                continue
+            log(f"  [{label}] submit failed: HTTP {s} {d}")
+            return "submit_failed", None
+        if not inv_id:
+            return "submit_failed", None
+
+    status = drive_to_final(inv_id, label, meta, meta_key)
+    fetch_and_save(cid, inv_id, status, out_dir)
+    return status, inv_id
+
+
 def main():
     if not os.path.exists(LOG_FILE):
         open(LOG_FILE, "w").close()
@@ -319,20 +394,32 @@ def main():
         meta = {"started": time.time(), "cases": {}}
     meta.setdefault("cases", {})
 
-    case_ids = sys.argv[1:] if len(sys.argv) > 1 else [str(c["case_id"]) for c in CASES]
-    target_ids = set()
-    for x in case_ids:
-        if "-" in x:
+    # Accept: plain case IDs (2, 3, 8 ...), ranges (2-9), "N1"/"N2"/"N3" for
+    # negative cases, and the numeric IDs of negatives (101, 102, 103).
+    raw_args = sys.argv[1:] if len(sys.argv) > 1 else \
+        [str(c["case_id"]) for c in CASES] + [f"N{n['case_id']-100}" for n in NEGATIVE_CASES]
+    target_pos_ids = set()
+    run_negatives = False
+    neg_ids = set()
+    for x in raw_args:
+        xu = x.upper()
+        if xu.startswith("N") and xu[1:].isdigit():
+            neg_ids.add(int(xu[1:]))   # N1 → 1, N2 → 2, N3 → 3
+            run_negatives = True
+        elif x.isdigit() and int(x) >= 100:
+            neg_ids.add(int(x) - 100)  # 101 → 1, 102 → 2
+            run_negatives = True
+        elif "-" in x:
             a, b = x.split("-")
-            target_ids.update(range(int(a), int(b) + 1))
+            target_pos_ids.update(range(int(a), int(b) + 1))
         else:
-            target_ids.add(int(x))
+            target_pos_ids.add(int(x))
 
     force = os.environ.get("FORCE_NEW") == "1"
-    log(f"targets={sorted(target_ids)} force_new={force}")
+    log(f"pos_targets={sorted(target_pos_ids)} neg_targets={sorted(neg_ids)} force_new={force}")
 
     for case in CASES:
-        if case["case_id"] not in target_ids:
+        if case["case_id"] not in target_pos_ids:
             continue
         cid = case["case_id"]
         tracked = meta["cases"].get(str(cid), {})
@@ -344,6 +431,24 @@ def main():
                                    "completed_at": time.time()}
         save_meta(meta)
         log(f"[c{cid:02d}] DONE status={status} inv_id={inv_id}")
+
+    for neg in NEGATIVE_CASES:
+        rel_id = neg["case_id"] - 100  # 101 → 1
+        if neg_ids and rel_id not in neg_ids:
+            continue
+        if not (run_negatives or neg_ids):
+            continue
+        meta_key = f"neg_{neg['case_id']}"
+        out_dir = f"/tmp/eval_run/{neg.get('dir') or ('n%02d' % rel_id)}"
+        tracked = meta["cases"].get(meta_key, {})
+        if tracked.get("status") == "done" and has_useful_data(neg["case_id"], out_dir):
+            log(f"[{neg.get('dir')}] already done in meta + data present — skipping")
+            continue
+        status, inv_id = run_one_negative(neg, meta, force_new=force)
+        meta["cases"][meta_key] = {"inv_id": inv_id, "status": status,
+                                   "completed_at": time.time()}
+        save_meta(meta)
+        log(f"[{neg.get('dir')}] DONE status={status} inv_id={inv_id}")
 
     log("ALL DONE")
 
