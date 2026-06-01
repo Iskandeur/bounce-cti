@@ -1,0 +1,848 @@
+[
+  {
+    "case_id": 1,
+    "name": "Salt Typhoon",
+    "inv_id": "f0259ec6c3b3",
+    "nodes": 24,
+    "edges": 23,
+    "cti_calls": 4,
+    "phase3_tools_used": [],
+    "nr": 53.3,
+    "nr_hits": 8,
+    "nr_total": 15,
+    "nr_missing": [
+      "domain:colourtinctem.com",
+      "domain:solveblemten.com",
+      "domain:dateupdata.com",
+      "domain:infraredsen.com",
+      "domain:pulseathermakf.com",
+      "email:oklmdsfhjnfdsifh@protonmail.co",
+      "actor:unc2286"
+    ],
+    "er": 16.7,
+    "er_hits": 1,
+    "er_total": 6,
+    "er_missing": [
+      "colourtinctem.com--registered_by-->sdsdvxcdcbsgfe@pro",
+      "solveblemten.com--registered_by-->sdsdvxcdcbsgfe@pro",
+      "alpha--soa_mname_reuse-->beta",
+      "cluster--resolves_to-->hosting_ip",
+      "hosting_ip--overlaps_with-->unc4841"
+    ],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "reverse_whois_email"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 50.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "apt_targeted",
+      "history_len": 1,
+      "hypothesis_history": [
+        {
+          "category": "apt_targeted",
+          "confidence": "high",
+          "reason": "First 8 calls returned VT 14/91 malicious + OTX 20-pulse Salt Typhoon attribution + sinkhole cert subject literally 'O=sinkhole' \u2014 confirmed APT-targeted (Salt Typhoon)"
+        }
+      ],
+      "final_category": "apt_targeted",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 69.2
+  },
+  {
+    "case_id": 2,
+    "name": "MuddyRot",
+    "inv_id": "8cfb3512aa22",
+    "nodes": 67,
+    "edges": 122,
+    "cti_calls": 49,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "zoomeye_jarm"
+    ],
+    "nr": 55.6,
+    "nr_hits": 5,
+    "nr_total": 9,
+    "nr_missing": [
+      "hash:b8703744",
+      "ip:91.235.234.202",
+      "ip:146.19.143.14",
+      "url:egnyte"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 4,
+    "er_missing": [
+      "94278fa01900fdbfb--contacts-->91.235.234.202",
+      "b8703744--same_family-->94278fa",
+      "91.235.234.202--share_jarm-->146.19.143.14",
+      "91.235.234.202--tagged-->muddywater"
+    ],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 40,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": false,
+      "node_pct": 55.55555555555556,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "apt_targeted",
+      "history_len": 1,
+      "hypothesis_history": [
+        {
+          "category": "apt_targeted",
+          "confidence": "high",
+          "reason": "Round-3 reaffirms: mazafakaerindahouse.info / 149.33.7.161 / main.py Python downloader is a second MuddyWater operational branch beyond the 46.30.188.99 BugSleep cluster \u2014 same actor, distinct C2 + payload family + operator persona. Direct vendor labels (MS Python/MuddyWater, Kaspersky Python.MuddyWater, Fortinet Python/Agent.MOIS) make attribution irrefutable."
+        }
+      ],
+      "final_category": "apt_targeted",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 65.9
+  },
+  {
+    "case_id": 3,
+    "name": "Bumblebee\u2192Akira",
+    "inv_id": "4208268ea2da",
+    "nodes": 48,
+    "edges": 48,
+    "cti_calls": 74,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_issuances",
+      "certspotter_serial",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "netlas_search",
+      "zoomeye_jarm"
+    ],
+    "nr": 47.1,
+    "nr_hits": 8,
+    "nr_total": 17,
+    "nr_missing": [
+      "domain:opmanager",
+      "domain:ev2sirbd269o5j",
+      "domain:angryipscanner",
+      "domain:axiscamerastation",
+      "domain:ip-scanner",
+      "ip:188.40.187.145",
+      "ip:172.96.137.160",
+      "ip:193.242.184.150",
+      "ip:185.174.100.203"
+    ],
+    "er": 33.3,
+    "er_hits": 1,
+    "er_total": 3,
+    "er_missing": [
+      "186b26df--contacts-->opmanager",
+      "172.96.137.160--c2-->victim"
+    ],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 75,
+    "budget_extension_count": 1,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 58.8235294117647,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 1,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "Initial VT/OTX/cross_investigation observations: VT 23 malicious + label trojan.gencbl/shanyapacker + meaningful_name ManageEngine-OpManager.msi + 8 OTX pulses + 8 prior bounce-cti investigations \u2014 all converging on Bumblebee/Akira/SEO-poisoning attribution. Hypothesis locked-in within first 8 calls and held throughout."
+        }
+      ],
+      "final_category": "commodity_malware (loader-to-ransomware kill chain with affiliate-style operator behavior)",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 70.9
+  },
+  {
+    "case_id": 4,
+    "name": "Interlock",
+    "inv_id": "884dee9e3175",
+    "nodes": 63,
+    "edges": 82,
+    "cti_calls": 78,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_serial",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "whoxy_reverse",
+      "zoomeye_jarm"
+    ],
+    "nr": 23.1,
+    "nr_hits": 3,
+    "nr_total": 13,
+    "nr_missing": [
+      "ip:49.12.69.80",
+      "ip:96.62.214.11",
+      "ip:188.34.195.44",
+      "ip:45.61.136.202",
+      "domain:microsoft-msteams",
+      "domain:microstteams",
+      "domain:advanceipscaner",
+      "domain:ecologilives",
+      "url:additional-check",
+      "domain:trycloudflare"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 2,
+    "er_missing": [
+      "64.94.84.85--same_cluster-->49.12.69.80",
+      "advanceipscaner--delivery-->additional-check"
+    ],
+    "pc": 100.0,
+    "pc_hits": 5,
+    "pc_total": 5,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 75,
+    "budget_extension_count": 1,
+    "rq": 40,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": false,
+      "node_pct": 23.076923076923077,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 2,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "first-wave: VT 6/91 + OTX 11 pulses naming Interlock + JARM + self-signed random-hex cert + Werkzeug:5000 \u2014 immediate Interlock C2 fit"
+        },
+        {
+          "category": "commodity_malware",
+          "confidence": "very_high",
+          "reason": "VT YARA win_supper_auto + Sophos Troj/IlockRAT-A + Sigma Rundll32->64.94.84.85:443 + cross_investigation_lookup 8 prior same-Interlock investigations \u2014 attribution promoted to definitive"
+        }
+      ],
+      "final_category": "commodity_malware",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 56.3
+  },
+  {
+    "case_id": 5,
+    "name": "Eye Pyramid cross-brand",
+    "inv_id": "9fbf3191996e",
+    "nodes": 73,
+    "edges": 145,
+    "cti_calls": 45,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_serial",
+      "criminalip_ip",
+      "netlas_jarm",
+      "whoxy_reverse",
+      "zoomeye_jarm"
+    ],
+    "nr": 15.4,
+    "nr_hits": 2,
+    "nr_total": 13,
+    "nr_missing": [
+      "asn:as215540",
+      "asn:as215439",
+      "framework:eye pyramid",
+      "ransomware:rhysida",
+      "ransomware:vice society",
+      "ransomware:blackcat",
+      "ransomware:ransomhub",
+      "ransomware:fog",
+      "malware:cobalt strike",
+      "malware:sliver",
+      "malware:rhadamanthys"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 2,
+    "er_missing": [
+      "195.177.95.163--uses_infra-->rhysida",
+      "eye pyramid--uses_infra-->blackcat"
+    ],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 1,
+    "rq": 0,
+    "rq_meta": {
+      "actor_hit": false,
+      "marker_hit": false,
+      "node_pct": 15.384615384615385,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 3,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "alternate": "phishing_kit_cluster",
+          "confidence": "medium",
+          "reason": "initial observations"
+        },
+        {
+          "category": "phishing_kit_cluster",
+          "confidence": "high",
+          "reason": "Revised after VT/RDAP pivots: shared cluster cert + CNAME hubs + JARMs + star.* pattern + sibling Pitline IP"
+        },
+        {
+          "category": "phishing_kit_cluster_three_lir",
+          "confidence": "very_high",
+          "reason": "Round 3 confirmed THREE RIPE LIR netutils-mnt umbrella: Pitline + ORG-PC1058 (Zorn+Brander) + ORG-EU82 (Elisteka UAB LT). All share cluster cert, cluster JARM, and abuse@abuseradar.com. Operator continues to expand (5.1.40.0/24 added 2025-07)"
+        }
+      ],
+      "final_category": "phishing_kit_cluster_three_lir",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 52.6
+  },
+  {
+    "case_id": 6,
+    "name": "LummaC2 About-Cats",
+    "inv_id": "10b48e4fa64a",
+    "nodes": 26,
+    "edges": 22,
+    "cti_calls": 3,
+    "phase3_tools_used": [],
+    "nr": 50.0,
+    "nr_hits": 3,
+    "nr_total": 6,
+    "nr_missing": [
+      "cert_sha1:80b9e0f6a81ab78ee4e01152958e13",
+      "domain:pinkipinevazzey",
+      "domain:fanlumpactiras"
+    ],
+    "er": 100.0,
+    "er_hits": 2,
+    "er_total": 2,
+    "er_missing": [],
+    "pc": 25.0,
+    "pc_hits": 1,
+    "pc_total": 4,
+    "pc_missed": [
+      "urlscan_or_wayback_seed",
+      "content_fingerprint_pivot",
+      "crtsh_seed"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 50.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 2,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "first OTX call returned 5 pulses naming LummaC2 + DOJ takedown context; VT 10 engines malicious; urlscan 'About Cats' page title matched campaign"
+        },
+        {
+          "category": "commodity_malware_seized",
+          "confidence": "high",
+          "reason": "AbuseIPDB reverse DNS proved current Linode A records are ParkLogic Namecheap-expired-domain monetization landers, not operator infra; domain RDAP 404 and expiry 2026-02-07 confirm post-takedown lapse; cross-investigation lookup found 10 prior investigations all tagged le_seized \u2014 refined to seized variant"
+        }
+      ],
+      "final_category": "commodity_malware_seized",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 74.2
+  },
+  {
+    "case_id": 7,
+    "name": "SocGholish",
+    "inv_id": "96bf8bd61361",
+    "nodes": 91,
+    "edges": 135,
+    "cti_calls": 48,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_issuances",
+      "certspotter_serial",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "netlas_search",
+      "zoomeye_jarm"
+    ],
+    "nr": 41.7,
+    "nr_hits": 5,
+    "nr_total": 12,
+    "nr_missing": [
+      "ip:176.53.147.97",
+      "domain:packedbrick",
+      "domain:newgoodfoodmarket",
+      "domain:urban-orthodontics",
+      "domain:bestintownpro",
+      "ip:185.76.79.50",
+      "ip:166.88.182.126"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 3,
+    "er_missing": [
+      "blackshelter.org--resolves_to-->176.53.147.97",
+      "rednosehorse--share_ip-->176.53.147.97",
+      "blackshelter--known_ioc-->socgholish"
+    ],
+    "pc": 100.0,
+    "pc_hits": 5,
+    "pc_total": 5,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 1,
+    "rq": 40,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": false,
+      "node_pct": 41.666666666666664,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 2,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "medium",
+          "reason": "Initial: VT 16/91 split phishing/malware + CERT.PL pulse + IP rotation across DigitalOcean DCs"
+        },
+        {
+          "category": "traffer_or_tds",
+          "confidence": "high",
+          "reason": "Confirmed after virustotal_communicating_files returned 23,192 payload_1.hta samples and virustotal_file on a representative sample surfaced Proofpoint ET signature sid:2058047 explicitly labeling blackshelter.org as a TA2726 TDS domain; sample is HTA injected on compromised WP site (libradsl.it) loading the seed and two siblings."
+        }
+      ],
+      "final_category": "traffer_or_tds",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 63.6
+  },
+  {
+    "case_id": 8,
+    "name": "Amadey/StealC GitLab",
+    "inv_id": "ad6dfe54c9fe",
+    "nodes": 86,
+    "edges": 108,
+    "cti_calls": 98,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "whoxy_reverse",
+      "zoomeye_jarm"
+    ],
+    "nr": 50.0,
+    "nr_hits": 4,
+    "nr_total": 8,
+    "nr_missing": [
+      "ip:185.215.113",
+      "asn:as51381",
+      "domain:gitlab.bzctoons.net",
+      "domain:bzctoons.net"
+    ],
+    "er": 33.3,
+    "er_hits": 1,
+    "er_total": 3,
+    "er_missing": [
+      "185.215.113--hosted_on_asn-->as51381",
+      "gitlab.bzctoons.ne--hosts_stager-->stealc"
+    ],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "cert_san_apex"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 0,
+    "budget_extension_count": 1,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 50.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 1,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "First-call observations: MalwareBazaar already had signature=Amadey, extracted 5 C2 endpoints, and 7-sample imphash cluster; ThreatFox win.amadey conf 95; OTX SillyShareCopy pulse. The seed is a stable, named, mass-distributed commodity loader, not a targeted APT."
+        }
+      ],
+      "final_category": "commodity_malware",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 54.7
+  },
+  {
+    "case_id": 9,
+    "name": "Tycoon 2FA",
+    "inv_id": "f75950e870a5",
+    "nodes": 53,
+    "edges": 45,
+    "cti_calls": 79,
+    "phase3_tools_used": [
+      "certspotter_issuances",
+      "certspotter_serial",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "netlas_search",
+      "zoomeye_jarm",
+      "zoomeye_search"
+    ],
+    "nr": 66.7,
+    "nr_hits": 4,
+    "nr_total": 6,
+    "nr_missing": [
+      "kit_fingerprint:turnstile",
+      "actor:storm-1747"
+    ],
+    "er": 100.0,
+    "er_hits": 1,
+    "er_total": 1,
+    "er_missing": [],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "ct_burst_window"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 75,
+    "budget_extension_count": 1,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 66.66666666666667,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "phishing_kit_cluster",
+      "history_len": 2,
+      "hypothesis_history": [
+        {
+          "category": "phishing_kit_cluster",
+          "confidence": "high",
+          "reason": "Initial observations: VT 14/91 malicious with 11 'phishing' verdicts + DGA tag + Cloudflare fronting + mail/www subdomain pattern"
+        },
+        {
+          "category": "phishing_kit_cluster (Tycoon2FA / PhaaS)",
+          "confidence": "high",
+          "reason": "Confirmed and refined after OTX pulse 'Tycoon2FADomains' directly named rlcozx.es; urlscan revealed the kit's signature random-token URL paths and rotating lure-title carousel"
+        }
+      ],
+      "final_category": "phishing_kit_cluster (Tycoon 2FA PhaaS)",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 81.1
+  },
+  {
+    "case_id": 10,
+    "name": "Contagious Interview",
+    "inv_id": "84b6012c38f9",
+    "nodes": 7,
+    "edges": 4,
+    "cti_calls": 15,
+    "phase3_tools_used": [
+      "netlas_search"
+    ],
+    "nr": 7.1,
+    "nr_hits": 1,
+    "nr_total": 14,
+    "nr_missing": [
+      "domain:lianxinxiao",
+      "domain:blocknovas",
+      "domain:angeloper",
+      "domain:softglide",
+      "domain:attisscmo",
+      "subdomain:gitlab.blocknovas",
+      "subdomain:status.blocknovas",
+      "subdomain:mail.blocknovas",
+      "malware:beavertail",
+      "malware:invisibleferret",
+      "malware:ottercookie",
+      "actor:famous chollima",
+      "actor:unc5342"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 3,
+    "er_missing": [
+      "37.211.126.117--resolves-->lianxinxiao",
+      "lianxinxiao--dns_txt_mx-->blocknovas",
+      "blocknovas--parent_of-->gitlab.blocknovas"
+    ],
+    "pc": 20.0,
+    "pc_hits": 1,
+    "pc_total": 5,
+    "pc_missed": [
+      "dns_txt_mx_cross_ref",
+      "crtsh_blocknovas",
+      "wayback_seized",
+      "urlscan_front_companies"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 0,
+    "rq_meta": {
+      "actor_hit": false,
+      "marker_hit": false,
+      "node_pct": 7.142857142857143,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "legitimate",
+      "history_len": 3,
+      "hypothesis_history": [
+        {
+          "category": "legitimate",
+          "confidence": "high",
+          "reason": "Initial RDAP+VT+Onyphe showed Ooredoo Q.S.C. mobile data network with empty scanner digest, no PTR, single uncorroborated VT flag; 9 prior investigations consistently tagged it the same way"
+        },
+        {
+          "category": "legitimate",
+          "confidence": "high",
+          "reason": "All 13 follow-up sources (threatfox, otx, urlscan, abuseipdb, criminalip, alienvault, pulsedive, urlhaus, mnemonic, leakix, onyphe_threatlist, onyphe_resolver_reverse, vt_communicating_files) returned clean \u2014 hypothesis confirmed, no revision needed"
+        },
+        {
+          "category": "legitimate",
+          "confidence": "high",
+          "reason": "Round-1 pivot drain (censys_host, hackertarget_reverse_ip, ip_api_lookup, netlas_search, onyphe_datascan, project_honeypot_check, tor_exit_check) \u2014 all 7 net-new sources returned clean/empty; ip-api flag mobile=true + org=CGN is the definitive corroboration of the CGNAT subscriber hypothesis"
+        }
+      ],
+      "final_category": "legitimate",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 37.9
+  },
+  {
+    "case_id": 11,
+    "name": "Smishing Triad",
+    "inv_id": "644fe4a10fcb",
+    "nodes": 4,
+    "edges": 1,
+    "cti_calls": 36,
+    "phase3_tools_used": [
+      "certspotter_issuances",
+      "dom_fingerprints"
+    ],
+    "nr": 20.0,
+    "nr_hits": 1,
+    "nr_total": 5,
+    "nr_missing": [
+      "registrar:namesilo",
+      "kit:lighthouse",
+      "actor:wang duo yu",
+      "ip:104.21"
+    ],
+    "er": null,
+    "er_hits": 0,
+    "er_total": 0,
+    "er_missing": [],
+    "pc": 100.0,
+    "pc_hits": 5,
+    "pc_total": 5,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 0,
+    "rq_meta": {
+      "actor_hit": false,
+      "marker_hit": false,
+      "node_pct": 0.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "smishing_hub",
+      "history_len": 4,
+      "hypothesis_history": [
+        {
+          "category": "smishing_hub",
+          "confidence": "high",
+          "reason": "Initial: domain name 'sunpass-tollservices.icu' lexically matches the SunPass toll smishing campaign template + .icu TLD, RDAP 404 and empty DNS suggested post-takedown residue worth mining for historical IPs/certs."
+        },
+        {
+          "category": "unclear",
+          "confidence": "medium",
+          "reason": "After RDAP/DNS/VT/Onyphe: domain has no historical IP, no past cert, no VT index entry \u2014 it was either never registered or registered briefly without ever resolving. Not a takedown remnant."
+        },
+        {
+          "category": "legitimate",
+          "confidence": "high",
+          "reason": "After all 17 source queries returned zero: there is no operational evidence anywhere. Authoritative WHOIS says DOMAIN NOT FOUND. Per R11, lexical pattern is not evidence \u2014 threat_assessment must be benign. Note: 'legitimate' here means 'no observed malicious activity', not 'this string is endorsed by SunPass' \u2014 a SunPass impersonation kit could appear at this exact name in the future."
+        },
+        {
+          "category": "legitimate",
+          "confidence": "high",
+          "reason": "Round-1 pivot drain (2026-06-01) added 7 more sources (crtsh broad, urlscan campaign, urlhaus, dnsdumpster, hackertarget, leakix, phishtank) and produced 0 new nodes / 0 new edges. Convergence reached: every type-applicable source for an unregistered domain has been queried. Verdict unchanged: benign / no observed activity."
+        }
+      ],
+      "final_category": "legitimate",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 64.0
+  },
+  {
+    "case_id": 12,
+    "name": "ClearFake",
+    "inv_id": "c0e8b830b953",
+    "nodes": 48,
+    "edges": 50,
+    "cti_calls": 11,
+    "phase3_tools_used": [],
+    "nr": 62.5,
+    "nr_hits": 5,
+    "nr_total": 8,
+    "nr_missing": [
+      "ip:*yacolo",
+      "asn:as203493",
+      "tool:keitaro"
+    ],
+    "er": 100.0,
+    "er_hits": 1,
+    "er_total": 1,
+    "er_missing": [],
+    "pc": 50.0,
+    "pc_hits": 2,
+    "pc_total": 4,
+    "pc_missed": [
+      "shodan_cert_cn_search",
+      "rdap_origin"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 1,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 66.66666666666667,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "traffer_or_tds",
+      "history_len": 2,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "Initial observation: VT 15 malicious + dga tag + hash-like WHOIS registrant + GoDaddy cert on a random-name domain \u2014 looked like commodity DGA botnet (loader/info-stealer C2)."
+        },
+        {
+          "category": "traffer_or_tds",
+          "confidence": "high",
+          "reason": "Cross-investigation lookup on Hetzner 135.181.211.230 returned 7 prior investigations tagged 'clearfake_c2' / 'kit-marker-brawaa'; OTX returned 2 ClearFake pulses on the same IP; Pulsedive directly linked the seed to threat 'ClearFake' (tid 2208). ClearFake is a JavaScript-based fake-update traffer framework \u2014 squarely traffer_or_tds (with overlap to commodity_malware as it pushes Lumma/Vidar/HijackLoader)."
+        }
+      ],
+      "final_category": "traffer_or_tds",
+      "valid": true
+    },
+    "hallucinations": [],
+    "overall": 80.4
+  }
+]

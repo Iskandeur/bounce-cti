@@ -773,7 +773,22 @@ def _is_parked(inv_id: str) -> bool:
     """
     try:
         g = gs.get_graph(inv_id)
-        for n in g.get("nodes", []):
+        nodes = g.get("nodes", [])
+        # LE-takedown seeds keep the FULL historical workflow even when they are
+        # sinkholed AND co-hosted with parking landers. The exemption must be
+        # investigation-wide, not a per-node `continue`: Case 6 (le_seized
+        # LummaC2 seed `rugtou.shop`) was wrongly short-circuited after 3 calls
+        # because a co-resident parking-lander IP (172.234.24.211, tagged
+        # `parking`) tripped the loop below before the seed's own le_seized tag
+        # could exempt it. Check the seed first and bail out of the whole check.
+        for n in nodes:
+            if "seed" not in [t.lower() for t in (n.get("tags") or [])]:
+                continue
+            stags = [t.lower() for t in (n.get("tags") or [])]
+            smd = n.get("metadata") or {}
+            if "le_seized" in stags or (smd.get("sinkhole_kind") or "").lower() == "le_seized":
+                return False
+        for n in nodes:
             tags = [t.lower() for t in (n.get("tags") or [])]
             md = n.get("metadata") or {}
             if "parking" in tags or "blackhole" in tags:
@@ -3507,6 +3522,18 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 })
                 break
             round_turns = min(PIVOT_DRAIN_MAX_TURNS, remaining_budget)
+            # A single agent turn emits SEVERAL parallel `tool_use` blocks
+            # (~2-3 CTI calls/turn), so `round_turns ≈ remaining_budget` (a
+            # CALL count) under-restricts a near-ceiling round: Case 8 on the
+            # 2026-05-31 run started a round at 74 calls with remaining=8 and
+            # ran it out to 98 CTI calls → tripped the §4.5 `>90 ⇒ BD=0` cliff.
+            # When the remaining allowance is small enough that a parallel burst
+            # could blow past 90, re-budget the round in CALLS (÷ ~3 calls/turn).
+            # Early, high-yield rounds (large remaining_budget) are unchanged, so
+            # there is no coverage regression on complex cases that legitimately
+            # spend 70-80 calls.
+            if remaining_budget <= 24:
+                round_turns = max(2, remaining_budget // 3)
             try:
                 g_before = gs.get_graph(inv_id)
                 n_before = len(g_before.get("nodes", []))

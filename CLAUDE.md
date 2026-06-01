@@ -192,9 +192,14 @@ This repo has **automatic deployment via GitHub Actions**.
   `mcp__cti__*` calls across all phases: before each drain round the loop
   counts raw CTI calls so far (`_count_cti_calls`), stops draining when
   fewer than 8 calls of headroom remain, and clamps the round's turn budget
-  to what's left — this keeps fast-triage runs inside the EVAL_PROTOCOL §4.5
-  budget bands instead of overshooting to 115-127 calls on complex hubs. The
-  state machine in `PIVOT_MAPPING.md` informs the adaptive logic.
+  to what's left. Because one agent turn emits several *parallel* `tool_use`
+  blocks (~2-3 CTI calls/turn), a near-ceiling round is additionally
+  re-budgeted in calls (`remaining // 3`) once `remaining ≤ 24`, so a parallel
+  burst can't blow past the §4.5 `>90 ⇒ BD=0` cliff (Case 8 overshot to 98 on
+  2026-05-31 before this). This keeps fast-triage runs inside the
+  EVAL_PROTOCOL §4.5 budget bands instead of overshooting to 115-127 calls on
+  complex hubs. The state machine in `PIVOT_MAPPING.md` informs the adaptive
+  logic.
   Finally, a short **lessons-learned retrospective** phase
   (`phase_lessons_learned`) asks the agent to enumerate blockers, missing
   capabilities, and concrete codebase improvements it would make. The
