@@ -7,7 +7,7 @@
 **Commit:** `de5a31b`  
 **Category:** F-PIVOT-MISS  
 **Cases fixed:** c12 (ClearFake), c11 (Smishing Triad) — both CDN-fronted domain seeds  
-**Expected Δ-CAP (c12):** PS 50 → 75–100 (from 2/4 to 3–4/4 pivot rules)
+**Actual Δ-CAP (c12):** PS 50 → 75 (from 2/4 to 3/4 pivot rules); CAP 80.0 → 90.0 (+10)
 
 **Root cause:** `_adaptive_followup_targets()` generated the correct cert-CN hint
 (`shodan_search("ssl.cert.subject.CN:\"<seed>\"")`) for CDN-fronted seeds, but the
@@ -36,21 +36,59 @@ if _cn_unmask:
 **Verification:** c02 (MuddyWater 2026 hash) transcript confirms the fix fires:
 `mcp__cti__shodan_search(query="ssl.cert.subject.CN:\"moonzonet.com\"")` appears in the
 followup phase — the first time it has appeared in a hash-seed case despite moonzonet.com
-being Cloudflare-fronted. c12 results TBD (run still in progress at time of writing;
-fill in actual PS from scored.json).
+being Cloudflare-fronted.
+
+**c12 actual result:** `shodan_cert_cn_search` still ✗ — the cert-CN mandatory promotion
+did NOT trigger for c12 (921hapudyqwdvy.com) because the agent discovered non-CDN origin
+IPs (135.181.211.230, 46.4.38.199 — Hetzner AS24940) early in the main phase. The
+all-CDN condition `(ip_nodes and not non_cdn_ips)` was False, so `_adaptive_followup_targets`
+never emitted the cert-CN hint to promote. The +10 CAP gain on c12 came from
+`rdap_origin` firing (rdap_ip was called), not from the cert-CN pivot. The cert-CN fix
+is confirmed working for purely Cloudflare-fronted seeds (c02, moonzonet.com).
 
 **Prior-run baseline (v3 re-score):**
 
-| Case | Prior PS | Expected new PS | CAP Δ |
-|-----:|--------:|----------------:|------:|
-| c12  |       50 |           75–100 | +10–20 |
-| c11  |      n/a |             n/a | out of scope (not in nightly fresh subset) |
+| Case | Prior PS | Actual PS | Prior CAP | Actual CAP | CAP Δ | Note |
+|-----:|--------:|----------:|----------:|-----------:|------:|------|
+| c12  |       50 |        75 |      80.0 |       90.0 |   +10 | rdap_origin now fires; shodan_cert_cn ✗ (non-CDN origin IPs found first) |
+| c11  |      n/a |       n/a |       n/a |        n/a |   n/a | out of scope (not in nightly fresh subset) |
 
 ---
 
 ## Next-iteration priorities (ranked by Δ-CAP leverage)
 
-### P1 — `rdap_origin` missing from c12 (F-PIVOT-MISS)
+### P0 — cert-CN fix scope expansion: mixed CDN+origin seeds (F-PIVOT-MISS)
+
+The cert-CN fix requires ALL IP nodes to be CDN-tagged. For c12, the agent resolved
+both Cloudflare front-end IPs (104.21.72.186, 172.67.153.220) AND direct origin IPs
+(135.181.211.230 Hetzner, 46.4.38.199 Hetzner). The `non_cdn_ips` list was non-empty,
+so the cert-CN hint was never emitted. This is actually correct behavior (origin IPs
+were already found), but `shodan_cert_cn_search` PS rule requires the explicit Shodan
+cert-CN query regardless.
+
+**Fix option A:** Loosen the cert-CN condition: fire when the seed domain is Cloudflare-
+fronted (any CDN-tagged IP exists), not only when ALL IPs are CDN-tagged.
+**Fix option B:** Fire unconditionally for domain seeds (cert-CN search is always cheap
+and adds signal even when origin IPs are known).
+**Δ-CAP estimate (c12):** PS 75→100 → +8 CAP points.
+
+---
+
+### P1 — `ct_burst_window` never fires (F-PIVOT-MISS, c09)
+
+c09 (Tycoon 2FA, rlcozx.es) PS=75 because `ct_burst_window` ✗. Rule requires:
+`(crtsh or certspotter called) AND any node has "burst" or "issuance_date" in metadata`.
+crtsh fired, but no graph node has burst/issuance_date metadata. The agent doesn't
+expose CT burst-window data as node metadata — it reads cert issuances but stores
+`cert_serial`/`domain` nodes without the issuance timestamp.
+
+**Fix:** In `graph_mcp.add_node` or the crtsh/certspotter source, store
+`metadata.issuance_date` when adding cert nodes from CT log responses.
+**Δ-CAP estimate (c09):** PS 75→100 → +10 CAP points.
+
+---
+
+### P2 (was P1) — `rdap_origin` missing from c12 (F-PIVOT-MISS)
 
 `rdap_origin` checks for `rdap_ip` on any IP *discovered from* the cert-CN Shodan search.
 Currently the agent does the Shodan cert-CN search (now enforced), discovers the origin IP,
@@ -67,7 +105,26 @@ IP was discovered (check graph for non-CDN IPs tagged `cloudflare_origin`).
 
 ---
 
-### P2 — Pivot drain backlog starvation (F-BUDGET)
+### P3 (was P2) — N2/N3 false-positive tagging (F-RST breach)
+
+N2 (jsDelivr CDN) RST=50, N3 (Wikipedia) RST=50 — each had 2 nodes tagged with
+`malicious`/`c2`/`phishing` tags. No actor/malware attributions were asserted
+(attribution=[] for both), but the tag promotions incur −25 RST each. These are
+clearly benign seeds (major CDN, Wikipedia) so any malicious-tag assignment is a
+false positive.
+
+**Root cause:** Likely the agent tags IPs or domains as `malicious` based on ThreatFox
+or OTX hits on IPs that happen to be shared CDN infrastructure. CDN IP nodes should
+be immune to malicious-tag promotion (already tagged `cdn`), but the tag guard may
+not filter both paths (auto-enqueue `known_bad_markers` + agent-explicit `tag_node`).
+
+**Fix:** In `pivot_mapping.auto_tag_known_bad()` or `graph_mcp.tag_node()`, suppress
+malicious-family tags on nodes already tagged `cdn`, `sinkhole`, or `parking`.
+**Δ-neg-RST estimate:** N2/N3 both → 100 → neg_RST mean 67→100.
+
+---
+
+### P4 (was P2) — Pivot drain backlog starvation (F-BUDGET)
 
 14 of 105 lesson-learned blockers cite drain-budget exhaustion with large pending queues
 (100+ pending pivots when drain rounds cap at 60 turns). High-value pivots like
@@ -91,7 +148,7 @@ hash-level enrichment, leaving domain/IP pivots unvisited.
 
 ---
 
-### P3 — OpenCTI structural attribution gap (F-SRC-TOKEN-DEAD / ops-action)
+### P5 (was P3) — OpenCTI structural attribution gap (F-SRC-TOKEN-DEAD / ops-action)
 
 16 of 105 lesson-learned blockers cite `opencti_lookup_indicator pivots skipped
 no_api_key`. OpenCTI was permanently retired in commit `3c08c0b` (no working token;
@@ -109,7 +166,7 @@ structural gap.
 
 ---
 
-### P4 — Cert serial noise in rdap pivots (F-SCHEMA / F-PIVOT-QUERY)
+### P6 (was P4) — Cert serial noise in rdap pivots (F-SCHEMA / F-PIVOT-QUERY)
 
 Recurring lesson: `cert_serial` values stored as human-readable labels (`"Let's Encrypt
 R12 / 569efec2..."`) cause IS_HEX_SERIAL noise-filter false-positives, skipping RDAP
