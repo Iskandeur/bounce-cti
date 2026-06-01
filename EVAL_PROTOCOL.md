@@ -1,21 +1,26 @@
 # EVAL_PROTOCOL — Bounce-CTI Evaluation Protocol
 
-> **Version** 2.1 · **Status** active · **Cadence** run against every non-trivial change to `agent_runner.py` system prompt, MCP tool set, `defuse_lists.py`, or source integrations.
-> Renamed from `EVAL_PROTOCOL_V2.md` (V1 deleted) on 2026-05-03.
+> **Version** 3.0 · **Status** active · **Cadence** nightly CI on the fresh subset (§6); full suite on milestones + every non-trivial change to `agent_runner.py`, the MCP tool set, `defuse_lists.py`, `pivot_mapping.py`, or source integrations.
+> **v3.0 (2026-06-01)** splits scoring into a decay-proof **Capability** track — the headline, improvement-driving metric — and a freshness-gated **Recall** track; adds a *mechanical* freshness gate that SKIPs decayed seeds instead of scoring them 0; adds negative/restraint cases; recalibrates targets to the capability track; and sets the deterministic fixture-replay harness as the standing engineering target. Renamed from `EVAL_PROTOCOL_V2.md` (V1 deleted) on 2026-05-03.
 
 ---
 
-## 0. Purpose
+## 0. Purpose & design philosophy
 
-This protocol benchmarks **bounce-cti** against 12 curated real-world CTI investigation cases drawn from reputable vendor writeups (Silent Push, Sekoia, Trend Micro, DFIR Report, DomainTools, Intrinsec, DNSFilter, Trellix). Each case provides a single seed IOC, a ground-truth node/edge set, an expected pivot chain, and a diagnostic signal (what it tells you if the tool fails it).
+This protocol benchmarks **bounce-cti** against curated real-world CTI cases (Silent Push, Sekoia, Trend Micro, DFIR Report, DomainTools, Intrinsec, DNSFilter, Trellix) plus a set of benign **negative/restraint** cases (§9b). Each positive case provides a single seed IOC, a ground-truth node/edge set, an expected pivot chain, a discriminating marker, and a diagnostic signal.
 
-The goal is an **iteration loop**, not a leaderboard:
+The goal is an **improvement loop**, not a leaderboard:
 
 ```
-run cases → compute deltas → classify failures → adjust tool → re-run → repeat
+run → score CAPABILITY (decay-proof) → classify failures → ship ONE mechanical fix → re-run → repeat
 ```
 
-If this protocol feels too heavy, run the **smoke set** (Cases 2, 3, 7 — one seed per IOC type, medium difficulty, fast). Full 12-case runs are for milestone checkpoints.
+**Core principle — separate what the *tool* controls from what the *live internet* controls.** A CTI tool's recall depends on whether a vendor's 2023–2025 IOC is *still resolvable in passive sources today* — which decays and is **not** a property of the tool. v2 scored decayed seeds as failures, so the headline number tracked data freshness as much as tool quality (the 2026-05-31 run measured this directly: half the low-recall cases had their primary marker absent from *every* live tool response). v3 fixes this with two tracks:
+
+- **Capability (CAP)** — the **headline, improvement-driving** score. Decay-proof: it measures *did the agent select the right pivots, stay budget-disciplined, form and revise a hypothesis, defuse noise, and avoid hallucination* — computed from the event log + graph, **independent of whether the historical node is still live.**
+- **Recall (REC)** — secondary, **freshness-gated**: node/edge/marker recall against ground truth, scored **only on cases whose data is still live** (§3 mechanical gate). Decayed cases are `SKIP`ped from REC, never scored 0.
+
+CAP is what a code change can move; it is the number the nightly loop optimizes and gates on. REC is reported for context and to catch genuine pivot-method regressions on *live* cases. The fresh **smoke/CI subset** (Cases 2, 3, 8, 9, 12 + negatives — §6) is the nightly default; the full suite is for milestones.
 
 ---
 
@@ -33,111 +38,88 @@ If this protocol feels too heavy, run the **smoke set** (Cases 2, 3, 7 — one s
 
 ## 2. Operator workflow (the eval agent's role)
 
-You are the evaluation agent. For each case:
+You are the evaluation agent (this is also the **nightly autonomous routine** — the runnable prompt lives at `eval/NIGHTLY_PROMPT.md`). For each case:
 
-1. **Pre-check freshness** (§3). If residual passive data is below the floor, mark the case `SKIP — data decayed` and move on. **Do not blame the tool for dead sources.**
-2. **Submit the seed** via `POST /api/investigations` with the specified model (default `sonnet` unless a case notes otherwise).
-3. **Wait** for `status: completed` (or `failed`) on `/api/investigations/{id}`.
-4. **Extract** the final graph (`/api/investigations/{id}/graph`), the event log (`events` table, filter `agent_*`), the written report (last `report` node), and the tool-call count.
-5. **Score** against the case's ground truth (§4) — this is mechanical counting, not judgment.
-6. **Classify** every delta into a failure mode (§5).
-7. **Record** the scorecard row (§7).
-8. After all 12 cases: write a **run report** with aggregate metrics, top 3 failure modes by frequency, and one proposed fix per top failure (§6).
+1. **Submit the seed** via `POST /api/investigations {seed_type, seed_value, model}` (model = the account's whitelisted model). Run cases **one-by-one (sequential)** to stay inside the shared 5-hour Anthropic window — the backend's `claude -p` investigations burn the *same* subscription quota as the eval driver, so a parallel burst exhausts it. The `eval/` harness is **quota-survivable** (waits on the `/api/quota` window + resumes `quota_exceeded` in place) and **restart-safe** (records each `inv_id` at submit-time so a mid-wait death never spawns a duplicate).
+2. **Wait** for a terminal status (`done|failed|stopped|error|cleared`); resume `quota_exceeded` via `POST /api/investigations/{id}/resume` once the window refills.
+3. **Extract** the final graph (`/graph`), the transcript (`/transcript` — tool calls + result previews), and the report node.
+4. **Apply the freshness gate (§3) mechanically:** if the case's `liveness_probe` is absent from *every* tool result, mark `DATA_DECAYED` → **SKIP from REC** (still score CAP).
+5. **Score CAP** (§4.A) — decay-proof, mechanical. **Score REC** (§4.B) only if the case is LIVE.
+6. **Classify** every delta into a failure mode (§5). Tag exogenous misses `F-DATA-DECAYED` / `F-SRC-TOKEN-DEAD` so they never count against the tool.
+7. **Write the run report** (§6): the CAP/REC split, failure histogram, an **ops-actions** list (seed/token refresh), and **one** ranked mechanical fix.
 
-**Never** edit ground truth to match tool output. If a ground-truth entry is wrong (real research error, not tool failure), log it in `Changelog` and fix the protocol in a separate commit.
+**Never** edit positive-case ground truth to match tool output. If a ground-truth entry is genuinely wrong, fix it in a separate commit and log it in the Changelog.
 
 ---
 
-## 3. Freshness pre-check
+## 3. Freshness gate (mechanical — replaces eyeballing)
 
-The research that populated this protocol could not live-check crt.sh, URLScan, OTX, ThreatFox, or VT UIs. **Before every full run, verify each seed still has usable passive residue.**
+Vendor IOCs decay; a perfect investigator still recovers nothing from a dead seed. v3 makes the freshness check **mechanical and automatic** so decay can never masquerade as a tool regression.
 
-### Procedure
+### The gate
 
-For each seed, confirm **at least one** of:
+Every positive case defines a **`liveness_probe`** in `eval/cases.py` — the string (normally its discriminating marker, or a defined anchor IOC) that *must appear in at least one tool result* for the live sources to be considered to still carry the cluster. After a case runs, the scorer:
 
-- ≥ 1 crt.sh leaf cert for the seed or its parent cluster
-- ≥ 1 OTX pulse referencing the seed
-- ≥ 1 ThreatFox IOC entry for the seed or cluster sibling
-- ≥ 1 URLScan scan (any time window) for the seed
-- ≥ 1 VT passive-DNS resolution in the last 24 months
-- For hash seeds: ≥ 5 VT engine detections
+1. Scans the investigation's full **tool-result corpus** (all `kind=tool_result` previews/bodies).
+2. If `liveness_probe` is present in ≥ 1 result → case is **LIVE** → score CAP **and** REC.
+3. If absent from **all** results → case is **`DATA_DECAYED`** → score **CAP only**; **exclude from the REC aggregate** (never score it 0).
 
-If **none** hold, mark `SKIP` in the scorecard and record the case as retired unless refreshed.
+The nightly run executes against the **production instance**, which has real egress, so the backend's own source responses *are* the freshness oracle — no separate live-check infrastructure is needed.
 
-### Known freshness-risk cases
+### Why CAP is still valid on a decayed case
 
-| Case | Risk | Reason |
-|------|------|--------|
-| 6 (LummaC2) | high | Microsoft/DOJ seized 2,300 domains May 2025; cluster partially sinkholed |
-| 10 (Contagious Interview) | medium-high | BlockNovas seized by FBI Apr 2025; Wayback is primary evidence |
-| 11 (Smishing Triad) | medium | Domains burn < 30 days; seed must be refreshed per-run from Silent Push IOFA feed |
-| 12 (ClearFake) | medium | 2023-era origin IPs partially burned; cert-CN pivot still valid via historical Shodan |
+A pivot is "executed" the moment the agent *calls the right tool on the right upstream value* — whether or not the source returns data. So pivot-selection, restraint, hypothesis discipline, and budget are all measurable on a decayed seed. Only recall (which needs the data to still exist) is gated.
 
-### Case 11 seed selection (mandatory)
+### Known decay-prone cases (kept for CAP, gated for REC)
 
-Case 11 defers its concrete seed. Before each run, pick a currently-live Smishing Triad FQDN meeting:
-- Registered via NameSilo
-- Cloudflare-fronted (`104.21.x.x` or `172.67.x.x`)
-- `.top`, `.cc`, `.icu`, `.shop`, or `.xin` TLD
-- USPS / toll / fake-retailer / bank lure pattern
-- Meets freshness floor above
+| Case | Reason |
+|------|--------|
+| 2 (MuddyRot) | C2 IPs aged out of VT contacted-files |
+| 6 (LummaC2) | Operation Endgame seizure + sinkholing |
+| 7 (SocGholish) | live A-record re-pointed; anchor IP gone from passive DNS |
+| 10 (Contagious Interview) | BlockNovas FBI-seized; lost passive-DNS anchor |
+| 11 (Smishing Triad) | domains burn < 30 days — seed refreshed per run (below) |
+| 12 (ClearFake) | 2023 origin IPs partially burned |
 
-Record the chosen FQDN in the scorecard's `seed_actual` column.
+### Case 11 seed selection (mandatory, per run)
+
+Pick a fresh Smishing-Triad FQDN: NameSilo registrar, Cloudflare-fronted (`104.21`/`172.67`), `.top|.cc|.icu|.shop|.xin` TLD, USPS/toll/retail/bank lure. Record it in `seed_actual` and document the OSINT basis in the `eval/cases.py` Case-11 comment (sandbox cannot live-verify). Because Case 11 is almost always `DATA_DECAYED` (dead seed), it contributes to CAP (PC/restraint/budget against the dead seed) but not REC.
 
 ---
 
 ## 4. Scoring rubric
 
-Each case is scored on **6 dimensions**, each 0–100, then averaged (equal weight unless the case specifies weights).
+Two **independent** tracks. **CAP is the headline** the loop optimizes and gates on; **REC is freshness-gated and secondary.** Both are mechanical (no agent judgment in the score).
 
-### 4.1 Node recall (NR)
-`|ground-truth nodes found| / |ground-truth nodes total|`
-A node is "found" if the tool created a graph node with the same `type` and a `value` matching the ground-truth value (case-insensitive for domains, exact for IPs and hashes).
+### 4.A Capability score (CAP) — decay-proof, the metric the loop optimizes
 
-### 4.2 Edge recall (ER)
-`|ground-truth edges found| / |ground-truth edges total|`
-An edge is "found" if the tool created an edge between the correct pair with a plausibly matching `relation`. Loose matching on relation names (e.g., `resolves_to` ≈ `A_record` ≈ `dns_a`).
+Computed from the event log + graph, valid even when the seed has decayed.
 
-### 4.3 Pivot coverage (PC)
-`|expected-pivot steps executed| / |expected-pivot steps total|`
-A pivot step is "executed" if the event log shows at least one tool call of the expected type with a query derived from an upstream graph node. Tool calls with unrelated queries don't count.
+| Dim | Weight | Definition |
+|-----|-------:|------------|
+| **PS — Pivot selection** | 0.40 | `executed expected pivots / total`. A pivot is "executed" if the event log shows the expected tool called on a value derived from an upstream graph node — **regardless of whether it returned data.** This is the core analyst skill and the primary improvement lever. (v2's PC, promoted to the dominant weight.) |
+| **EFF — Budget & yield** | 0.25 | the §4.5 budget band **×** a yield factor. Budget band: 100 if CTI calls ≤ 60 ∧ depth ≤ 3; 75 if calls ∈ (60,90] ∧ every extension logged a `budget_extension` node citing yield; 50 if (60,90] unjustified or depth = 4; 0 if calls > 90 or depth > 4. Yield factor scales by discriminating-markers-or-net-new-nodes per call and penalizes wasted/redundant fan-out (e.g. NSRL on `malicious`-tagged hashes, doc-pivots on CDN IPs). Rewards *focused* investigation, not call-count alone. |
+| **RST — Restraint / defuse** | 0.20 | `100 − 10·over-inclusion − 15·over-defuse − 20·false-cluster`, floored at 0. **Over-inclusion**: a defuse target graphed without a `defused` tag. **Over-defuse**: a GT node tagged `defused` and not pivoted. **False-cluster**: unrelated tenants linked on shared ASN/CDN. Includes the negative cases (§9b): benign infra clustered/attributed is a restraint failure. |
+| **HYP — Hypothesis discipline** | 0.15 | 100 iff a `working_hypothesis` node exists **and** the `investigation_summary` carries a `hypothesis_history` (≥ 1 documented revision) **and** a `final_category` that **matches the case's true category**; partial credit (50) if the node exists but history/category is missing or mismatched; 0 if absent. |
 
-### 4.4 Defuse correctness (DC)
-Score = 100 − (10 × over-inclusion) − (15 × over-defuse)
-- **Over-inclusion**: a defuse target appeared as a regular graph node without a defuse tag.
-- **Over-defuse**: a ground-truth node was tagged `defused` and not pivoted on.
-Floor at 0.
+**CAP = 0.40·PS + 0.25·EFF + 0.20·RST + 0.15·HYP.**
 
-### 4.5 Budget discipline (BD)
-- 100 if total MCP tool calls ≤ 60 AND max pivot depth ≤ 3
-- 75 if calls in (60, 90] AND every extension was justified by a logged
-  `budget_extension` event citing yield (≥ 1 discriminating fingerprint per
-  5 calls during the extension window)
-- 50 if calls in (60, 90] without justification, OR depth = 4
-- 0  if calls > 90 or depth > 4
+**Hallucination = hard gate (not a dimension).** Any node/edge whose value cannot be traced to a tool result *or* to provenance metadata (`evidence`/`source`/`sources_seen`) ⇒ the case's CAP is **zeroed** and the run is flagged. A single hallucination fails the run (§7).
 
-**Rationale (revised 2026-05-03)**: PURPOSE positions Bounce-CTI as a fast-triage
-tool (~60 calls). The autonomy engine adds a yield-based extension to 90 for
-genuinely complex cases (Smishing-Triad-class hubs, multi-tier C2). Cases that
-need to extend should produce *measurable* extra signal — ergo the
-`budget_extension` event log.
+### 4.B Recall score (REC) — freshness-gated, secondary
 
-**Evaluation procedure**: count `agent_tool_use` events. For runs in (60, 90],
-inspect the `budget_extension` events: each must precede the extension window
-and cite ≥ 1 new fingerprint discriminant added during it (jarm, favicon_hash,
-cert_serial, registrant_email, tracking_id, wallet_address, non-cloud-ASN
-ip/domain). If yes → 75. If no → 50.
+Scored **only on LIVE cases** (§3). **Never** averaged into CAP.
 
-### 4.6 Report quality (RQ)
-- 100 if the written report names the threat actor / family, lists ≥ 70% of ground-truth nodes, and mentions the primary discriminating marker by name
-- 70 if 2 of 3
-- 40 if 1 of 3
-- 0 otherwise
+- **NR** — node recall: `GT nodes found / total` (type-aliased; case-insensitive on values).
+- **ER** — edge recall over **concrete** GT edges only. Abstract placeholders (`alpha`, `beta`, `cluster`, `victim`, `hosting_ip`, …) are **excluded from the denominator** — they cannot match a literal node value and were silently dragging v2 ER.
+- **MK — marker recovery** *(weighted heaviest, report prominently)* — did the tool **graph and report** the case's discriminating marker? Binary-ish, 0/50/100. This is the single most diagnostic recall signal.
+- **COV — report coverage** — fraction of GT nodes named in the written report.
 
-**Per-case score** = mean(NR, ER, PC, DC, BD, RQ)
+REC is reported per-case and as an aggregate over LIVE cases. A drop in REC on a **LIVE** case (marker present in tool results but not graphed/reported) **is** a genuine tool regression and must be classified (§5).
 
-**Hallucination penalty** (applied after averaging): subtract 15 points per node or edge in the graph that cannot be traced to any tool-call result in the event log. A single hallucination poisons the run.
+### 4.C Fixture-replay capability track (STANDING TARGET — build incrementally)
+
+The live run is non-deterministic (decay + source flakiness), so live-run CAP still wobbles run-to-run. **Target state:** capture each tool's actual JSON response into a versioned fixture set and **replay it deterministically**, so CAP is byte-reproducible and *a code change is the only variable.* The backend already memoizes source responses in the `cache` table — the build is (1) a capture mode that snapshots a case's responses, (2) a replay mode (`BOUNCE_FIXTURE_DIR`) that serves them offline, (3) fixtures committed under `eval/fixtures/<case>/`. Until built, the **live-run CAP with the §3 freshness gate is the operative metric.** Standing objective for the nightly agent: snapshot the fresh-subset cases first (hashes don't decay), one case per idle night.
 
 ---
 
@@ -159,51 +141,58 @@ Every delta (missing node, missing edge, wrong pivot, noise inclusion) must be t
 | **F-REPORT** | Finding in graph but not in written report | Report-generation step improvement |
 | **F-HALLUCINATION** | Node or edge has no tool-call evidence | **Critical.** System prompt must forbid unsupported writes |
 | **F-SCHEMA** | Graph node has wrong type (e.g., IP stored as domain) | MCP tool validation; schema enforcement |
+| **F-DATA-DECAYED** | GT node absent from *every* live source response (seed decayed) | **Exogenous — NOT a tool failure.** Triggers REC SKIP (§3); refresh or retire the seed |
+| **F-SRC-TOKEN-DEAD** | Integrated source returns systemic auth failure (e.g. OpenCTI `AUTH_REQUIRED`) | **Ops action** (refresh token in `.env`), not a code bug; list under the run report's "ops actions" |
+| **F-OVER-ATTRIBUTION** | A negative/benign case (§9b) was clustered or attributed | Restraint failure; tighten defuse / require ≥ 2 corroborating markers for cluster edges |
 
 ---
 
-## 6. Iteration loop
+## 6. Iteration loop & cadence
 
-After a run completes, the eval agent produces a **run report**:
+### Cadence (tiered)
+
+- **Nightly CI (the default autonomous run):** the **fresh subset** — decay-resistant cases + negatives — run sequentially, scored on **CAP**, regression-gated on CAP. Fits one 5-hour window. Ship **exactly one** ranked mechanical fix.
+  - **Fresh subset = Cases 2, 3, 8 (hash seeds — don't decay) + 9, 12 (recent marker-pivot cases) + all negative cases (§9b).**
+- **Weekly / milestone:** the **full suite** (all 12 + negatives), refreshes the §3 decay verdicts and the Case-11 seed, and is mandatory before a milestone tag (push → prod, no staging).
+
+### Run report (`runs/YYYY-MM-DD_<commit-sha>/`)
 
 ```
-runs/YYYY-MM-DD_<commit-sha>/
-├── scorecard.md          # Table: case | NR | ER | PC | DC | BD | RQ | overall | top failure
-├── deltas.md             # Per-case: missing nodes, missing edges, noise included, hallucinations
-├── failure_histogram.md  # Count of each F-* code across all 12 cases
-└── proposed_fixes.md     # Top 3 failure modes → specific code changes
+scorecard.md          # CAP (PS/EFF/RST/HYP) + REC (NR/ER/MK/COV, LIVE-only) per case;
+                      #   CAP & REC aggregates; Δ-CAP vs prior; DATA_DECAYED skips; ops-actions
+deltas.md             # per-case missing nodes/edges/markers, pivot misses, hand-audit notes
+failure_histogram.md  # F-* counts incl. F-DATA-DECAYED, F-OVER-ATTRIBUTION, F-BUDGET::no_extension_log
+proposed_fixes.md     # ranked fixes (cases × Δ-CAP) + deferred + ops-actions (e.g. token refresh)
+raw_scores.json       # machine-readable CAP/REC breakdown + hypothesis_history, final_category,
+                      #   phase3 tools, yield, liveness verdict
 ```
 
-### Priority rule
+### Improvement priority (keyed off CAP — decay-proof)
 
-Fix in this order:
-1. Any `F-HALLUCINATION` — trust-breaking, blocks all interpretation of other metrics
-2. Any `F-SRC-ABSENT` that blocks ≥ 3 cases — highest leverage
-3. Top `F-PIVOT-MISS` or `F-DEFUSE-*` — usually a system prompt tune
-4. Everything else
+1. Any `F-HALLUCINATION` — trust-breaking, **fails the run**.
+2. Any **CAP regression** vs the prior run on any case — **P0** (this is the decay-proof regression signal; e.g. the 2026-05-31 c6/c8 regressions both surfaced here).
+3. `F-SRC-ABSENT` blocking ≥ 3 cases — highest capability leverage.
+4. Top `F-PIVOT-MISS` / `F-DEFUSE-*` / `F-OVER-ATTRIBUTION` — prefer **mechanical** fixes (`_missing_mandatory_tools`, `_adaptive_followup_targets`, `pivot_mapping._PIVOT_RULES`, `backend/hints.py`) over `SYSTEM_PROMPT` prose (prose is read-and-ignored at a measurable rate).
+5. `F-DATA-DECAYED` / `F-SRC-TOKEN-DEAD` → log under **ops-actions** (seed refresh, token renewal). **Do not "fix" in code.**
 
 ### Regression discipline
 
-When a fix lands, re-run **at least**:
-- The case(s) that motivated the fix
-- Any case sharing the same primary marker (see §8 marker coverage table)
-- The smoke set (Cases 2, 3, 7)
-
-Full 12-case runs are mandatory before merging to `main` (remember: push → prod, no staging).
+A fix must not regress **CAP** on any case (LIVE or decayed). Before pushing to `main`: Python import check, and re-run the fresh subset if the fix touches the agent loop. The case(s) that motivated the fix + any sharing the same marker (§8) are mandatory in that re-run.
 
 ---
 
-## 7. Aggregate metrics & pass thresholds
+## 7. Aggregate metrics & gates
 
-| Metric | Definition | Current target |
-|--------|------------|----------------|
-| **Overall score** | Mean per-case score across the 12 cases (SKIPs excluded) | ≥ 65 (V2 launch), ramp to ≥ 80 |
-| **Pass rate** | % of cases with per-case score ≥ 70 | ≥ 60% (V2 launch) |
-| **Hallucination rate** | Cases with ≥ 1 hallucinated node or edge | **0%. Hard gate.** |
-| **Defuse floor** | Mean DC across the 4 defuse-primary cases (4, 6, 11, 12) | ≥ 75 |
-| **Coverage floor** | No marker (§8) scores below 40 on its primary case | enforced |
+| Metric | Definition | Target |
+|--------|------------|--------|
+| **CAP mean** | Mean capability across scored cases (the headline) | ≥ 75 (v3 launch), ramp to ≥ 85 |
+| **PS floor** | Mean pivot-selection across cases | ≥ 70 (the tool must pick the right pivots) |
+| **Hallucination rate** | Cases with an untraceable node/edge | **0%. Hard gate.** |
+| **Restraint floor** | Mean RST across defuse cases (4, 6, 11, 12) + negatives (§9b) | ≥ 80 |
+| **CAP regression** | Any case's CAP below its prior run | **None. Hard gate.** |
+| **REC (context only)** | NR/ER/MK/COV over LIVE cases | reported; **MK ≥ 50** on live primary cases. **No hard target** (data-dependent). |
 
-A commit fails the eval gate if any floor is breached, regardless of overall score.
+A commit fails the gate if: **any hallucination, any CAP regression, or the PS / restraint floor is breached.** **Recall decay never fails the gate** — isolating tool capability from data freshness is the entire point of v3. The pre-v3 "overall mean / pass rate" numbers are retained in historical scorecards for trend continuity but are superseded by CAP.
 
 ---
 
@@ -816,6 +805,31 @@ If origin IPs found but Keitaro fingerprint missed: Shodan HTTP-body pivot not w
 
 ---
 
+## 9b. Negative / restraint cases (N-series) — scored on RST only
+
+Benign seeds the tool must **not** cluster or attribute. A CTI tool that cries
+wolf on a CDN edge IP or a popular SaaS host is *dangerous* — over-attribution
+poisons downstream blocking. These cases make the restraint gate real (v2 had
+only one restraint dimension and no benign seeds, so over-attribution was
+invisible). They are decay-immune (benign infra stays benign), so they belong
+in the nightly fresh subset.
+
+**Scoring (RST, feeds §4.A and the §7 restraint floor):** 100 if the tool
+defuses/limits correctly and the report states a *benign / no-malicious-cluster*
+verdict; −25 per benign node promoted into a malicious cluster or tagged
+malicious; **0 if any threat-actor / malware / kit attribution is asserted.**
+
+| # | Seed | Type | Correct behaviour |
+|---|------|------|-------------------|
+| N1 | `104.16.123.96` | ipv4 | Cloudflare anycast — `defuse` as CDN, no cluster, no attribution |
+| N2 | `cdn.jsdelivr.net` | domain | legitimate CDN/SaaS — doc-only, no malicious cluster |
+| N3 | `www.wikipedia.org` | domain | popular-benign apex — defuse / shared-hosting, no cluster |
+
+`liveness_probe` is N/A for negatives (they are never gated). Add more N-series
+seeds as new false-positive classes appear in production triage.
+
+---
+
 ## 10. Known gaps
 
 Carried forward from the research phase, reviewed for V2.
@@ -841,6 +855,20 @@ Carried forward from the research phase, reviewed for V2.
   yield-justified extensions (60, 90] earn 75 instead of 50. Reflects the new
   pivot queue + soft-cap budget logic introduced in `feat/autonomy-engine`.
   No case content changed.
+- **v3.0** (2026-06-01) — **Capability/Recall split.** Headline metric is now
+  the decay-proof **CAP** (PS 0.40 / EFF 0.25 / RST 0.20 / HYP 0.15) computed
+  from the event log + graph; **REC** (NR/ER/MK/COV) is freshness-gated via a
+  *mechanical* `liveness_probe` check (decayed seeds SKIP REC, never score 0).
+  Added negative/restraint cases (§9b); `F-DATA-DECAYED` / `F-SRC-TOKEN-DEAD` /
+  `F-OVER-ATTRIBUTION` codes; tiered cadence (nightly fresh-subset CI on CAP +
+  weekly full); recalibrated targets to CAP (≥ 75 → 85) with CAP-regression and
+  restraint hard gates; dropped abstract placeholders from the ER denominator;
+  and set the deterministic **fixture-replay** harness (§4.C) as the standing
+  engineering target. Motivated by the 2026-05-31 run: half the low-recall
+  cases had their primary marker absent from *every* live tool response — i.e.
+  the old "overall mean" tracked data freshness as much as tool quality. No
+  positive-case ground truth changed. The runnable nightly routine is
+  `eval/NIGHTLY_PROMPT.md`.
 
 ---
 

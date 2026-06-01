@@ -31,6 +31,13 @@ APR20 = {
     1: 51.1, 2: 47.9, 3: 54.3, 4: 70.0, 5: 60.0, 6: 67.5,
     7: 48.1, 8: 54.2, 9: 70.5, 10: 37.9, 11: 60.8, 12: 72.5,
 }
+# v3 CAP baseline = the 2026-05-31/6e6aaeb run re-scored under the v3 Capability
+# track (decay-proof). This is the delta baseline for v3 runs going forward.
+PRIOR_CAP = {
+    1: 90.0, 2: 100.0, 3: 90.2, 4: 90.5, 5: 100.0, 6: 70.0,
+    7: 100.0, 8: 65.0, 9: 78.6, 10: 68.0, 11: 100.0, 12: 80.0,
+}
+PRIOR_CAP_MEAN = 86.0
 
 
 def status_of(cid):
@@ -47,7 +54,53 @@ def render_scorecard(sha):
     L.append("- Mode: full 12 cases, **sequential one-by-one** submission (user EXCEPTIONAL MEASURE: avoid the shared 5-hour Anthropic quota burn-down; quota-survivable runner waits + resumes in place).")
     L.append(f"- Case 11 seed: `{CASE11_SEED}` — Smishing-Triad/Lighthouse-kit pattern (NameSilo + Cloudflare fronting + SunPass toll-billing lure + .icu TLD), distinct from the two prior runs (`usps-deliveryupdate-package.top`, `ezpass-tollbill-pay.cc`) to dodge a cached backend result. Live freshness not verified (sandbox DNS/IOFA-feed blocked) — NR expected ~0; case exercises PC/DC/BD.")
     L.append("")
-    L.append("## Scorecard")
+    # ---- v3 Capability/Recall headline (decay-proof) ----
+    try:
+        negs = json.load(open("/tmp/eval_run/scored_negatives.json"))
+    except Exception:
+        negs = []
+    L.append("## Capability scorecard (v3 — headline, decay-proof)")
+    L.append("")
+    L.append("| Case | live | CAP | ΔCAP | PS | EFF | RST | HYP | REC | NR | MK |")
+    L.append("|-----:|:----:|----:|-----:|---:|----:|----:|----:|----:|---:|---:|")
+    caps = []; ps_all = []; recs = []; rst_floor = []; decayed = []
+    for r in SCORED:
+        if "error" in r:
+            L.append(f"| {r['case_id']} | ERR | – | – | – | – | – | – | – | – | – |"); continue
+        cid = r["case_id"]; cap = r.get("cap", 0); caps.append(cap); ps_all.append(r.get("ps", 0))
+        dcap = cap - PRIOR_CAP.get(cid, 0)
+        live = "DECAY" if r.get("data_decayed") else "live"
+        if r.get("data_decayed"):
+            decayed.append(cid)
+        rec = f"{r['rec']:.1f}" if r.get("rec") is not None else "n/a"
+        if r.get("rec") is not None:
+            recs.append(r["rec"])
+        if cid in (4, 6, 11, 12):
+            rst_floor.append(r.get("rst", 0))
+        mk = r.get("mk"); mk_s = str(mk) if mk is not None else "-"
+        L.append(f"| {cid} | {live} | {cap:.1f} | {dcap:+.1f} | {r.get('ps',0):.0f} | {r.get('eff',0):.0f} | {r.get('rst',0)} | {r.get('hyp_score',0)} | {rec} | {r.get('nr',0):.0f} | {mk_s} |")
+    for n in negs:
+        if n.get("rst") is not None:
+            rst_floor.append(n["rst"])
+            L.append(f"| N{n['case_id']-100} | – | {n['rst']} | – | – | – | {n['rst']} | – | – | – | – |")
+    cap_mean = sum(caps) / len(caps) if caps else 0
+    ps_floor = sum(ps_all) / len(ps_all) if ps_all else 0
+    rec_mean = sum(recs) / len(recs) if recs else 0
+    rst_mean = sum(rst_floor) / len(rst_floor) if rst_floor else 0
+    halluc = sum(1 for r in SCORED if "error" not in r and r.get("hallucinations"))
+    cap_reg = [r["case_id"] for r in SCORED if "error" not in r and r.get("cap", 0) < PRIOR_CAP.get(r["case_id"], 0) - 0.05]
+    L.append("")
+    L.append("| Metric | Target | This run | Prior (v3 baseline) |")
+    L.append("|---|---|---|---|")
+    L.append(f"| **CAP mean** (headline) | ≥75 → 85 | **{cap_mean:.1f}** | {PRIOR_CAP_MEAN} ({cap_mean-PRIOR_CAP_MEAN:+.1f}) |")
+    L.append(f"| PS floor | ≥ 70 | {ps_floor:.1f} | — |")
+    L.append(f"| Restraint floor (4/6/11/12 + neg) | ≥ 80 | {rst_mean:.0f} | — |")
+    L.append(f"| Hallucination | 0 hard gate | {halluc} {'✅' if halluc==0 else '❌ BREACH'} | — |")
+    L.append(f"| CAP regressions (hard gate) | none | {cap_reg if cap_reg else '✅ none'} | — |")
+    L.append(f"| REC (LIVE only, context) | MK ≥ 50 | {rec_mean:.1f} (n={len(recs)}) | — |")
+    L.append(f"| DATA_DECAYED (REC-skipped) | — | {decayed} | — |")
+    L.append("")
+    L.append("## Scorecard (v2 legacy track — context only)")
     L.append("")
     L.append("| Case | Status | NR   | ER   | PC   | DC  | BD  | RQ  | Overall | Calls | Hypothesis path |")
     L.append("|-----:|:------:|-----:|-----:|-----:|----:|----:|----:|--------:|------:|:----------------|")

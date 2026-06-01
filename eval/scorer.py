@@ -6,6 +6,10 @@ tool-call shapes.
 import json, os, re, sys
 sys.path.insert(0, "/tmp/eval_run")
 from cases import CASES
+try:
+    from cases import NEGATIVE_CASES
+except Exception:
+    NEGATIVE_CASES = []
 
 CASES_BY_ID = {c["case_id"]: c for c in CASES}
 
@@ -421,6 +425,125 @@ def hallucination_check(nodes, tx):
     return suspects
 
 
+# ── v3.0 Capability/Recall scoring ───────────────────────────────────────────
+
+_MARKER_NODE_TYPES = {
+    "jarm", "ja3", "ja3s", "favicon_hash", "cert_serial", "cert_sha1",
+    "cert_cn", "tracking_id", "wallet_address", "email", "registrant_email",
+    "actor", "threat_actor", "malware", "ransomware", "framework", "phishing_kit",
+    "kit", "person",
+}
+
+
+def liveness_probe(case):
+    """The string whose presence in ANY tool result proves the cluster's data
+    is still live. Defaults to the case's primary_marker (the discriminating
+    signal is the natural liveness anchor); override per-case where the marker
+    is the seed itself or an un-feedable concept."""
+    return (case.get("liveness_probe") or case.get("primary_marker") or "").lower()
+
+
+def is_data_decayed(case, tx):
+    """§3 mechanical freshness gate: True iff the case's liveness_probe is
+    absent from EVERY tool result. Decayed cases are scored on CAP only and
+    SKIPped from the REC aggregate (never scored 0)."""
+    probe = liveness_probe(case)
+    if not probe:
+        return False
+    corpus = " ".join((e.get("result_preview") or "").lower()
+                      for e in tx.get("entries", []) if e.get("kind") == "tool_result")
+    return probe not in corpus
+
+
+def count_markers(nodes):
+    return sum(1 for n in nodes if (n.get("type") or "").lower() in _MARKER_NODE_TYPES)
+
+
+def marker_recovery(case, nodes, tx):
+    """MK: did the tool GRAPH and REPORT the discriminating marker? 100 both,
+    50 graphed-only, 0 neither. Uses the primary_marker string."""
+    pm = (case.get("primary_marker") or "").lower()
+    if not pm:
+        return None
+    in_graph = any(
+        pm in (n.get("value") or "").lower()
+        or pm in json.dumps(n.get("metadata") or {}).lower()
+        or any(pm in str(t).lower() for t in (n.get("tags") or []))
+        for n in nodes
+    )
+    # report text = investigation_summary metadata blob
+    rep = ""
+    for n in nodes:
+        if (n.get("type") or "").lower() == "report" and \
+           (n.get("value") or "").lower() in ("investigation_summary", "summary"):
+            rep = json.dumps(n.get("metadata") or {}).lower()
+            break
+    in_report = pm in rep
+    return 100 if (in_graph and in_report) else (50 if in_graph else 0)
+
+
+def compute_cap_rec(case, *, nr, er, pc, dc, bd, rq_meta, hyp, calls, nodes,
+                    halluc, decayed, mk):
+    """v3 two-track score. CAP (decay-proof headline) + REC (gated)."""
+    ps = pc                                   # pivot selection (decay-proof)
+    rst = dc                                  # restraint / defuse
+    hyp_score = 100 if hyp.get("valid") else (50 if hyp.get("wh_present") else 0)
+    # EFF = budget band × yield factor (reward marker density on extensions)
+    markers = count_markers(nodes)
+    if calls <= 60:
+        yield_factor = 1.0
+    else:
+        yield_factor = max(0.7, min(1.0, 0.7 + markers / max(calls, 1)))
+    eff = bd * yield_factor
+    cap = 0.40 * ps + 0.25 * eff + 0.20 * rst + 0.15 * hyp_score
+    if halluc:
+        cap = 0.0                              # hallucination hard gate zeroes the case
+    # REC (only meaningful when LIVE) = mean(NR, ER?, MK, COV)
+    cov = rq_meta.get("node_pct", 0.0)
+    rec_dims = [nr, cov]
+    if er is not None:
+        rec_dims.append(er)
+    if mk is not None:
+        rec_dims.append(mk)
+    rec = sum(rec_dims) / len(rec_dims) if rec_dims else 0.0
+    return {
+        "ps": round(ps, 1), "eff": round(eff, 1), "rst": rst,
+        "hyp_score": hyp_score, "yield_factor": round(yield_factor, 2),
+        "markers": markers,
+        "cap": round(cap, 1),
+        "rec": round(rec, 1) if not decayed else None,
+        "mk": mk,
+    }
+
+
+def score_negative(neg):
+    """RST-only scoring for a §9b negative/restraint case. 100 = correctly
+    restrained; −25 per benign node in a malicious cluster; 0 if any actor/
+    malware attribution asserted. CAP for a negative == its RST."""
+    cid = neg["case_id"]
+    out_dir = f"/tmp/eval_run/{neg.get('dir') or ('n%02d' % cid)}"
+    try:
+        g = json.load(open(f"{out_dir}/graph.json"))
+    except Exception:
+        return {"case_id": cid, "name": neg["name"], "negative": True,
+                "rst": None, "cap": None, "note": "no data"}
+    nodes = g.get("nodes", [])
+    attribution = [n for n in nodes if (n.get("type") or "").lower()
+                   in ("actor", "threat_actor", "malware", "ransomware",
+                       "framework", "phishing_kit", "kit")]
+    # benign node promoted into a malicious cluster = tagged malicious/c2/phishing
+    bad_tags = {"malicious", "c2", "phishing", "malware", "attacker"}
+    promoted = [n for n in nodes
+                if any(t.lower() in bad_tags for t in (n.get("tags") or []))]
+    if attribution:
+        rst = 0
+    else:
+        rst = max(0, 100 - 25 * len(promoted))
+    return {"case_id": cid, "name": neg["name"], "negative": True,
+            "nodes": len(nodes), "attribution": [n.get("value") for n in attribution],
+            "promoted": len(promoted), "rst": rst, "cap": rst}
+
+
 def score_case(case):
     g, tx = load(case)
     nodes = g.get("nodes", [])
@@ -436,6 +559,11 @@ def score_case(case):
     hyp = hypothesis_audit(nodes)
     halluc = hallucination_check(nodes, tx)
     p3 = phase3_tools_used(tools)
+    decayed = is_data_decayed(case, tx)
+    mk = marker_recovery(case, nodes, tx)
+    caprec = compute_cap_rec(case, nr=nr, er=er, pc=pc, dc=dc, bd=bd,
+                             rq_meta=rq_meta, hyp=hyp, calls=calls, nodes=nodes,
+                             halluc=halluc, decayed=decayed, mk=mk)
 
     # overall: mean of NR/ER/PC/DC/BD/RQ; ER null is excluded
     dims = [nr, pc, dc, bd, rq]
@@ -460,6 +588,8 @@ def score_case(case):
         "rq": rq, "rq_meta": rq_meta,
         "hypothesis": hyp,
         "hallucinations": [list(x) for x in halluc],
+        "data_decayed": decayed,
+        **caprec,
         "overall": round(overall, 1),
     }
 
@@ -473,16 +603,46 @@ def main():
             r = {"case_id": case["case_id"], "name": case["name"], "error": str(e)}
         results.append(r)
     json.dump(results, open("/tmp/eval_run/scored.json", "w"), indent=2)
-    # quick print
-    print(f"{'C':>2} {'NR':>5} {'ER':>5} {'PC':>5} {'DC':>4} {'BD':>4} {'RQ':>4} {'OV':>5} {'CTI':>4} WH P3")
+
+    negatives = []
+    for neg in NEGATIVE_CASES:
+        try:
+            negatives.append(score_negative(neg))
+        except Exception as e:
+            negatives.append({"case_id": neg["case_id"], "name": neg["name"],
+                              "negative": True, "error": str(e)})
+    if negatives:
+        json.dump(negatives, open("/tmp/eval_run/scored_negatives.json", "w"), indent=2)
+
+    # quick print — v3 headline is CAP; REC is gated (n/a when DATA_DECAYED)
+    print(f"{'C':>3} {'CAP':>5} {'PS':>5} {'EFF':>5} {'RST':>4} {'HYP':>4} | {'REC':>5} {'NR':>5} {'MK':>4} {'live':>5} {'CTI':>4}")
+    caps, recs, ps_all = [], [], []
     for r in results:
         if "error" in r:
-            print(f"{r['case_id']:>2} ERR  {r['error']}")
+            print(f"{r['case_id']:>3} ERR  {r['error']}")
             continue
-        er = f"{r['er']:>5.1f}" if r['er'] is not None else "  n/a"
-        wh = "Y" if r["hypothesis"]["wh_present"] else "."
-        p3n = len(r["phase3_tools_used"])
-        print(f"{r['case_id']:>2} {r['nr']:>5.1f} {er} {r['pc']:>5.1f} {r['dc']:>4} {r['bd']:>4} {r['rq']:>4} {r['overall']:>5.1f} {r['cti_calls']:>4}  {wh}  {p3n}")
+        live = "DECAY" if r.get("data_decayed") else "live"
+        rec = f"{r['rec']:>5.1f}" if r.get("rec") is not None else "  n/a"
+        mk = r.get("mk")
+        mk_s = f"{mk:>4}" if mk is not None else "  - "
+        caps.append(r["cap"]); ps_all.append(r["ps"])
+        if r.get("rec") is not None:
+            recs.append(r["rec"])
+        print(f"{r['case_id']:>3} {r['cap']:>5.1f} {r['ps']:>5.1f} {r['eff']:>5.1f} {r['rst']:>4} {r['hyp_score']:>4} | {rec} {r['nr']:>5.1f} {mk_s} {live:>5} {r['cti_calls']:>4}")
+    for n in negatives:
+        if n.get("rst") is None:
+            print(f"N{n['case_id']-100:>2} {'(no data)':>5}  {n['name']}")
+        else:
+            print(f"N{n['case_id']-100:>2} RST={n['rst']:>3}  attrib={n.get('attribution')}  {n['name']}")
+    cap_mean = sum(caps) / len(caps) if caps else 0
+    rec_mean = sum(recs) / len(recs) if recs else 0
+    ps_mean = sum(ps_all) / len(ps_all) if ps_all else 0
+    neg_rst = [n["rst"] for n in negatives if n.get("rst") is not None]
+    print(f"\nCAP mean = {cap_mean:.1f} (headline)  |  PS floor = {ps_mean:.1f}  |  "
+          f"REC mean = {rec_mean:.1f} (LIVE n={len(recs)})  |  "
+          f"neg RST = {sum(neg_rst)/len(neg_rst):.0f} (n={len(neg_rst)})" if neg_rst
+          else f"\nCAP mean = {cap_mean:.1f} (headline)  |  PS floor = {ps_mean:.1f}  |  "
+               f"REC mean = {rec_mean:.1f} (LIVE n={len(recs)})  |  neg RST = n/a")
 
 
 if __name__ == "__main__":

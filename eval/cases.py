@@ -350,7 +350,36 @@ CASES = [
         ],
         "pivot_rules": ["dns_resolve_seed", "crtsh_seed", "shodan_cert_cn_search", "rdap_origin"],
         "primary_marker": "921hapudyqwdvy.com",
+        # liveness_probe overrides primary_marker here: the seed itself is always
+        # present (the agent graphs it), so it's a useless freshness anchor. The
+        # YACOLO origin operator is only surfaced if the cert-CN unmask actually
+        # finds the (partially-burned) origin IPs — a true liveness signal.
+        "liveness_probe": "yacolo",
         "category_hint": "fronted_c2",
         "expected_actor": ["clearfake"],
+    },
+]
+
+# §9b Negative / restraint cases — benign seeds the tool must NOT cluster or
+# attribute. Scored on RST only (scorer.score_negative): 100 = correctly
+# restrained, -25 per benign node promoted into a malicious cluster, 0 if any
+# threat-actor/malware attribution is asserted. Decay-immune (benign infra stays
+# benign) so they live in the nightly fresh subset. The runner submits these
+# after the positive cases; data saved under /tmp/eval_run/n<NN>/.
+NEGATIVE_CASES = [
+    {
+        "case_id": 101, "name": "Cloudflare anycast (benign)", "dir": "n01",
+        "seed_type": "ip", "seed_value": "104.16.123.96", "inv_id": "NEW",
+        "expect": "defuse as CDN; no cluster; no attribution",
+    },
+    {
+        "case_id": 102, "name": "jsDelivr CDN (benign)", "dir": "n02",
+        "seed_type": "domain", "seed_value": "cdn.jsdelivr.net", "inv_id": "NEW",
+        "expect": "legit CDN/SaaS; doc-only; no malicious cluster",
+    },
+    {
+        "case_id": 103, "name": "Wikipedia (benign)", "dir": "n03",
+        "seed_type": "domain", "seed_value": "www.wikipedia.org", "inv_id": "NEW",
+        "expect": "popular-benign apex; defuse; no cluster",
     },
 ]
