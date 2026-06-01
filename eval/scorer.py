@@ -545,6 +545,10 @@ def score_negative(neg):
 
 
 def score_case(case):
+    cid = case["case_id"]
+    out_dir = f"/tmp/eval_run/c{cid:02d}"
+    if not os.path.exists(f"{out_dir}/graph.json"):
+        raise FileNotFoundError(f"c{cid:02d} not in this run's subset (no data)")
     g, tx = load(case)
     nodes = g.get("nodes", [])
     edges = g.get("edges", [])

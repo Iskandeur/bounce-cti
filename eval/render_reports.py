@@ -7,11 +7,11 @@ from collections import Counter
 sys.path.insert(0, "/tmp/eval_run")
 from cases import CASES
 
-DATE = "2026-05-31"
+DATE = "2026-06-01"
 RUN_DIR = os.path.join("/home/user/bounce-cti", open("/tmp/eval_run/dir.txt").read().strip())
 SCORED = json.load(open("/tmp/eval_run/scored.json"))
 META = json.load(open("/tmp/eval_run/meta.json")) if os.path.exists("/tmp/eval_run/meta.json") else {"cases": {}}
-BRANCH = "claude/elegant-mendel-hvOvJ"
+BRANCH = "claude/wizardly-pascal-yBZVT"
 CASE11_SEED = next(c["seed_value"] for c in CASES if c["case_id"] == 11)
 
 # Prior run (2026-05-28 / ccee7e3) per-case overalls for delta calculation.
@@ -50,8 +50,8 @@ def render_scorecard(sha):
     L.append("")
     L.append("**Run environment**")
     L.append(f"- Branch: `{BRANCH}` (local), against `main` deployed VPS at https://bounce.alexandre-pinoteau.fr/ (HEAD == origin/main == {sha} at run start)")
-    L.append("- Model: `opus-4.7` (only model whitelisted on the eval account)")
-    L.append("- Mode: full 12 cases, **sequential one-by-one** submission (user EXCEPTIONAL MEASURE: avoid the shared 5-hour Anthropic quota burn-down; quota-survivable runner waits + resumes in place).")
+    L.append("- Model: `opus-4.8` (eval account model for this nightly run)")
+    L.append("- Mode: **nightly fresh subset** — Cases 2, 3, 8, 9, 12 (decay-resistant) + Negative N1-N3, **sequential one-by-one** (quota-survivable runner).")
     L.append(f"- Case 11 seed: `{CASE11_SEED}` — Smishing-Triad/Lighthouse-kit pattern (NameSilo + Cloudflare fronting + SunPass toll-billing lure + .icu TLD), distinct from the two prior runs (`usps-deliveryupdate-package.top`, `ezpass-tollbill-pay.cc`) to dodge a cached backend result. Live freshness not verified (sandbox DNS/IOFA-feed blocked) — NR expected ~0; case exercises PC/DC/BD.")
     L.append("")
     # ---- v3 Capability/Recall headline (decay-proof) ----
@@ -145,14 +145,15 @@ def render_scorecard(sha):
     L.append("| Metric                                       | Target           | This run           | "+PRIOR_LABEL+"   | Apr-20 baseline | Δ vs prior |")
     L.append("|----------------------------------------------|-----------------:|-------------------:|-------------------:|----------------:|-----------:|")
     L.append(f"| Overall (mean)                               | ≥ 65             | **{mean:.1f}** | {PRIOR_MEAN} | {apr20_mean:.1f} | {mean-PRIOR_MEAN:+.1f} |")
-    L.append(f"| Pass rate (overall ≥ 70)                     | ≥ 60 %           | **{pass_rate}/12 ({100*pass_rate/12:.0f} %)** | {PRIOR_PASS}/12 ({100*PRIOR_PASS/12:.0f} %) | 3/12 (25 %) | {pass_rate-PRIOR_PASS:+d} |")
+    n_run = len(overalls) if overalls else 1
+    L.append(f"| Pass rate (overall ≥ 70)                     | ≥ 60 %           | **{pass_rate}/{n_run} ({100*pass_rate/n_run:.0f} %)** | {PRIOR_PASS}/12 ({100*PRIOR_PASS/12:.0f} %) | 3/12 (25 %) | — |")
     halluc_str = "✅" if halluc == 0 else "❌ BREACH"
-    L.append(f"| Hallucination rate                           | **0 % hard gate**| **{halluc}/12 ({100*halluc/12:.0f} %)** {halluc_str} | 0/12 | 0/12 | — |")
+    L.append(f"| Hallucination rate                           | **0 % hard gate**| **{halluc}/{n_run} ({100*halluc/n_run:.0f} %)** {halluc_str} | 0/12 | 0/12 | — |")
     L.append(f"| Defuse floor (mean DC on cases 4/6/11/12)    | ≥ 75             | **{dc_mean:.0f}** | 100 | 100 | — |")
     L.append(f"| Coverage floor (no marker < 40 on primary)   | enforced         | {('breached: '+str(breached)) if breached else '✅ none'} | breached: {PRIOR_COVERAGE_BREACH} | — | — |")
-    L.append(f"| Working_hypothesis present                   | trend → 12/12    | **{wh_count}/12** | {PRIOR_WH}/12 | n/a | {wh_count-PRIOR_WH:+d} |")
-    L.append(f"| Valid hypothesis (wh + history + final_cat)  | trend → 12/12    | **{valid_hyp}/12** | n/a | n/a | — |")
-    L.append(f"| Phase 3 tools used (any case)                | trend ↑          | **{p3_count}/12** | {PRIOR_P3}/12 | n/a | {p3_count-PRIOR_P3:+d} |")
+    L.append(f"| Working_hypothesis present                   | trend → 12/12    | **{wh_count}/{n_run}** | {PRIOR_WH}/12 | n/a | — |")
+    L.append(f"| Valid hypothesis (wh + history + final_cat)  | trend → 12/12    | **{valid_hyp}/{n_run}** | n/a | n/a | — |")
+    L.append(f"| Phase 3 tools used (any case)                | trend ↑          | **{p3_count}/{n_run}** | {PRIOR_P3}/12 | n/a | — |")
     L.append(f"| ER aggregate (excluding null-denom)          | n/a              | {er_mean:.1f} (n={len(er_vals)}) | {PRIOR_ER_STR} | n/a | — |")
 
     L += ["", "## Delta vs prior runs", ""]
@@ -177,7 +178,7 @@ def render_scorecard(sha):
 
     L += ["", "## Hand audit (hallucination check, second pass)", ""]
     if halluc == 0:
-        L.append("Heuristic + provenance pass = 0 across all 12 cases. Hand-audit spots (largest graphs + prior-hallucination cases):")
+        L.append(f"Heuristic + provenance pass = 0 across all {n_run} cases scored. Hand-audit spots (largest graphs + prior-hallucination cases):")
         for r in sorted([r for r in SCORED if "error" not in r], key=lambda x: -x["nodes"])[:4]:
             L.append(f"- Case {r['case_id']} ({r['name']}, {r['nodes']} nodes): spot-checked actor/malware/kit values — see deltas.md narrative.")
         L.append("")
@@ -223,12 +224,13 @@ def render_deltas(sha):
             L.append(f"- **HALLUCINATIONS**: {r['hallucinations']}")
         L.append("")
     calls = [r["cti_calls"] for r in SCORED if "error" not in r]
+    n_run_d = len(calls) or 1
     if calls:
         L += ["## Cross-case patterns", ""]
         L.append(f"- Median CTI calls per case: {sorted(calls)[len(calls)//2]}.")
-        L.append(f"- Working_hypothesis present in {sum(1 for r in SCORED if 'error' not in r and r['hypothesis']['wh_present'])}/12 cases.")
-        L.append(f"- Valid hypothesis (wh+history+final_cat) in {sum(1 for r in SCORED if 'error' not in r and r['hypothesis'].get('valid'))}/12 cases.")
-        L.append(f"- Phase 3 tools used in {sum(1 for r in SCORED if 'error' not in r and r['phase3_tools_used'])}/12 cases.")
+        L.append(f"- Working_hypothesis present in {sum(1 for r in SCORED if 'error' not in r and r['hypothesis']['wh_present'])}/{n_run_d} cases.")
+        L.append(f"- Valid hypothesis (wh+history+final_cat) in {sum(1 for r in SCORED if 'error' not in r and r['hypothesis'].get('valid'))}/{n_run_d} cases.")
+        L.append(f"- Phase 3 tools used in {sum(1 for r in SCORED if 'error' not in r and r['phase3_tools_used'])}/{n_run_d} cases.")
         sc = [r["case_id"] for r in SCORED if "error" not in r and r["cti_calls"] <= 8]
         if sc:
             L.append(f"- Short-call cases (≤8 CTI calls): {sc} — check freshness/decay (Case 1/6/10/11 are known decay/dead-seed risks).")
