@@ -82,7 +82,10 @@ backend/
                         #   + noise pre-filters (cloud_platform_domain,
                         #   is_role_mailbox, is_hex_serial) + KNOWN_BAD_MARKERS
                         #   (positive default-fingerprint table) + ACTOR_HANDLES
-                        #   (tag→threat_actor promotion) + key_source_for_op
+                        #   (tag→threat_actor promotion) + key_source_for_op +
+                        #   register_pivots()/known_pivot_types() (cross-vertical
+                        #   extension point: OSINT/DD modules add node-type pivots
+                        #   without editing the rules monolith)
   mcp_servers/
     graph_mcp.py        # MCP server: graph CRUD (add_node, add_edge, tag_node,
                         #   get_graph[+stats_only], get_node, get_report, defuse)

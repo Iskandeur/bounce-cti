@@ -453,6 +453,11 @@ returns `[(pivot_op, priority, skip_reason_or_None)]`. Defused nodes only
 receive doc-only pivots (rdap, dns_resolve); the rest are inserted as
 `skipped` with `skip_reason='defused'`. No-key sources are inserted as
 `skipped` with `skip_reason='no_api_key'` so they surface in `gaps_report`.
+Unregistered node types return `[]`. The rule table is keyed by canonical type
+and shared across verticals; `register_pivots(type, rules, replace=False)` is
+the cross-vertical extension point (OSINT/DD source modules add their node-type
+pivots at import time instead of editing the monolith), and
+`known_pivot_types()` lists the registered types.
 
 Also exports `CLOUD_ASNS` (multi-tenant cloud/CDN ASN list, used by the
 convergence check), per-node fan-out caps (`MAX_HIGH_PRIO_PER_NODE=8`,
