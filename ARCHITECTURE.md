@@ -206,7 +206,7 @@ SQLite-backed store. Tables:
 
 | Table            | Columns (essentials)                                                                                                          |
 |------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `effort` (extended-thinking level, or NULL = model default), `quota_reset_at` (epoch when a Claude-subscription cooldown lifts), `title` (optional analyst-supplied rename; falls back to `seed_value` in the UI) |
+| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `effort` (extended-thinking level, or NULL = model default), `quota_reset_at` (epoch when a Claude-subscription cooldown lifts), `title` (optional analyst-supplied rename; falls back to `seed_value` in the UI), `vertical` (`cti`\|`osint`\|`dd`, default `cti` — which product vertical the investigation belongs to) |
 | `nodes`          | `id`, `investigation_id`, `type`, `value`, `metadata` (JSON), `tags` (JSON), `confidence`, `source`, `created_at`, UNIQUE(inv,type,value) |
 | `edges`          | `id`, `investigation_id`, `src`, `dst`, `relation`, `evidence`, `source`, `confidence`, `created_at`, UNIQUE(inv,src,dst,relation) |
 | `events`         | `id` AUTOINCREMENT, `investigation_id`, `kind`, `payload` (JSON), `created_at` — full agent stream + state changes            |
@@ -231,8 +231,11 @@ land on the corrected node id instead of a phantom `jarm` one. JARM is never
 inferred merely because a value is a TLS fingerprint.
 
 `init_db()` runs idempotent migrations: it `_ensure_column`s `user_id`/`model`/
-`quota_reset_at` on `investigations` and `is_admin`/`allowed_models`/`label`
-on `users` for upgrades from earlier schemas.
+`effort`/`quota_reset_at`/`title`/`vertical` on `investigations` and
+`is_admin`/`allowed_models`/`label` on `users` for upgrades from earlier
+schemas. `vertical` defaults to `'cti'`, so legacy rows and any caller that
+doesn't pass one keep the original CTI behaviour (`graph_store.get_vertical()`
+also falls back to `'cti'`).
 
 ### `backend/auth.py`
 - HMAC-SHA256 of the PIN with a per-deploy secret stored in `data/secret.key`
