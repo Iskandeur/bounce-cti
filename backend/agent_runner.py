@@ -2332,6 +2332,24 @@ def _build_env(inv_id: str) -> dict:
     return env
 
 
+def build_system_prompt(template: str, vertical: "verticals.Vertical") -> str:
+    """Compose a phase system prompt from the shared {core} template and the
+    {vertical}: substitute the agent identity name and append the vertical's
+    prompt block.
+
+    The {core} templates (SYSTEM_PROMPT, _FOLLOWUP_SYSTEM_PROMPT, …) are written
+    in the CTI voice ("You are Bounce-CTI"). For a non-CTI vertical the agent
+    name is swapped throughout and the vertical's own prompt_block is appended.
+    For CTI (agent_name='Bounce-CTI', prompt_block='') this returns the template
+    byte-for-byte (roadmap invariant 4.4)."""
+    out = template
+    if vertical.agent_name != "Bounce-CTI":
+        out = out.replace("Bounce-CTI", vertical.agent_name)
+    if vertical.prompt_block:
+        out = out + "\n\n" + vertical.prompt_block
+    return out
+
+
 async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                             model: str, env: dict, mcp_cfg_path: Path,
                             phase: str = "main", max_turns: int = 120) -> tuple:
@@ -2342,6 +2360,10 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
     the Claude subscription was exhausted; callers should abort downstream
     phases and surface a resume affordance to the user."""
     claude_path = shutil.which(CLAUDE_BIN) or CLAUDE_BIN
+    # Compose the {core}+{vertical} system prompt for this investigation's
+    # vertical (no-op for CTI — see build_system_prompt).
+    system_prompt = build_system_prompt(system_prompt,
+                                        verticals.get_vertical(gs.get_vertical(inv_id)))
     _log(inv_id, f"phase_{phase}_starting", {"prompt_preview": prompt[:200]})
 
     cmd = [

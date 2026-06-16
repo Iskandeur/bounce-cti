@@ -25,12 +25,15 @@ backend/
                         #   ladders in agent_runner (now eliminated). Multi-
                         #   vertical foundation (Phase 1).
   verticals.py          # Vertical registry: the CTI/OSINT/DD abstraction.
-                        #   Vertical{name,label,agent_name,seed_types,source_pool}
-                        #   + VERTICALS (only 'cti' active) + get_vertical/
-                        #   normalise (unknown → cti fallback) + source pool
-                        #   selection (SOURCE_POOL_MODULES, consumed by
-                        #   agent_runner._write_mcp_config). Multi-vertical
-                        #   foundation (Phase 1).
+                        #   Vertical{name,label,agent_name,seed_types,
+                        #   source_pool,prompt_block} + VERTICALS (only 'cti'
+                        #   active) + get_vertical/normalise (unknown → cti
+                        #   fallback) + source pool selection
+                        #   (SOURCE_POOL_MODULES, consumed by
+                        #   agent_runner._write_mcp_config). {core}+{vertical}
+                        #   system-prompt builder (agent_runner.build_system_prompt)
+                        #   swaps agent_name + appends prompt_block — iso-
+                        #   functional for CTI. Multi-vertical foundation (Phase 1).
   auth.py               # PIN-based auth, sessions, admin bootstrap + impersonation
   defuse_lists.py       # CDN/parking/sinkhole/blackhole/dyndns noise filters
                         #   + LE-takedown registrant markers (sinkhole_kind)

@@ -225,7 +225,8 @@ seed type becomes a one-place change. Golden-locked by
 The multi-vertical (CTI / OSINT / DD) abstraction. A `Vertical` dataclass
 captures the per-vertical knobs — `name`, `label`, `agent_name` (for the
 system-prompt builder), `seed_types` (accepted seeds, referencing the seed
-registry), and `source_pool` (which MCP pool to mount). `VERTICALS` registers
+registry), `source_pool` (which MCP pool to mount), and `prompt_block` (the
+vertical-specific system-prompt addendum, empty for CTI). `VERTICALS` registers
 the active verticals; today only `cti` is wired (byte-for-byte the existing
 behaviour). `get_vertical()` / `normalise()` resolve a name and fall back to
 `cti` for unknown/empty input, so bad input never breaks the platform.
@@ -240,6 +241,17 @@ namespace). `agent_runner._write_mcp_config` reads the investigation's vertical
 and mounts the resolved pool — so the generated `mcp-{id}.json` is per-vertical
 (CTI byte-for-byte unchanged). OSINT/DD get registered as their pools and prompt
 blocks land (Phases 2/3). Tested by `backend/tests/test_verticals.py`.
+
+The `{core}+{vertical}` system-prompt builder lives in
+`agent_runner.build_system_prompt(template, vertical)`: it composes a phase
+system prompt from the shared `{core}` template (written in the CTI voice,
+`SYSTEM_PROMPT` / `_FOLLOWUP_SYSTEM_PROMPT` / …) by swapping the `agent_name`
+throughout and appending the vertical's `prompt_block`. It is applied once,
+centrally, inside `_run_claude_phase` (so all phases — main, hypothesis,
+followup, report, pivot-drain, lessons, pivot, add-seed, custom — inherit it)
+and is a byte-for-byte identity for CTI (`agent_name='Bounce-CTI'`,
+`prompt_block=''`; roadmap invariant 4.4). Tested by
+`backend/tests/test_prompt_builder.py`.
 
 ### `backend/graph_store.py`
 SQLite-backed store. Tables:

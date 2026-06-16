@@ -8,7 +8,9 @@ set of knobs:
   - **source_pool**  : which MCP source pool is mounted at investigation start
   - **agent_name**   : the name the agent answers to in its system prompt
                        ("You are Bounce-CTI / Bounce-OSINT / Bounce-DD")
-  - (later) prompt_block / pivots / defuse / exports
+  - **prompt_block** : vertical-specific addendum the prompt builder appends to
+                       the shared {core} system-prompt template (empty for CTI)
+  - (later) pivots / defuse / exports
 
 This module is the single place that enumerates verticals and their knobs.
 Today only ``cti`` is active and it is wired to be byte-for-byte the existing
@@ -31,6 +33,9 @@ class Vertical:
     agent_name: str      # used by the system-prompt builder ("Bounce-CTI")
     seed_types: tuple[str, ...]   # accepted seed types for this vertical
     source_pool: str     # identifier selecting the MCP source pool
+    prompt_block: str = ""  # vertical-specific system-prompt addendum appended
+                            # to the shared {core} template by the prompt builder
+                            # (empty for CTI → historical prompt byte-for-byte)
 
 
 # CTI is wired to the existing behaviour: every known seed type, the full
