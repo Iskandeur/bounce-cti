@@ -607,6 +607,25 @@ npm run dev     # dev server with HMR on :5173, proxies /api + /ws to :8001
 The project uses **GitHub Actions** for continuous deployment. Every push to
 `main` triggers an automatic deploy to the production VPS.
 
+### Merge-gate (`.github/workflows/ci.yml`)
+
+Because `main` deploys straight to prod with no staging, a CI merge-gate runs
+on every PR targeting `main` (and as a backstop on push to `main`):
+
+```
+Pull request → main
+  │
+  ▼
+GitHub Actions (.github/workflows/ci.yml)
+  ├─ backend-import : pip install -r requirements.txt
+  │                   → python -m compileall backend
+  │                   → import backend.main
+  └─ frontend-build : npm ci → npm run build
+```
+
+A failing gate must be fixed before merge. Combine with branch protection on
+`main` (require PR + passing checks) so a broken commit cannot reach prod.
+
 ### How it works
 
 ```

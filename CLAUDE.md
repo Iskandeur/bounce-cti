@@ -156,15 +156,27 @@ This repo has **automatic deployment via GitHub Actions**.
 2. Runs inline deploy commands (defined in `.github/workflows/deploy.yml`): git pull, install deps if changed, rebuild frontend if changed, restart systemd service
 3. The service runs behind Caddy (reverse proxy, automatic HTTPS)
 
-**WARNING: any commit pushed to `main` goes live immediately.** There is no staging environment, no review gate, no rollback automation. Before pushing:
+**WARNING: any commit pushed to `main` goes live immediately.** There is no staging environment, no rollback automation. Before pushing:
 - Make sure the Python backend starts without errors
 - Make sure the frontend builds (`cd frontend && npm run build`)
 - Do not push commits that break imports, syntax, or database schema without migration
 
+### CI merge-gate (`.github/workflows/ci.yml`)
+
+Because `main` deploys straight to prod, a merge-gate runs on every PR to `main`
+(and as a backstop on push to `main`):
+- **`backend-import`** — installs `requirements.txt`, byte-compiles `backend/`,
+  and imports `backend.main` (catches syntax errors and broken imports).
+- **`frontend-build`** — `npm ci` + `npm run build` (catches a broken frontend).
+
+A red gate must be fixed before merge. Pair this with branch protection on
+`main` (PR + passing checks required) so a broken commit cannot reach prod.
+
 ### If you need to change the deploy pipeline
 
 - Deploy script: `deploy.sh` (runs on the VPS)
-- GitHub Actions workflow: `.github/workflows/deploy.yml`
+- GitHub Actions workflows: `.github/workflows/deploy.yml` (deploy),
+  `.github/workflows/ci.yml` (merge-gate)
 - Systemd service: `bounce-cti.service` (managed on the VPS, not in this repo)
 - Reverse proxy: Caddy with automatic HTTPS (managed on the VPS)
 
