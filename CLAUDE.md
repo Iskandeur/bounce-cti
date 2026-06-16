@@ -20,9 +20,10 @@ backend/
   config.py             # Env var loading (API keys, paths)
   seeds.py              # Seed registry: single source of truth for per-seed-type
                         #   behaviour (mandatory_tools + investigation_prompt +
-                        #   KNOWN_SEED_TYPES). Replaces the duplicated seed_type
-                        #   if/elif ladders in agent_runner. Multi-vertical
-                        #   foundation (Phase 1).
+                        #   add_seed_block + pivot_block + followup_extra_steps +
+                        #   KNOWN_SEED_TYPES). Replaces the five seed_type if/elif
+                        #   ladders in agent_runner (now eliminated). Multi-
+                        #   vertical foundation (Phase 1).
   auth.py               # PIN-based auth, sessions, admin bootstrap + impersonation
   defuse_lists.py       # CDN/parking/sinkhole/blackhole/dyndns noise filters
                         #   + LE-takedown registrant markers (sinkhole_kind)

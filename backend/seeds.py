@@ -468,3 +468,267 @@ def investigation_prompt(seed_type: str, seed_value: str) -> str:
             "call malwarebazaar_signature(<family>) to find known samples and add them as hash nodes."
         )
 
+
+
+# ── Add-seed prompt blocks ────────────────────────────────────────────────
+# The per-seed-type body appended to the run_add_seed prompt (between the shared
+# STEP 1/2 preamble and the shared STEP 3/4 cross-seed/report suffix, both of
+# which stay in agent_runner). Unknown seed types append nothing (""), exactly
+# as the original ladder did.
+
+def add_seed_block(seed_type: str, seed_value: str) -> str:
+    """Return the per-seed-type body for run_add_seed, or "" for unknown types."""
+    if seed_type == "ip":
+        return (
+            "Required tools for the new seed (each called on THIS seed value):\n"
+            f"  - defuse(ip, {seed_value})\n"
+            f"  - rdap_ip({seed_value})\n"
+            f"  - virustotal_ip({seed_value})\n"
+            f"  - shodan_host({seed_value})  (passive — JARM, banners)\n"
+            f"  - onyphe_ip({seed_value})  (passive — banners, technologies)\n"
+            f"  - reverse_dns({seed_value})\n"
+            f"  - virustotal_resolutions_ip({seed_value})\n"
+            f"  - virustotal_communicating_files(\"ip\", {seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - otx_ip({seed_value})\n"
+            "  - If a non-CDN JARM is found: shodan_search(\"ssl.jarm:<jarm>\")\n"
+        )
+    elif seed_type == "domain":
+        return (
+            "Required tools for the new seed (each called on THIS seed value):\n"
+            f"  - rdap_domain({seed_value}) / dns_resolve({seed_value})\n"
+            f"  - crtsh_subdomains({seed_value})\n"
+            f"  - virustotal_domain({seed_value})\n"
+            f"  - virustotal_resolutions_domain({seed_value})\n"
+            f"  - virustotal_communicating_files(\"domain\", {seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - otx_domain({seed_value})\n"
+            f"  - urlhaus_host({seed_value})\n"
+            f"  - onyphe_domain({seed_value})  (passive fingerprinting)\n"
+        )
+    elif seed_type == "hash":
+        return (
+            "Required tools for the new seed (each called on THIS seed value):\n"
+            f"  - malwarebazaar_hash({seed_value})\n"
+            f"  - virustotal_file({seed_value})\n"
+            f"  - otx_file({seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            "For the hash node set metadata.file_name (required for UI labels).\n"
+        )
+    elif seed_type == "executable_name":
+        return (
+            "This is a filename-only add-seed (no binary, no hash). Required:\n"
+            f"  - malwarebazaar_filename({seed_value})  — top samples → graph each\n"
+            "    as a hash node with an `observed_as` edge to the executable_name.\n"
+            "    Top 3 samples: also virustotal_file + otx_file + malwarebazaar_hash\n"
+            "    to pull family / C2 / file_name set.\n"
+            f"  - threatfox_search({seed_value})\n"
+            "If any returned sample's sha256 / family / C2 ALREADY exists on the\n"
+            "graph (from a prior seed), that's a concrete cross-seed link — record\n"
+            "it in cross_seed_findings.\n"
+        )
+    elif seed_type == "url":
+        return (
+            "This is a URL add-seed. Graph the URL as a url node with tags=['seed'],\n"
+            "derive the host, graph it as domain/ip, then run the full host workflow\n"
+            "(rdap, dns, VT, threatfox, otx, urlhaus, urlscan, JARM).\n"
+        )
+    elif seed_type == "jarm":
+        return (
+            "This is a JARM fingerprint add-seed. Required tools:\n"
+            f"  - shodan_search(\"ssl.jarm:{seed_value}\")  — enumerate cluster\n"
+            f"  - urlscan_search(\"hash:{seed_value}\")  — cross-source confirmation\n"
+            f"  - threatfox_search({seed_value})\n"
+            "  - For top 3 diverse IPs: defuse + rdap_ip + virustotal_ip + threatfox_search\n"
+            "For every host with this JARM: add_node(ip) + add_edge(ip→jarm, has_jarm).\n"
+            "If a cluster IP ALREADY exists on the graph (same id as a prior seed's infra),\n"
+            "that's a concrete cross-seed link — record it in cross_seed_findings.\n"
+        )
+    elif seed_type == "asn":
+        asn_num = _asn_num(seed_value)
+        return (
+            "This is an ASN add-seed. Required tools:\n"
+            f"  - shodan_search(\"asn:AS{asn_num} port:443\")\n"
+            f"  - For top 5 interesting IPs: defuse + virustotal_ip + threatfox_search + otx_ip\n"
+            f"  - rdap_ip on ONE representative IP (netname/country/abuse_email)\n"
+            f"  - threatfox_search(\"AS{asn_num}\")\n"
+            "If multiple hosts in the AS share a JARM, graph that JARM and link all hits.\n"
+            "If any cluster IP is ALREADY on the graph, record it in cross_seed_findings.\n"
+        )
+    elif seed_type == "email":
+        return (
+            "This is an email add-seed. Required tools:\n"
+            f"  - emailrep_check({seed_value})\n"
+            f"  - whoxy_reverse(email=\"{seed_value}\")  — every reverse-WHOIS domain hit\n"
+            "    becomes a domain node + registered edge from the email.\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            "If any returned domain ALREADY exists on the graph, that's a concrete\n"
+            "cross-seed link — record it in cross_seed_findings.\n"
+        )
+    elif seed_type == "wallet_address":
+        return (
+            "This is a wallet_address add-seed. Required tools:\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - urlscan_search(\"{seed_value}\")  — phishing page DOM may include it\n"
+            "Set metadata.chain on the wallet node (btc / eth / xmr / …).\n"
+        )
+    elif seed_type == "username":
+        return (
+            "This is a username add-seed. Required tools:\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - urlscan_search(\"{seed_value}\")\n"
+            "Every domain / IP / hash co-mentioned with the handle becomes a node\n"
+            "with a uses_handle edge to the username.\n"
+        )
+    return ""
+
+
+# ── Pivot prompt blocks ───────────────────────────────────────────────────
+# The per-seed-type body appended to the run_pivot prompt (between the shared
+# STEP 1/2 preamble and the shared STEP 3 report-merge suffix, both of which
+# stay in agent_runner). Unknown seed types append nothing ("").
+
+def pivot_block(seed_type: str, seed_value: str) -> str:
+    """Return the per-seed-type body for run_pivot, or "" for unknown types."""
+    if seed_type == "ip":
+        return (
+            "Call these tools (skip any whose results are already in the graph):\n"
+            f"  - rdap_ip({seed_value})\n"
+            f"  - virustotal_ip({seed_value})\n"
+            f"  - shodan_host({seed_value})  (passive — extract JARM, banners, technologies)\n"
+            f"  - onyphe_ip({seed_value})  (passive — banners, cert, technologies)\n"
+            f"  - reverse_dns({seed_value})\n"
+            f"  - virustotal_resolutions_ip({seed_value})\n"
+            f"  - virustotal_communicating_files(\"ip\", {seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - otx_ip({seed_value})\n"
+            "If a JARM is extracted and it is not a well-known CDN JARM, also call\n"
+            f"  - shodan_search(\"ssl.jarm:<jarm>\") and add new IPs with same_jarm edges.\n"
+        )
+    elif seed_type == "domain":
+        return (
+            "Call these tools (skip any whose results are already in the graph):\n"
+            f"  - rdap_domain({seed_value}) / dns_resolve({seed_value})\n"
+            f"  - crtsh_subdomains({seed_value})\n"
+            f"  - virustotal_domain({seed_value})\n"
+            f"  - virustotal_resolutions_domain({seed_value})\n"
+            f"  - virustotal_communicating_files(\"domain\", {seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - otx_domain({seed_value})\n"
+            f"  - onyphe_domain({seed_value})  (passive fingerprinting)\n"
+        )
+    elif seed_type == "hash":
+        return (
+            "Call these tools (skip any whose results are already in the graph):\n"
+            f"  - malwarebazaar_hash({seed_value})\n"
+            f"  - virustotal_file({seed_value})\n"
+            f"  - otx_file({seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            "For every hash node created or updated, set metadata.file_name.\n"
+        )
+    elif seed_type == "executable_name":
+        return (
+            "This is a filename-only pivot (no binary, no hash). Required:\n"
+            f"  - malwarebazaar_filename({seed_value})  — graph each returned\n"
+            "    sample's sha256 as a hash node + observed_as edge to the\n"
+            "    executable_name. Top 3 samples: also virustotal_file +\n"
+            "    malwarebazaar_hash + otx_file to pull family + C2.\n"
+            f"  - threatfox_search({seed_value})\n"
+        )
+    elif seed_type == "url":
+        return (
+            "This is a URL pivot. Graph the URL as a url node (tag as seed if new),\n"
+            "extract the host and graph it as domain/ip node. Then run enrichment on\n"
+            "the host as you would for a domain/ip pivot:\n"
+            f"  - urlscan_search(\"page.url:{seed_value}\")\n"
+            f"  - urlhaus_host(<host>)\n"
+            "  - rdap + DNS + VT (domain or ip flavor, depending on host)\n"
+            "  - threatfox_search on both the URL and the host\n"
+        )
+    elif seed_type == "jarm":
+        return (
+            "This is a JARM pivot. Call these tools (skip any already in graph):\n"
+            f"  - shodan_search(\"ssl.jarm:{seed_value}\")  — find cluster hosts\n"
+            f"  - urlscan_search(\"hash:{seed_value}\")\n"
+            f"  - threatfox_search({seed_value})\n"
+            "For each new IP with this JARM: add_node(ip) + add_edge(ip→jarm, has_jarm).\n"
+            "For top 3 IPs: defuse + virustotal_ip + threatfox_search.\n"
+        )
+    elif seed_type == "asn":
+        asn_num = _asn_num(seed_value)
+        return (
+            "This is an ASN pivot. Call these tools (skip any already in graph):\n"
+            f"  - shodan_search(\"asn:AS{asn_num} port:443\")\n"
+            f"  - rdap_ip on one representative IP for netname/country/abuse_email\n"
+            f"  - threatfox_search(\"AS{asn_num}\")\n"
+            "For top 5 interesting IPs in the AS: defuse + virustotal_ip + threatfox_search.\n"
+            "Tag the asn 'abused_asn' when ≥2 of those hosts return detection hits.\n"
+        )
+    elif seed_type == "email":
+        return (
+            "This is an email pivot. Call these tools (skip any already in graph):\n"
+            f"  - emailrep_check({seed_value})\n"
+            f"  - whoxy_reverse(email=\"{seed_value}\")\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
+            "For each new domain returned by whoxy: add_node + registered edge.\n"
+        )
+    elif seed_type == "wallet_address":
+        return (
+            "This is a wallet_address pivot. Call these tools (skip already-graphed):\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - urlscan_search(\"{seed_value}\")\n"
+        )
+    elif seed_type == "username":
+        return (
+            "This is a username pivot. Call these tools (skip already-graphed):\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - urlscan_search(\"{seed_value}\")\n"
+        )
+    return ""
+
+
+# ── Follow-up phase extra steps ───────────────────────────────────────────
+# Per-seed-type additional REQUIRED follow-up steps appended in the
+# run_investigation follow-up phase. The numbering/join stays in agent_runner
+# (it depends on the count of already-missing mandatory tools); only the
+# per-type step text lives here. These are constant strings (no interpolation).
+
+def followup_extra_steps(seed_type: str) -> list[str]:
+    """Return the per-seed-type follow-up step strings, or [] for other types."""
+    if seed_type == "ip":
+        return [
+            "After the above: read the graph — if a JARM node exists for this IP, "
+            "call shodan_search(\"ssl.jarm:<jarm_value>\") to find other IPs with the same fingerprint. "
+            "Add any new IPs as nodes with same_jarm edges to the seed IP.",
+            "If virustotal_communicating_files returned an empty data[] AND threatfox/otx "
+            "identified a specific malware family tag, "
+            "call malwarebazaar_signature(<family>, limit=5) and add each returned sample "
+            "as a hash node with a communicates_with edge from hash to the seed IP.",
+            "If reverse_dns returned ≥ 1 domain, for EACH returned domain (top 3): "
+            "(a) dns_resolve(<domain>, 'MX') and dns_resolve(<domain>, 'TXT') — add each "
+            "discovered MX hostname and TXT record value to the seed/domain metadata; "
+            "(b) crtsh_subdomains(<domain>) to enumerate sister hostnames; "
+            "(c) wayback(<domain>) to check for historical takedown/seizure notices. "
+            "Add every discovered hostname as a new domain node with edge "
+            "(seed_ip → domain, resolves_to) and (domain → wayback_snapshot, has_archive).",
+        ]
+    elif seed_type == "domain":
+        return [
+            "If virustotal_communicating_files returned an empty data[] AND threatfox/otx "
+            "identified a specific malware family tag, "
+            "call malwarebazaar_signature(<family>, limit=5) and add each returned sample "
+            "as a hash node with a communicates_with edge from hash to the seed.",
+        ]
+    return []

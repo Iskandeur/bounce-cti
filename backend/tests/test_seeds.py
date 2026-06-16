@@ -148,6 +148,40 @@ def test_investigation_prompt_byte_identical():
         assert seeds.investigation_prompt(seed_type, samples[seed_type]) == prompt, seed_type
 
 
+_GOLDEN_BLOCKS = json.loads(
+    (Path(__file__).parent / "golden_seed_blocks.json").read_text(encoding="utf-8")
+)
+
+
+def test_add_seed_block_byte_identical():
+    samples = _GOLDEN_BLOCKS["_samples"]
+    for seed_type, block in _GOLDEN_BLOCKS["add_seed"].items():
+        assert seeds.add_seed_block(seed_type, samples[seed_type]) == block, seed_type
+
+
+def test_pivot_block_byte_identical():
+    samples = _GOLDEN_BLOCKS["_samples"]
+    for seed_type, block in _GOLDEN_BLOCKS["pivot"].items():
+        assert seeds.pivot_block(seed_type, samples[seed_type]) == block, seed_type
+
+
+def test_add_seed_and_pivot_unknown_type_empty():
+    # Unknown seed types append nothing, exactly as the original ladders did.
+    assert seeds.add_seed_block("totally_unknown", "x") == ""
+    assert seeds.pivot_block("totally_unknown", "x") == ""
+
+
+def test_followup_extra_steps():
+    # ip has three steps, domain one, everything else none.
+    assert len(seeds.followup_extra_steps("ip")) == 3
+    assert len(seeds.followup_extra_steps("domain")) == 1
+    assert seeds.followup_extra_steps("url") == []
+    assert seeds.followup_extra_steps("hash") == []
+    # The ip malware-family step targets the seed IP; the domain one the seed.
+    assert seeds.followup_extra_steps("ip")[1].endswith("to the seed IP.")
+    assert seeds.followup_extra_steps("domain")[0].endswith("to the seed.")
+
+
 def test_investigation_prompt_domain_and_hash_use_generic_branch():
     # domain / hash / unknown all fall through to the generic else branch, which
     # interpolates the type token but is otherwise identical text. Strip the

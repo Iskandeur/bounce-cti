@@ -203,15 +203,23 @@ via Windows interop. A separate `mcp-launcher-{module}.log` is written under
 
 ### `backend/seeds.py`
 Seed registry — the single source of truth for per-seed-type behaviour. Replaces
-the duplicated `if seed_type == …` ladders that used to live in
-`agent_runner.py`. Currently exposes `mandatory_tools(seed_type, seed_value)`
-(the ordered `(tool_name, call_example)` pairs the agent must call before
-reporting), `investigation_prompt(seed_type, seed_value)` (the main-phase user
-prompt; `domain`/`hash`/unknown fall through to the generic domain-style
-branch), and `KNOWN_SEED_TYPES`. The `run_add_seed` / `run_pivot` prompt blocks
-migrate here next. This is the foundation for the multi-vertical (cti/osint/dd)
-refactor: adding a seed type becomes a one-place change. Golden-locked by
-`backend/tests/test_seeds.py` (+ `golden_investigation_prompts.json`).
+the five `if seed_type == …` ladders that used to live in `agent_runner.py`
+(now fully eliminated). Exposes:
+- `mandatory_tools(seed_type, seed_value)` — the ordered `(tool_name,
+  call_example)` pairs the agent must call before reporting;
+- `investigation_prompt(seed_type, seed_value)` — the main-phase user prompt
+  (`domain`/`hash`/unknown fall through to the generic domain-style branch);
+- `add_seed_block(seed_type, seed_value)` / `pivot_block(seed_type, seed_value)`
+  — the per-type body of the `run_add_seed` / `run_pivot` prompts (shared
+  preamble/suffix stay in agent_runner); `""` for unknown types;
+- `followup_extra_steps(seed_type)` — the per-type follow-up steps for the
+  `run_investigation` follow-up phase;
+- `KNOWN_SEED_TYPES`.
+
+This is the foundation for the multi-vertical (cti/osint/dd) refactor: adding a
+seed type becomes a one-place change. Golden-locked by
+`backend/tests/test_seeds.py` (+ `golden_investigation_prompts.json`,
+`golden_seed_blocks.json`).
 
 ### `backend/graph_store.py`
 SQLite-backed store. Tables:
