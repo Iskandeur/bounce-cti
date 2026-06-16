@@ -206,10 +206,12 @@ Seed registry — the single source of truth for per-seed-type behaviour. Replac
 the duplicated `if seed_type == …` ladders that used to live in
 `agent_runner.py`. Currently exposes `mandatory_tools(seed_type, seed_value)`
 (the ordered `(tool_name, call_example)` pairs the agent must call before
-reporting) and `KNOWN_SEED_TYPES`. The per-seed-type prompt blocks migrate here
-incrementally. This is the foundation for the multi-vertical (cti/osint/dd)
+reporting), `investigation_prompt(seed_type, seed_value)` (the main-phase user
+prompt; `domain`/`hash`/unknown fall through to the generic domain-style
+branch), and `KNOWN_SEED_TYPES`. The `run_add_seed` / `run_pivot` prompt blocks
+migrate here next. This is the foundation for the multi-vertical (cti/osint/dd)
 refactor: adding a seed type becomes a one-place change. Golden-locked by
-`backend/tests/test_seeds.py`.
+`backend/tests/test_seeds.py` (+ `golden_investigation_prompts.json`).
 
 ### `backend/graph_store.py`
 SQLite-backed store. Tables:

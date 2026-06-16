@@ -5,6 +5,9 @@ produced before the registry extraction, so the refactor is provably
 behaviour-preserving and future edits can't silently change the agent's
 mandatory-tool prompts. CTI must stay iso-functional (roadmap invariant 4.4).
 """
+import json
+from pathlib import Path
+
 from backend import seeds
 from backend.agent_runner import _missing_mandatory_tools
 
@@ -125,3 +128,35 @@ def test_known_seed_types_registered():
             assert tools == []
         else:
             assert tools, st
+
+
+# ── investigation_prompt golden snapshot ──────────────────────────────────
+# The snapshot was captured from seeds.investigation_prompt() and verified
+# byte-identical against the pre-refactor run_investigation inline ladder
+# (git HEAD at extraction time) for every seed type, including domain / hash /
+# unknown falling through to the generic branch. Regenerate intentionally only
+# when the prompt text is meant to change (and re-run EVAL_PROTOCOL.md).
+_GOLDEN_PROMPTS = json.loads(
+    (Path(__file__).parent / "golden_investigation_prompts.json").read_text(encoding="utf-8")
+)
+
+
+def test_investigation_prompt_byte_identical():
+    samples = _GOLDEN_PROMPTS["_samples"]
+    expected = _GOLDEN_PROMPTS["prompts"]
+    for seed_type, prompt in expected.items():
+        assert seeds.investigation_prompt(seed_type, samples[seed_type]) == prompt, seed_type
+
+
+def test_investigation_prompt_domain_and_hash_use_generic_branch():
+    # domain / hash / unknown all fall through to the generic else branch, which
+    # interpolates the type token but is otherwise identical text. Strip the
+    # first line (the only type-dependent part) and the bodies must match.
+    def body(t):
+        return seeds.investigation_prompt(t, "X").split("\n", 1)[1]
+
+    assert body("domain") == body("hash") == body("totally_unknown")
+    # ...and it really is the generic domain-style workflow.
+    generic = seeds.investigation_prompt("domain", "evil.com")
+    assert "type=domain value=evil.com" in generic
+    assert "onyphe_ctl(evil.com)" in generic
