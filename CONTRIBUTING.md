@@ -28,8 +28,9 @@ behalf of an employer, make sure you're authorized to sign.
 ```bash
 # Backend
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt    # runtime deps + pytest (use requirements.txt for runtime only)
 uvicorn backend.main:app --host 127.0.0.1 --port 8001 --reload
+pytest backend/tests                   # run the test suite
 
 # Frontend (separate terminal)
 cd frontend && npm install && npm run dev   # Vite on :5173, proxies to :8001
@@ -68,7 +69,7 @@ full architecture, conventions, and project layout.
 ## Pull-request checklist
 
 - [ ] CLA signed (the bot check is green).
-- [ ] `import backend.main` succeeds and `npm run build` succeeds.
+- [ ] `import backend.main` succeeds, `pytest backend/tests` passes, and `npm run build` succeeds.
 - [ ] No secrets in the diff.
 - [ ] Docs updated in the same commit (if applicable).
 - [ ] EVAL re-run noted (if the agent's behaviour changed).

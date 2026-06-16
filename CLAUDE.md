@@ -18,6 +18,11 @@ backend/
   graph_store.py        # SQLite schema + CRUD (investigations, nodes, edges, events,
                         #   cache, users, sessions, shares, pivot_tasks, quota_state)
   config.py             # Env var loading (API keys, paths)
+  seeds.py              # Seed registry: single source of truth for per-seed-type
+                        #   behaviour (mandatory_tools(seed_type, value) + the
+                        #   KNOWN_SEED_TYPES list). Replaces the duplicated
+                        #   seed_type if/elif ladders in agent_runner. Multi-
+                        #   vertical foundation (Phase 1).
   auth.py               # PIN-based auth, sessions, admin bootstrap + impersonation
   defuse_lists.py       # CDN/parking/sinkhole/blackhole/dyndns noise filters
                         #   + LE-takedown registrant markers (sinkhole_kind)
@@ -110,6 +115,9 @@ backend/
                         #     dnstwist (local typosquat enumeration),
                         #     takeover (subdomain-takeover heuristic)
                         #   Shared: http_client
+  tests/                # pytest suite (golden / regression tests, e.g.
+                        #   test_seeds.py locks the seed-registry output).
+                        #   Run: pytest backend/tests (deps: requirements-dev.txt)
 frontend/
   src/
     main.jsx            # React entrypoint
@@ -167,6 +175,8 @@ Because `main` deploys straight to prod, a merge-gate runs on every PR to `main`
 (and as a backstop on push to `main`):
 - **`backend-import`** — installs `requirements.txt`, byte-compiles `backend/`,
   and imports `backend.main` (catches syntax errors and broken imports).
+- **`backend-tests`** — installs `requirements-dev.txt` and runs
+  `pytest backend/tests` (golden/regression tests, e.g. the seed-registry lock).
 - **`frontend-build`** — `npm ci` + `npm run build` (catches a broken frontend).
 
 A red gate must be fixed before merge. Pair this with branch protection on

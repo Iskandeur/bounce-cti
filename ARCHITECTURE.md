@@ -201,6 +201,16 @@ paths are converted from `C:\…` to `/mnt/c/…` so WSL `claude` can invoke the
 via Windows interop. A separate `mcp-launcher-{module}.log` is written under
 `data/` for each MCP server start to debug timeouts.
 
+### `backend/seeds.py`
+Seed registry — the single source of truth for per-seed-type behaviour. Replaces
+the duplicated `if seed_type == …` ladders that used to live in
+`agent_runner.py`. Currently exposes `mandatory_tools(seed_type, seed_value)`
+(the ordered `(tool_name, call_example)` pairs the agent must call before
+reporting) and `KNOWN_SEED_TYPES`. The per-seed-type prompt blocks migrate here
+incrementally. This is the foundation for the multi-vertical (cti/osint/dd)
+refactor: adding a seed type becomes a one-place change. Golden-locked by
+`backend/tests/test_seeds.py`.
+
 ### `backend/graph_store.py`
 SQLite-backed store. Tables:
 
@@ -623,6 +633,8 @@ GitHub Actions (.github/workflows/ci.yml)
   ├─ backend-import : pip install -r requirements.txt
   │                   → python -m compileall backend
   │                   → import backend.main
+  ├─ backend-tests  : pip install -r requirements-dev.txt
+  │                   → pytest backend/tests   (golden/regression tests)
   └─ frontend-build : npm ci → npm run build
 ```
 

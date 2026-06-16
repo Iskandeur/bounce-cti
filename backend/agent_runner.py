@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 from .config import CLAUDE_BIN
 from . import graph_store as gs
+from . import seeds
 
 
 # Valid extended-thinking effort levels accepted by the Claude CLI's --effort
@@ -1008,103 +1009,16 @@ def _append_lessons_ledger(inv_id: str, seed_type: str, seed_value: str,
 
 
 def _missing_mandatory_tools(seed_type: str, seed_value: str, called: set) -> list:
-    """Return list of call examples for mandatory tools not yet called."""
+    """Return list of call examples for mandatory tools not yet called.
+
+    The per-seed-type mandatory-tool spec lives in the seed registry
+    (``backend/seeds.mandatory_tools``); see the per-builder comments there for
+    the case-by-case rationale behind each tool. command_line / unknown seed
+    types have no IOC-level mandatory tools — their prompt drives the per-IOC
+    pivots once embedded indicators are graphed.
+    """
     missing = []
-    if seed_type == "ip":
-        mandatory = [
-            ("rdap_ip", f'rdap_ip("{seed_value}")'),
-            ("reverse_dns", f'reverse_dns("{seed_value}")'),
-            ("virustotal_communicating_files", f'virustotal_communicating_files("ip", "{seed_value}")'),
-            ("threatfox_search", f'threatfox_search("{seed_value}")'),
-            ("virustotal_resolutions_ip", f'virustotal_resolutions_ip("{seed_value}")'),
-            ("shodan_host", f'shodan_host("{seed_value}")'),
-            ("onyphe_ip", f'onyphe_ip("{seed_value}")'),
-            ("urlscan_search", f'urlscan_search("ip:{seed_value}")'),
-            ("otx_ip", f'otx_ip("{seed_value}")'),
-        ]
-    elif seed_type == "domain":
-        mandatory = [
-            ("rdap_domain", f'rdap_domain("{seed_value}")'),
-            # Live A-record resolution of the seed. Was NOT mandatory before —
-            # Case 7 (SocGholish) missed its primary marker 176.53.147.97 (the
-            # shared Keitaro-front IP and co-residency anchor) because the seed's
-            # own A record was never graphed. Also feeds the all-CDN origin-unmask
-            # branch in _adaptive_followup_targets for Cases 11/12 (the CDN IP
-            # node lets the cert-CN unmask fire reliably). One cheap call.
-            ("dns_resolve", f'dns_resolve("{seed_value}")'),
-            ("virustotal_communicating_files", f'virustotal_communicating_files("domain", "{seed_value}")'),
-            ("threatfox_search", f'threatfox_search("{seed_value}")'),
-            ("virustotal_resolutions_domain", f'virustotal_resolutions_domain("{seed_value}")'),
-            ("otx_domain", f'otx_domain("{seed_value}")'),
-            ("crtsh_subdomains", f'crtsh_subdomains("{seed_value}")'),
-            ("onyphe_domain", f'onyphe_domain("{seed_value}")'),
-            # Added 2026-05-21 — Cases 6 (LummaC2 About-Cats), 9 (Tycoon 2FA),
-            # 11 (Smishing Triad) all hit F-PIVOT-MISS::urlscan_or_wayback_seed
-            # because urlscan_search wasn't mandatory. Without it the
-            # content-fingerprint cluster never expands and NR collapses.
-            ("urlscan_search", f'urlscan_search("domain:{seed_value}")'),
-            # Wayback is the canonical fallback when the live seed is dead
-            # or sinkholed (Cases 6 partial sinkhole, 10 BlockNovas FBI seizure,
-            # 11 NameSilo bulk-cycle). Historical content is graphable.
-            ("wayback", f'wayback("{seed_value}")'),
-        ]
-    elif seed_type == "url":
-        # For URL seeds we can't reliably rebuild the host from seed_value here,
-        # so only mandate URL-specific tools. The agent handles host pivots via
-        # the URL workflow prompt.
-        mandatory = [
-            ("urlscan_search", f'urlscan_search("page.url:{seed_value}")'),
-            ("threatfox_search", f'threatfox_search("{seed_value}")'),
-        ]
-    elif seed_type == "jarm":
-        mandatory = [
-            ("shodan_search", f'shodan_search("ssl.jarm:{seed_value}")'),
-            ("urlscan_search", f'urlscan_search("hash:{seed_value}")'),
-        ]
-    elif seed_type == "asn":
-        # Accept seed_value like "AS13335" — pass the stripped form to shodan.
-        asn_num = seed_value.upper().removeprefix("AS") or seed_value
-        mandatory = [
-            ("shodan_search", f'shodan_search("asn:AS{asn_num}")'),
-        ]
-    elif seed_type == "hash":
-        mandatory = [
-            ("virustotal_file", f'virustotal_file("{seed_value}")'),
-            ("malwarebazaar_hash", f'malwarebazaar_hash("{seed_value}")'),
-            ("threatfox_search", f'threatfox_search("{seed_value}")'),
-            ("otx_file", f'otx_file("{seed_value}")'),
-        ]
-    elif seed_type == "executable_name":
-        mandatory = [
-            ("malwarebazaar_filename", f'malwarebazaar_filename("{seed_value}")'),
-            ("threatfox_search", f'threatfox_search("{seed_value}")'),
-        ]
-    elif seed_type == "email":
-        mandatory = [
-            ("emailrep_check", f'emailrep_check("{seed_value}")'),
-            ("whoxy_reverse", f'whoxy_reverse(email="{seed_value}")'),
-            ("pulsedive_indicator", f'pulsedive_indicator("{seed_value}")'),
-            ("opencti_lookup_indicator", f'opencti_lookup_indicator("{seed_value}")'),
-            ("threatfox_search", f'threatfox_search("{seed_value}")'),
-        ]
-    elif seed_type == "wallet_address":
-        mandatory = [
-            ("threatfox_search", f'threatfox_search("{seed_value}")'),
-            ("pulsedive_indicator", f'pulsedive_indicator("{seed_value}")'),
-            ("opencti_lookup_indicator", f'opencti_lookup_indicator("{seed_value}")'),
-        ]
-    elif seed_type == "username":
-        mandatory = [
-            ("threatfox_search", f'threatfox_search("{seed_value}")'),
-            ("pulsedive_indicator", f'pulsedive_indicator("{seed_value}")'),
-            ("opencti_lookup_indicator", f'opencti_lookup_indicator("{seed_value}")'),
-        ]
-    else:
-        # command_line / unknown seed types — no IOC-level mandatory tools.
-        # The seed-specific prompt drives the per-IOC pivots once the agent
-        # graphs the embedded indicators.
-        mandatory = []
-    for tool_name, call_example in mandatory:
+    for tool_name, call_example in seeds.mandatory_tools(seed_type, seed_value):
         if tool_name not in called:
             missing.append(call_example)
     return missing
