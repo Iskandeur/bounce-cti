@@ -31,6 +31,14 @@ def test_is_known():
     assert verticals.is_known(None) is False
 
 
+def test_source_pool_module_cti():
+    # The cti pool mounts the cti_mcp server module under the mcp__cti__* namespace.
+    assert verticals.source_pool_module("cti") == "cti_mcp"
+    assert verticals.get_vertical("cti").source_pool == "cti"
+    # Unknown pools fall back to the cti module so config generation never breaks.
+    assert verticals.source_pool_module("nonexistent") == "cti_mcp"
+
+
 def test_allowed_seed_types_matches_registry():
     # main.ALLOWED_SEED_TYPES is derived from the registry; the historical
     # hand-maintained set must stay equal to it.

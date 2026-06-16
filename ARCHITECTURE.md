@@ -230,9 +230,16 @@ the active verticals; today only `cti` is wired (byte-for-byte the existing
 behaviour). `get_vertical()` / `normalise()` resolve a name and fall back to
 `cti` for unknown/empty input, so bad input never breaks the platform.
 `POST /api/investigations` accepts an optional `vertical` field (default `cti`),
-normalised here and stored on `investigations.vertical`. OSINT/DD get registered
-as their pools and prompt blocks land (Phases 2/3). Tested by
-`backend/tests/test_verticals.py`.
+normalised here and stored on `investigations.vertical`.
+
+`SOURCE_POOL_MODULES` / `source_pool_module()` map a vertical's `source_pool`
+id to the MCP server module that exposes that pool's source tools. The pool id
+doubles as the MCP server *key*, so it sets the tool namespace
+(`mcp__<pool>__*`). For CTI: `cti` → `cti_mcp` (the historical `mcp__cti__*`
+namespace). `agent_runner._write_mcp_config` reads the investigation's vertical
+and mounts the resolved pool — so the generated `mcp-{id}.json` is per-vertical
+(CTI byte-for-byte unchanged). OSINT/DD get registered as their pools and prompt
+blocks land (Phases 2/3). Tested by `backend/tests/test_verticals.py`.
 
 ### `backend/graph_store.py`
 SQLite-backed store. Tables:

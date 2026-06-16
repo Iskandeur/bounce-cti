@@ -12,6 +12,7 @@ from typing import Optional
 from .config import CLAUDE_BIN
 from . import graph_store as gs
 from . import seeds
+from . import verticals
 
 
 # Valid extended-thinking effort levels accepted by the Claude CLI's --effort
@@ -1087,6 +1088,14 @@ def _write_mcp_config(inv_id: str) -> Path:
                 if k.strip() and k.strip() not in base_env:
                     base_env[k.strip()] = v.strip()
 
+    # Select the source pool for this investigation's vertical. The pool id is
+    # used as the MCP server key (tool namespace mcp__<pool>__*) and maps to the
+    # MCP module that exposes the pool's source tools. For CTI this is
+    # cti → cti_mcp, i.e. the historical mcp__cti__* namespace (iso-functional).
+    vertical = verticals.get_vertical(gs.get_vertical(inv_id))
+    pool = vertical.source_pool
+    pool_module = verticals.source_pool_module(pool)
+
     cfg = {
         "mcpServers": {
             "graph": {
@@ -1094,9 +1103,9 @@ def _write_mcp_config(inv_id: str) -> Path:
                 "args": [launcher, "graph_mcp"],
                 "env": {**base_env, "BOUNCE_INV_ID": inv_id},
             },
-            "cti": {
+            pool: {
                 "command": python,
-                "args": [launcher, "cti_mcp"],
+                "args": [launcher, pool_module],
                 "env": base_env,
             },
         }

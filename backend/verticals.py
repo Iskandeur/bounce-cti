@@ -54,6 +54,23 @@ DEFAULT_VERTICAL = "cti"
 KNOWN_VERTICALS: tuple[str, ...] = tuple(VERTICALS)
 
 
+# Maps a vertical's source_pool id to the MCP server module that exposes that
+# pool's CTI/OSINT/DD source tools. The pool id is also used as the MCP server
+# *key*, which determines the tool namespace the agent sees
+# (``mcp__<pool>__<tool>``). For CTI this is ``cti`` → ``cti_mcp``, i.e. the
+# historical ``mcp__cti__*`` namespace, so the agent's tool whitelist and
+# prompts stay valid (roadmap invariant 4.4). New pools (osint/dd) register
+# their own module here as they land.
+SOURCE_POOL_MODULES: dict[str, str] = {
+    "cti": "cti_mcp",
+}
+
+
+def source_pool_module(pool: str) -> str:
+    """MCP server module name for a source pool id (defaults to the cti pool)."""
+    return SOURCE_POOL_MODULES.get(pool, SOURCE_POOL_MODULES["cti"])
+
+
 def get_vertical(name: str | None) -> Vertical:
     """Resolve a vertical by name, falling back to CTI for unknown/empty input."""
     return VERTICALS.get((name or "").lower(), CTI)
