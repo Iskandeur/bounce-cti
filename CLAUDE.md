@@ -24,6 +24,11 @@ backend/
                         #   KNOWN_SEED_TYPES). Replaces the five seed_type if/elif
                         #   ladders in agent_runner (now eliminated). Multi-
                         #   vertical foundation (Phase 1).
+  verticals.py          # Vertical registry: the CTI/OSINT/DD abstraction.
+                        #   Vertical{name,label,agent_name,seed_types,source_pool}
+                        #   + VERTICALS (only 'cti' active) + get_vertical/
+                        #   normalise (unknown → cti fallback). Multi-vertical
+                        #   foundation (Phase 1).
   auth.py               # PIN-based auth, sessions, admin bootstrap + impersonation
   defuse_lists.py       # CDN/parking/sinkhole/blackhole/dyndns noise filters
                         #   + LE-takedown registrant markers (sinkhole_kind)

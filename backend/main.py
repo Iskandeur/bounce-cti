@@ -18,6 +18,8 @@ from typing import Optional
 
 from . import graph_store as gs
 from . import auth
+from . import seeds
+from . import verticals
 from .agent_runner import (
     run_investigation, run_pivot, run_add_seed, run_custom_prompt,
     stop_investigation, resume_investigation, quota_block_active,
@@ -309,8 +311,9 @@ def list_models(user_id: int = Depends(current_user)):
     return {"models": models, "default": default, "efforts": ALLOWED_EFFORTS}
 
 
-ALLOWED_SEED_TYPES = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line",
-                      "executable_name", "email", "wallet_address", "username"}
+# Single source of truth: the seed registry. (Was a hand-maintained literal —
+# identical set, now derived so adding a seed type in backend/seeds.py is enough.)
+ALLOWED_SEED_TYPES = set(seeds.KNOWN_SEED_TYPES)
 
 import re
 
@@ -440,6 +443,7 @@ class StartReq(BaseModel):
     seed_value: str
     model: str = "opus"
     effort: Optional[str] = None
+    vertical: str = "cti"
 
 
 @app.post("/api/investigations")
@@ -447,6 +451,7 @@ async def start(req: StartReq, user_id: int = Depends(current_user)):
     _require_quota_available()
     model = _check_model(user_id, req.model)
     effort = _check_effort(req.effort)
+    vertical = verticals.normalise(req.vertical)
     seed_type = req.seed_type
     if seed_type == "auto":
         seed_type = detect_seed_type(req.seed_value)
@@ -455,9 +460,10 @@ async def start(req: StartReq, user_id: int = Depends(current_user)):
     sv = _clean_seed(seed_type, req.seed_value)
     if not sv:
         raise HTTPException(status_code=400, detail="seed_value required")
-    inv_id = gs.create_investigation(seed_type, sv, user_id=user_id, model=model, effort=effort)
+    inv_id = gs.create_investigation(seed_type, sv, user_id=user_id, model=model,
+                                     effort=effort, vertical=vertical)
     asyncio.create_task(run_investigation(inv_id, seed_type, sv, model=model))
-    return {"id": inv_id, "seed_type": seed_type}
+    return {"id": inv_id, "seed_type": seed_type, "vertical": vertical}
 
 
 class BatchItem(BaseModel):

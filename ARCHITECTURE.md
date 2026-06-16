@@ -56,7 +56,7 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 > optional `effort` (extended-thinking level). The chosen `effort` is persisted
 > on the investigation row and reused by `resume` / subsequent phases.
 
-- `POST   /api/investigations` — start (auto-detects seed type from value if `seed_type=auto`; supported types: `domain`, `ip`, `hash`, `url`, `jarm`, `asn`, `command_line`, `executable_name` — the last being a bare filename of a malicious binary such as `dropper.exe`, pivoted via MalwareBazaar's `get_filename` — and `email` / `wallet_address` / `username` for actor-level seeds: an email triggers Whoxy reverse-WHOIS + EmailRep + Pulsedive + OpenCTI; a wallet (ETH `0x…`, BTC bech32 / legacy, XMR — auto-detected by address format) cross-references ThreatFox + Pulsedive + OpenCTI; a forum / Telegram handle is graphed as an opaque identifier and probed against ThreatFox / Pulsedive / OpenCTI / URLScan)
+- `POST   /api/investigations` — start (auto-detects seed type from value if `seed_type=auto`; supported types: `domain`, `ip`, `hash`, `url`, `jarm`, `asn`, `command_line`, `executable_name` — the last being a bare filename of a malicious binary such as `dropper.exe`, pivoted via MalwareBazaar's `get_filename` — and `email` / `wallet_address` / `username` for actor-level seeds: an email triggers Whoxy reverse-WHOIS + EmailRep + Pulsedive + OpenCTI; a wallet (ETH `0x…`, BTC bech32 / legacy, XMR — auto-detected by address format) cross-references ThreatFox + Pulsedive + OpenCTI; a forum / Telegram handle is graphed as an opaque identifier and probed against ThreatFox / Pulsedive / OpenCTI / URLScan). Optional `vertical` field (default `cti`; normalised via `backend/verticals.py`, unknown → `cti`) stored on the investigation.
 - `POST   /api/investigations/batch` — start many at once; `combined=true` chains them on one graph
 - `GET    /api/investigations` — list (caller-owned only)
 - `GET    /api/investigations/{id}/graph`
@@ -220,6 +220,19 @@ This is the foundation for the multi-vertical (cti/osint/dd) refactor: adding a
 seed type becomes a one-place change. Golden-locked by
 `backend/tests/test_seeds.py` (+ `golden_investigation_prompts.json`,
 `golden_seed_blocks.json`).
+
+### `backend/verticals.py`
+The multi-vertical (CTI / OSINT / DD) abstraction. A `Vertical` dataclass
+captures the per-vertical knobs — `name`, `label`, `agent_name` (for the
+system-prompt builder), `seed_types` (accepted seeds, referencing the seed
+registry), and `source_pool` (which MCP pool to mount). `VERTICALS` registers
+the active verticals; today only `cti` is wired (byte-for-byte the existing
+behaviour). `get_vertical()` / `normalise()` resolve a name and fall back to
+`cti` for unknown/empty input, so bad input never breaks the platform.
+`POST /api/investigations` accepts an optional `vertical` field (default `cti`),
+normalised here and stored on `investigations.vertical`. OSINT/DD get registered
+as their pools and prompt blocks land (Phases 2/3). Tested by
+`backend/tests/test_verticals.py`.
 
 ### `backend/graph_store.py`
 SQLite-backed store. Tables:
