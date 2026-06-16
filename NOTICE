@@ -1,0 +1,11 @@
+Bounce-CTI
+Copyright (c) 2026 Alexandre Pinoteau
+
+This product includes software developed by third parties. Their copyright
+notices and license terms are listed in THIRD_PARTY_LICENSES.
+
+At present, Bounce-CTI's CTI source integrations call third-party services over
+their public APIs but do not embed third-party source code. As the project
+incorporates reused open-source code (see the roadmap's LIFT / COPY-DATA plan),
+each inclusion will be recorded in THIRD_PARTY_LICENSES with its upstream
+project, license, and the files concerned.
