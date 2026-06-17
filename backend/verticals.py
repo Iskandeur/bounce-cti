@@ -13,9 +13,11 @@ set of knobs:
   - (later) pivots / defuse / exports
 
 This module is the single place that enumerates verticals and their knobs.
-Today only ``cti`` is active and it is wired to be byte-for-byte the existing
-behaviour (roadmap invariant 4.4); ``osint`` and ``dd`` will be registered here
-as their pools / prompts land in Phases 2 and 3. ``Vertical`` deliberately
+``cti`` is wired to be byte-for-byte the existing behaviour (roadmap invariant
+4.4). ``osint`` (Phase 2, slice 1) is registered as an OSINT *lens*: it reuses
+the CTI source pool/namespace for v1 and differs only by agent_name + an OSINT
+prompt_block (a dedicated source pool is a later slice). ``dd`` will be
+registered when its pool / prompt land (Phase 3). ``Vertical`` deliberately
 references the shared seed registry (``backend/seeds.py``) rather than copying
 per-seed-type logic.
 """
@@ -48,11 +50,52 @@ CTI = Vertical(
     source_pool="cti",
 )
 
-# OSINT / DD are intentionally NOT registered yet — they get added here when
-# their source pools and prompt blocks exist (Phases 2 / 3). Until then any
-# unknown vertical resolves to CTI so the platform never breaks on bad input.
+# OSINT (Phase 2, slice 1) — the open-source-intelligence lens. Same investigation
+# engine and, for v1, the same source pool as CTI (``source_pool="cti"`` → the
+# working ``mcp__cti__*`` namespace, so allowedTools / call-counting / the {core}
+# prompt stay valid). What differs is the *lens*: the agent_name + an OSINT
+# prompt_block that reframes the goal from threat-infrastructure attribution to
+# identity / entity footprint correlation. Seed types are the actor/identity
+# subset of the registry. A dedicated ``mcp__osint__*`` source pool (people-search
+# / breach / social tools) is a later slice — it needs allowedTools + the
+# CTI-call counter generalised to be namespace-aware, so it is kept separate.
+_OSINT_PROMPT_BLOCK = """\
+══════════════════════════════════════════════
+OSINT LENS — read this AFTER the rules above
+══════════════════════════════════════════════
+You are operating in OSINT mode (open-source intelligence), not threat-infra
+attribution. The graph tools, budget rules, defuse discipline and reporting
+contract above all still apply, but your GOAL is different:
+
+- Map an IDENTITY / ENTITY footprint, not a malware C2 cluster. Pivot to
+  correlate accounts, registrant identities, shared infrastructure-of-record
+  (registrant email / org / nameservers), and cross-source mentions of the same
+  actor or organisation.
+- Do NOT assign malicious / c2 / phishing labels unless the evidence is
+  explicitly about abuse. Benign-by-default: an entity is a subject of research,
+  not a suspect. Over-attribution is a worse failure here than under-coverage.
+- Favour the identity-signal sources (reverse-WHOIS, email/registrant reputation,
+  passive DNS, certificate transparency for shared registration, urlscan/wayback
+  for historical presence) and the community knowledge graph for prior mentions.
+- The working_hypothesis should describe WHO/WHAT the footprint belongs to and
+  its boundaries (confirmed vs. probable links), not a threat category.
+"""
+
+OSINT = Vertical(
+    name="osint",
+    label="OSINT",
+    agent_name="Bounce-OSINT",
+    seed_types=("username", "email", "domain", "wallet_address", "ip"),
+    source_pool="cti",          # v1 reuses the CTI pool/namespace (see note above)
+    prompt_block=_OSINT_PROMPT_BLOCK,
+)
+
+# DD (due diligence) is intentionally NOT registered yet — it gets added here when
+# its source pool and prompt block exist (Phase 3). Any unknown vertical resolves
+# to CTI so the platform never breaks on bad input.
 VERTICALS: dict[str, Vertical] = {
     CTI.name: CTI,
+    OSINT.name: OSINT,
 }
 
 DEFAULT_VERTICAL = "cti"
