@@ -1,0 +1,58 @@
+{
+  "run_date": "2026-06-17",
+  "run_commit": "90c516b",
+  "fix_commit": "c127a80",
+  "model": "opus-4.8",
+  "mode": "nightly_fresh_subset",
+  "subset": [2, 3, 8, 9, 12],
+  "negatives": [1, 2, 3],
+  "status": "BLOCKED",
+  "blocker": {
+    "layer": "platform_deploy",
+    "summary": "claude binary not on systemd service PATH -> FileNotFoundError on every spawn -> zero output (0 tool calls, 0 nodes)",
+    "confirmed_cause": "claude CLI at /home/bounce/.local/bin/claude (native installer) not on service PATH; shutil.which('claude') returned None, bare-name fallback raised FileNotFoundError. Secondary bug: FileNotFoundError handler returned 3-tuple vs 4-tuple unpack -> run_investigation crash -> zombie running status.",
+    "wrong_hypothesis": "2026-06-15 claude -p subscription-subsidy removal -- WITHDRAWN: that change was postponed; manual claude -p authenticates fine.",
+    "fix_commit": "c53a4eb",
+    "operational_unblock": "set CLAUDE_BIN=/home/bounce/.local/bin/claude in .env and restart",
+    "ruled_out": [
+      "quota gate (api/quota exhausted=false)",
+      "c127a80 CDN fix (imports clean, run_mcp.py starts in venv)",
+      "deploy/build failure (GH Actions green, backend API healthy)",
+      "backend down (API responsive)",
+      "June-15 subscription change (postponed; manual claude -p works)"
+    ],
+    "evidence": {
+      "agent_error": "claude CLI not found: [Errno 2] No such file or directory",
+      "which_claude": "/home/bounce/.local/bin/claude",
+      "service_path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/snap/bin",
+      "c02_inv_id": "b701e131ab3c",
+      "c02_attempts": [
+        {"kind": "original", "submitted": "09:55", "killed_by": "deploy c127a80 at 10:06", "nodes": 0},
+        {"kind": "rerun", "submitted": "10:18", "ran_minutes": 26, "nodes": 0, "transcript": "phase:main:starting only"},
+        {"kind": "resume", "submitted": "10:44", "ran_minutes": 27, "nodes": 0, "transcript": "phase:main:starting only"}
+      ]
+    }
+  },
+  "scores": {
+    "cases": [],
+    "negatives": [],
+    "cap_mean": null,
+    "restraint_floor": null,
+    "hallucination_count": null
+  },
+  "fix_shipped": {
+    "commit": "c127a80",
+    "file": "backend/graph_store.py",
+    "description": "Suppress malicious-family tags (malicious/c2/phishing/malware/attacker) on nodes already tagged cdn/parking, in tag_node() and the add_node() upsert path.",
+    "live_validated": false,
+    "validation_deferred_reason": "eval run blocked by platform auth outage"
+  },
+  "baseline_reference": {
+    "label": "2026-06-01 de5a31b",
+    "cap_mean": 92.9,
+    "cap": {"2": 100.0, "3": 100.0, "8": 84.5, "9": 90.0, "12": 90.0},
+    "negatives_rst": {"1": 100, "2": 50, "3": 50},
+    "restraint_floor": 75
+  },
+  "recommended_action": "Operational unblock applied (CLAUDE_BIN abspath + restart). Merge PR #19 for the permanent resolver+tuple fix. Confirm with one lightweight investigation, then re-run the nightly subset."
+}

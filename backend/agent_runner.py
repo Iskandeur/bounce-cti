@@ -29,6 +29,34 @@ _MODEL_ALIASES = {
 }
 
 
+def _resolve_claude_bin() -> str:
+    """Locate the `claude` CLI binary.
+
+    `shutil.which` only searches the *spawning* process's PATH. Under systemd
+    the service PATH frequently omits the per-user dir the native Claude Code
+    installer uses (`~/.local/bin`), so a bare `CLAUDE_BIN=claude` resolves to
+    None, the spawn dies with FileNotFoundError, and every phase produces zero
+    output (see the runs/2026-06-17 post-mortem). Probe the usual install
+    locations before giving up so a PATH gap doesn't silently break every
+    investigation. An absolute/relative `CLAUDE_BIN` or one already on PATH
+    wins outright; the bare name falls through to the candidate probe."""
+    found = shutil.which(CLAUDE_BIN)
+    if found:
+        return found
+    if (os.sep in CLAUDE_BIN or os.path.isabs(CLAUDE_BIN)) and os.access(CLAUDE_BIN, os.X_OK):
+        return CLAUDE_BIN
+    home = os.path.expanduser("~")
+    for cand in (
+        os.path.join(home, ".local", "bin", "claude"),    # native installer
+        os.path.join(home, ".npm-global", "bin", "claude"),
+        "/usr/local/bin/claude",
+        "/usr/bin/claude",
+    ):
+        if os.access(cand, os.X_OK):
+            return cand
+    return CLAUDE_BIN  # last resort — the spawn surfaces a clear FileNotFoundError
+
+
 # ── Claude-subscription quota detection ───────────────────────────────────
 # When the subscription's rolling window is exhausted the Claude CLI signals
 # it two ways, both handled here:
@@ -200,6 +228,17 @@ def _scan_event_for_quota(evt) -> tuple[bool, Optional[float], str]:
 # from being stuck forever while staying conservative.
 _QUOTA_FALLBACK_COOLDOWN_S = float(
     os.environ.get("BOUNCE_QUOTA_FALLBACK_COOLDOWN_S", "3600")
+)
+
+# A spawned `claude -p` should emit its first stream-json event (the `system`
+# init) within a few seconds. If it emits *nothing* for this long it is wedged —
+# a misconfigured binary, a broken MCP launch, or a hung handshake — not slow
+# thinking (thinking happens after the init event). Kill it and surface a clear
+# `agent_no_output` failure rather than letting the phase hang to its 20-min
+# ceiling. The 2026-06-17 outage (claude binary off-PATH → silent FileNotFound)
+# would have surfaced in 2 min instead of looking like a slow run. 0 disables.
+_FIRST_EVENT_TIMEOUT_S = float(
+    os.environ.get("BOUNCE_AGENT_FIRST_EVENT_TIMEOUT_S", "120")
 )
 
 
@@ -2359,7 +2398,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
     {"hit": bool, "reset_at": float|None, "message": str} — when hit is True
     the Claude subscription was exhausted; callers should abort downstream
     phases and surface a resume affordance to the user."""
-    claude_path = shutil.which(CLAUDE_BIN) or CLAUDE_BIN
+    claude_path = _resolve_claude_bin()
     # Compose the {core}+{vertical} system prompt for this investigation's
     # vertical (no-op for CTI — see build_system_prompt).
     system_prompt = build_system_prompt(system_prompt,
@@ -2397,8 +2436,13 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                 start_new_session=True,
             )
     except FileNotFoundError as e:
+        # Hard infra failure: the claude binary couldn't be spawned. Return the
+        # full 4-tuple the callers unpack — a 3-tuple here raised ValueError at
+        # the call site and crashed run_investigation, leaving the row stuck in
+        # `running` (the runs/2026-06-17 zombie). rc=None then flows into the
+        # existing terminal logic (`error rc=None`).
         _log(inv_id, "agent_error", f"claude CLI not found: {e}")
-        return (None, False, False)
+        return (None, False, False, {"hit": False, "reset_at": None, "message": ""})
 
     _running_procs[inv_id] = proc
 
@@ -2442,6 +2486,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                 _note_quota(True, reset_at, marker or decoded, "stderr")
 
     saw_result = {"v": False}
+    first_event = {"seen": False}
 
     async def pump_stdout():
         assert proc.stdout is not None
@@ -2449,6 +2494,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
             text = line.decode(errors="replace").strip()
             if not text:
                 continue
+            first_event["seen"] = True
             try:
                 evt = json.loads(text)
                 _log(inv_id, "agent_" + evt.get("type", "msg"), evt)
@@ -2472,8 +2518,21 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
         - Absolute ceiling of 20 minutes per phase.
         """
         hard_deadline = time.monotonic() + 20 * 60
+        spawn_t = time.monotonic()
         while True:
             if proc.returncode is not None:
+                return
+            # No-first-event guard: a healthy claude -p emits its `system` init
+            # within seconds. Silence this long means the spawn is wedged (bad
+            # binary, broken MCP launch) — kill it and surface agent_no_output so
+            # the phase fails fast (rc != 0 → terminal error) instead of hanging.
+            if (_FIRST_EVENT_TIMEOUT_S > 0 and not first_event["seen"]
+                    and time.monotonic() - spawn_t > _FIRST_EVENT_TIMEOUT_S):
+                _log(inv_id, "agent_no_output",
+                     {"reason": "no_stream_json_within_timeout",
+                      "timeout_s": _FIRST_EVENT_TIMEOUT_S, "phase": phase})
+                try: proc.kill()
+                except Exception: pass
                 return
             if saw_result["v"]:
                 try:
