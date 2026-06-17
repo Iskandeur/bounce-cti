@@ -9,6 +9,16 @@ from contextlib import contextmanager
 from typing import Any, Optional
 from .config import DB_PATH
 
+# Tags that indicate infrastructure owned/operated by a third party (CDN,
+# domain parking service) — not the attacker. Malicious-family tags on nodes
+# already carrying one of these are always false positives: ThreatFox/OTX hits
+# on shared CDN IPs and parking pages are multi-tenant noise, not C2 attribution.
+_NOISE_TAGS: frozenset[str] = frozenset({"cdn", "parking"})
+
+# Semantic tags that a source tool may add to a node to flag it as part of
+# an attacker cluster. Suppressed on _NOISE_TAGS nodes.
+_MALICIOUS_TAGS: frozenset[str] = frozenset({"malicious", "c2", "phishing", "malware", "attacker"})
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS investigations (
     id TEXT PRIMARY KEY,
@@ -393,7 +403,12 @@ def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
             existing_md.update(md)
             # Merge sources_seen from both old and new metadata
             existing_md["sources_seen"] = list(set(old_sources + sources_seen))
-            existing_tags = list(set(json.loads(row["tags"] or "[]") + (tags or [])))
+            existing_tag_set = set(json.loads(row["tags"] or "[]"))
+            # Suppress malicious-family tag promotions on CDN/parking nodes —
+            # ThreatFox/OTX hits on shared infrastructure are multi-tenant noise.
+            incoming = [t for t in (tags or [])
+                        if not (t.lower() in _MALICIOUS_TAGS and existing_tag_set & _NOISE_TAGS)]
+            existing_tags = list(existing_tag_set | set(incoming))
             c.execute("UPDATE nodes SET metadata=?, tags=? WHERE id=?",
                       (json.dumps(existing_md), json.dumps(existing_tags), nid))
             event = {"kind": "node_updated", "node": {"id": nid, "type": type_, "value": value,
@@ -476,7 +491,12 @@ def tag_node(inv_id: str, type_: str, value: str, tag: str):
         row = c.execute("SELECT tags FROM nodes WHERE id=?", (nid,)).fetchone()
         if not row:
             return
-        tags = list(set(json.loads(row["tags"] or "[]") + [tag]))
+        existing = set(json.loads(row["tags"] or "[]"))
+        # Suppress malicious-family tag promotions on CDN/parking nodes —
+        # ThreatFox/OTX hits on shared infrastructure are multi-tenant noise.
+        if tag.lower() in _MALICIOUS_TAGS and existing & _NOISE_TAGS:
+            return
+        tags = list(existing | {tag})
         c.execute("UPDATE nodes SET tags=? WHERE id=?", (json.dumps(tags), nid))
         event = {"kind": "node_tagged", "node_id": nid, "tag": tag}
         c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
@@ -771,7 +791,7 @@ def get_evidence_for_value(value: str) -> list[dict]:
         except (json.JSONDecodeError, TypeError):
             parsed = r["value"]
         out.append({
-            "cache_key": r["key"],
+            "cache_key": r["cache_key"],
             "data": parsed,
             "cached_at": r["created_at"],
         })
