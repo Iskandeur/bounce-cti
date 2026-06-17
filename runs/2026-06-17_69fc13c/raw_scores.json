@@ -1,0 +1,410 @@
+[
+  {
+    "case_id": 1,
+    "name": "Salt Typhoon",
+    "error": "c01 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 2,
+    "name": "MuddyWater (Chaos/Stagecomp, 2026)",
+    "inv_id": "f0b0626d967c",
+    "nodes": 61,
+    "edges": 84,
+    "cti_calls": 46,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_serial",
+      "criminalip_ip",
+      "netlas_jarm",
+      "whoxy_reverse",
+      "zoomeye_jarm"
+    ],
+    "nr": 63.6,
+    "nr_hits": 7,
+    "nr_total": 11,
+    "nr_missing": [
+      "domain:uploadfiler",
+      "ip:172.86.126.208",
+      "ip:116.203.208.186",
+      "malware:chaos"
+    ],
+    "er": 33.3,
+    "er_hits": 1,
+    "er_total": 3,
+    "er_missing": [
+      "3df9dcc45d2a3b1f--contacts-->uploadfiler",
+      "24857fe82f454719--hosted_on-->172.86.126.208"
+    ],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 63.63636363636363,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "apt_targeted",
+      "history_len": 1,
+      "hypothesis_history": [
+        {
+          "category": "apt_targeted",
+          "confidence": "high",
+          "reason": "VT trojan.muddywater + MalwareBazaar MuddyWater signature + OTX adversary=MuddyWater converged within first observations; confirmed throughout"
+        }
+      ],
+      "final_category": "apt_targeted",
+      "valid": true
+    },
+    "hallucinations": [],
+    "data_decayed": false,
+    "ps": 100.0,
+    "eff": 100.0,
+    "rst": 100,
+    "hyp_score": 100,
+    "yield_factor": 1.0,
+    "markers": 8,
+    "cap": 100.0,
+    "rec": 65.2,
+    "mk": 100,
+    "overall": 77.8
+  },
+  {
+    "case_id": 3,
+    "name": "Bumblebee\u2192Akira",
+    "inv_id": "215a2e5fcfbd",
+    "nodes": 28,
+    "edges": 31,
+    "cti_calls": 12,
+    "phase3_tools_used": [],
+    "nr": 47.1,
+    "nr_hits": 8,
+    "nr_total": 17,
+    "nr_missing": [
+      "domain:opmanager",
+      "domain:ev2sirbd269o5j",
+      "domain:angryipscanner",
+      "domain:axiscamerastation",
+      "domain:ip-scanner",
+      "ip:188.40.187.145",
+      "ip:172.96.137.160",
+      "ip:193.242.184.150",
+      "ip:185.174.100.203"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 3,
+    "er_missing": [
+      "186b26df--drops-->a6df0b49",
+      "186b26df--contacts-->opmanager",
+      "172.96.137.160--c2-->victim"
+    ],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "reverse_ip_seo_decoy"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 52.94117647058823,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 1,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "First observations: VT 23/51 trojan.gencbl/shanyapacker + 8 OTX pulses naming Bumblebee+Akira SEO-poisoning campaign confirmed the category on first pass"
+        }
+      ],
+      "final_category": "commodity_malware",
+      "valid": true
+    },
+    "hallucinations": [],
+    "data_decayed": false,
+    "ps": 75.0,
+    "eff": 100.0,
+    "rst": 100,
+    "hyp_score": 100,
+    "yield_factor": 1.0,
+    "markers": 3,
+    "cap": 90.0,
+    "rec": 50.0,
+    "mk": 100,
+    "overall": 65.3
+  },
+  {
+    "case_id": 4,
+    "name": "Interlock",
+    "error": "c04 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 5,
+    "name": "Eye Pyramid cross-brand",
+    "error": "c05 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 6,
+    "name": "LummaC2 About-Cats",
+    "error": "c06 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 7,
+    "name": "SocGholish",
+    "error": "c07 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 8,
+    "name": "Amadey/StealC GitLab",
+    "inv_id": "56818c166ee2",
+    "nodes": 39,
+    "edges": 50,
+    "cti_calls": 60,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_serial",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "zoomeye_jarm"
+    ],
+    "nr": 50.0,
+    "nr_hits": 4,
+    "nr_total": 8,
+    "nr_missing": [
+      "ip:185.215.113",
+      "asn:as51381",
+      "domain:gitlab.bzctoons.net",
+      "domain:bzctoons.net"
+    ],
+    "er": 33.3,
+    "er_hits": 1,
+    "er_total": 3,
+    "er_missing": [
+      "185.215.113--hosted_on_asn-->as51381",
+      "gitlab.bzctoons.ne--hosts_stager-->stealc"
+    ],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 50.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 1,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "First MalwareBazaar/OTX/ThreatFox lookups immediately confirmed Amadey loader + Stealc/SvcStealer with extracted C2 \u2014 no revision needed"
+        }
+      ],
+      "final_category": "commodity_malware",
+      "valid": true
+    },
+    "hallucinations": [],
+    "data_decayed": false,
+    "ps": 100.0,
+    "eff": 100.0,
+    "rst": 100,
+    "hyp_score": 100,
+    "yield_factor": 1.0,
+    "markers": 3,
+    "cap": 100.0,
+    "rec": 58.3,
+    "mk": 100,
+    "overall": 75.6
+  },
+  {
+    "case_id": 9,
+    "name": "Tycoon 2FA",
+    "inv_id": "76fa09ad5f4a",
+    "nodes": 23,
+    "edges": 20,
+    "cti_calls": 33,
+    "phase3_tools_used": [
+      "certspotter_issuances",
+      "certspotter_serial",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "openphish_check",
+      "zoomeye_jarm"
+    ],
+    "nr": 50.0,
+    "nr_hits": 3,
+    "nr_total": 6,
+    "nr_missing": [
+      "kit_fingerprint:turnstile",
+      "actor:storm-1747",
+      "phishing_kit:tycoon 2fa"
+    ],
+    "er": 100.0,
+    "er_hits": 1,
+    "er_total": 1,
+    "er_missing": [],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "ct_burst_window"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 40,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": false,
+      "node_pct": 50.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "phishing_kit_cluster",
+      "history_len": 2,
+      "hypothesis_history": [
+        {
+          "category": "phishing_kit_cluster",
+          "confidence": "high",
+          "reason": "First-call: VT 13 malicious/phishing + OTX Tycoon2FA pulse + Cloudflare-fronted; alternate fronted_c2"
+        },
+        {
+          "category": "phishing_kit_cluster",
+          "confidence": "high",
+          "reason": "Confirmed after urlscan revealed Tycoon2FA AiTM subdomain fan-out + decoy landings + '@'-token paths, and 11 prior cross-investigation confirmations"
+        }
+      ],
+      "final_category": "phishing_kit_cluster",
+      "valid": true
+    },
+    "hallucinations": [],
+    "data_decayed": true,
+    "ps": 75.0,
+    "eff": 100.0,
+    "rst": 100,
+    "hyp_score": 100,
+    "yield_factor": 1.0,
+    "markers": 2,
+    "cap": 90.0,
+    "rec": null,
+    "mk": 0,
+    "overall": 77.5
+  },
+  {
+    "case_id": 10,
+    "name": "Contagious Interview",
+    "error": "c10 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 11,
+    "name": "Smishing Triad",
+    "error": "c11 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 12,
+    "name": "ClearFake",
+    "inv_id": "80e9881b8ecb",
+    "nodes": 18,
+    "edges": 20,
+    "cti_calls": 16,
+    "phase3_tools_used": [
+      "abuseipdb_check"
+    ],
+    "nr": 50.0,
+    "nr_hits": 4,
+    "nr_total": 8,
+    "nr_missing": [
+      "cert_cn:921hapudyqwdvy.com",
+      "ip:*yacolo",
+      "asn:as203493",
+      "tool:keitaro"
+    ],
+    "er": 100.0,
+    "er_hits": 1,
+    "er_total": 1,
+    "er_missing": [],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "shodan_cert_cn_search"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 66.66666666666667,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 2,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "Initial observations: VT dga tag + 15 malicious + OTX ClearFake pulses on first call."
+        },
+        {
+          "category": "traffer_or_tds",
+          "confidence": "high",
+          "reason": "Confirmed: ClearFake is a fake-update drive-by/traffer framework chaining to SocGholish/Vidar/HijackLoader (Sekoia pulse on the Hetzner C2) \u2014 two-tier delivery rather than a single commodity payload."
+        }
+      ],
+      "final_category": "traffer_or_tds",
+      "valid": true
+    },
+    "hallucinations": [],
+    "data_decayed": true,
+    "ps": 75.0,
+    "eff": 100.0,
+    "rst": 100,
+    "hyp_score": 100,
+    "yield_factor": 1.0,
+    "markers": 3,
+    "cap": 90.0,
+    "rec": null,
+    "mk": 100,
+    "overall": 82.5
+  }
+]
