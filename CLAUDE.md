@@ -175,7 +175,7 @@ This repo has **automatic deployment via GitHub Actions**.
 **Every push to `main` triggers a deploy to the production VPS:**
 
 1. GitHub Actions SSHes into the VPS (secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`)
-2. Runs inline deploy commands (defined in `.github/workflows/deploy.yml`): git pull, install deps if changed, rebuild frontend if changed, restart systemd service
+2. Runs inline deploy commands (defined in `.github/workflows/deploy.yml`): git pull, install deps if changed, rebuild frontend if changed, **preflight that the `claude` CLI resolves** (fatal if `CLAUDE_BIN` in `.env` is set but not executable — the 2026-06-17 outage was a binary-off-PATH move that only surfaced at the first investigation; best-effort warning otherwise), restart systemd service
 3. The service runs behind Caddy (reverse proxy, automatic HTTPS)
 
 **WARNING: any commit pushed to `main` goes live immediately.** There is no staging environment, no rollback automation. Before pushing:
@@ -218,8 +218,11 @@ A red gate must be fixed before merge. Pair this with branch protection on
   then injects a follow-up phase that fills mandatory tools and surfaces
   graph-state-aware Phase 3 gaps (`phase_followup`; CDN cert-CN unmask pivots
   promoted from adaptive hints to mandatory — `shodan_search("ssl.cert.subject.CN:...")`
-  fires for Cloudflare-fronted seeds even when the agent would otherwise skip the
-  adaptive suggestion), then ensures a final
+  fires whenever the graph has ANY CDN-tagged IP, covering both the all-CDN front
+  and the mixed CDN+leaked-origin case (2026-06-17 eval F-PIVOT-MISS: the old
+  all-IPs-must-be-CDN check skipped Cloudflare-fronted seeds that also exposed a
+  real origin IP), even when the agent would otherwise skip the adaptive
+  suggestion), then ensures a final
   `investigation_summary` report node (`phase_report_write`), then runs an
   autonomous pivot-drain loop (`phase_pivot_drain_<N>`, added 2026-05) that
   reads the report's own `pivot_suggestions` and the pivot queue, executes
