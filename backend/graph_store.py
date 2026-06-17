@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS investigations (
     user_id INTEGER,
     model TEXT,
     effort TEXT,
-    title TEXT
+    title TEXT,
+    vertical TEXT DEFAULT 'cti'
 );
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
@@ -176,6 +177,10 @@ def init_db():
         _ensure_column(c, "investigations", "effort", "effort TEXT")
         _ensure_column(c, "investigations", "quota_reset_at", "quota_reset_at REAL")
         _ensure_column(c, "investigations", "title", "title TEXT")
+        # Multi-vertical platform: every investigation belongs to a vertical
+        # (cti / osint / dd). Defaults to 'cti' so pre-existing rows and any
+        # caller that doesn't specify one stay on the original CTI behaviour.
+        _ensure_column(c, "investigations", "vertical", "vertical TEXT DEFAULT 'cti'")
         # users table may pre-date is_admin/allowed_models
         if c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone():
             _ensure_column(c, "users", "is_admin", "is_admin INTEGER NOT NULL DEFAULT 0")
@@ -185,14 +190,23 @@ def init_db():
 
 
 def create_investigation(seed_type: str, seed_value: str, user_id: Optional[int] = None,
-                         model: Optional[str] = None, effort: Optional[str] = None) -> str:
+                         model: Optional[str] = None, effort: Optional[str] = None,
+                         vertical: str = "cti") -> str:
     inv_id = hashlib.sha1(f"{time.time()}|{seed_type}|{seed_value}".encode()).hexdigest()[:12]
     with conn() as c:
         c.execute(
-            "INSERT INTO investigations(id, seed_type, seed_value, created_at, status, user_id, model, effort) VALUES (?,?,?,?,?,?,?,?)",
-            (inv_id, seed_type, seed_value, time.time(), "running", user_id, model, effort),
+            "INSERT INTO investigations(id, seed_type, seed_value, created_at, status, user_id, model, effort, vertical) VALUES (?,?,?,?,?,?,?,?,?)",
+            (inv_id, seed_type, seed_value, time.time(), "running", user_id, model, effort, vertical or "cti"),
         )
     return inv_id
+
+
+def get_vertical(inv_id: str) -> str:
+    """Return the vertical ('cti' / 'osint' / 'dd') for an investigation.
+    Falls back to 'cti' for legacy rows or unknown ids."""
+    with conn() as c:
+        row = c.execute("SELECT vertical FROM investigations WHERE id=?", (inv_id,)).fetchone()
+    return (row["vertical"] if row and row["vertical"] else "cti")
 
 
 def set_status(inv_id: str, status: str):

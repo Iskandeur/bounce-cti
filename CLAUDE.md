@@ -18,6 +18,22 @@ backend/
   graph_store.py        # SQLite schema + CRUD (investigations, nodes, edges, events,
                         #   cache, users, sessions, shares, pivot_tasks, quota_state)
   config.py             # Env var loading (API keys, paths)
+  seeds.py              # Seed registry: single source of truth for per-seed-type
+                        #   behaviour (mandatory_tools + investigation_prompt +
+                        #   add_seed_block + pivot_block + followup_extra_steps +
+                        #   KNOWN_SEED_TYPES). Replaces the five seed_type if/elif
+                        #   ladders in agent_runner (now eliminated). Multi-
+                        #   vertical foundation (Phase 1).
+  verticals.py          # Vertical registry: the CTI/OSINT/DD abstraction.
+                        #   Vertical{name,label,agent_name,seed_types,
+                        #   source_pool,prompt_block} + VERTICALS (only 'cti'
+                        #   active) + get_vertical/normalise (unknown → cti
+                        #   fallback) + source pool selection
+                        #   (SOURCE_POOL_MODULES, consumed by
+                        #   agent_runner._write_mcp_config). {core}+{vertical}
+                        #   system-prompt builder (agent_runner.build_system_prompt)
+                        #   swaps agent_name + appends prompt_block — iso-
+                        #   functional for CTI. Multi-vertical foundation (Phase 1).
   auth.py               # PIN-based auth, sessions, admin bootstrap + impersonation
   defuse_lists.py       # CDN/parking/sinkhole/blackhole/dyndns noise filters
                         #   + LE-takedown registrant markers (sinkhole_kind)
@@ -69,7 +85,10 @@ backend/
                         #   + noise pre-filters (cloud_platform_domain,
                         #   is_role_mailbox, is_hex_serial) + KNOWN_BAD_MARKERS
                         #   (positive default-fingerprint table) + ACTOR_HANDLES
-                        #   (tag→threat_actor promotion) + key_source_for_op
+                        #   (tag→threat_actor promotion) + key_source_for_op +
+                        #   register_pivots()/known_pivot_types() (cross-vertical
+                        #   extension point: OSINT/DD modules add node-type pivots
+                        #   without editing the rules monolith)
   mcp_servers/
     graph_mcp.py        # MCP server: graph CRUD (add_node, add_edge, tag_node,
                         #   get_graph[+stats_only], get_node, get_report, defuse)
@@ -110,6 +129,9 @@ backend/
                         #     dnstwist (local typosquat enumeration),
                         #     takeover (subdomain-takeover heuristic)
                         #   Shared: http_client
+  tests/                # pytest suite (golden / regression tests, e.g.
+                        #   test_seeds.py locks the seed-registry output).
+                        #   Run: pytest backend/tests (deps: requirements-dev.txt)
 frontend/
   src/
     main.jsx            # React entrypoint
@@ -156,15 +178,29 @@ This repo has **automatic deployment via GitHub Actions**.
 2. Runs inline deploy commands (defined in `.github/workflows/deploy.yml`): git pull, install deps if changed, rebuild frontend if changed, restart systemd service
 3. The service runs behind Caddy (reverse proxy, automatic HTTPS)
 
-**WARNING: any commit pushed to `main` goes live immediately.** There is no staging environment, no review gate, no rollback automation. Before pushing:
+**WARNING: any commit pushed to `main` goes live immediately.** There is no staging environment, no rollback automation. Before pushing:
 - Make sure the Python backend starts without errors
 - Make sure the frontend builds (`cd frontend && npm run build`)
 - Do not push commits that break imports, syntax, or database schema without migration
 
+### CI merge-gate (`.github/workflows/ci.yml`)
+
+Because `main` deploys straight to prod, a merge-gate runs on every PR to `main`
+(and as a backstop on push to `main`):
+- **`backend-import`** — installs `requirements.txt`, byte-compiles `backend/`,
+  and imports `backend.main` (catches syntax errors and broken imports).
+- **`backend-tests`** — installs `requirements-dev.txt` and runs
+  `pytest backend/tests` (golden/regression tests, e.g. the seed-registry lock).
+- **`frontend-build`** — `npm ci` + `npm run build` (catches a broken frontend).
+
+A red gate must be fixed before merge. Pair this with branch protection on
+`main` (PR + passing checks required) so a broken commit cannot reach prod.
+
 ### If you need to change the deploy pipeline
 
 - Deploy script: `deploy.sh` (runs on the VPS)
-- GitHub Actions workflow: `.github/workflows/deploy.yml`
+- GitHub Actions workflows: `.github/workflows/deploy.yml` (deploy),
+  `.github/workflows/ci.yml` (merge-gate)
 - Systemd service: `bounce-cti.service` (managed on the VPS, not in this repo)
 - Reverse proxy: Caddy with automatic HTTPS (managed on the VPS)
 

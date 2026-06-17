@@ -167,6 +167,14 @@ enforces this and adds an early-exit when a domain looks parked or sinkholed.
    (see "Documentation upkeep" in `CLAUDE.md` — docs must stay in sync with
    the code at every commit).
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Because
+Bounce-CTI is source-available and may also be offered commercially, your first
+pull request must sign the [Contributor License Agreement](./CLA.md) (handled
+automatically by a bot). A CI merge-gate (`backend imports` + `frontend builds`)
+must pass before any PR is merged, since `main` deploys straight to production.
+
 ## Deployment
 
 Every push to `main` auto-deploys to the production VPS via GitHub Actions.

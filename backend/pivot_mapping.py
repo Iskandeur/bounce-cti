@@ -19,6 +19,12 @@ pivots are enqueued as 'pending'; the rest get inserted as 'skipped' with
 
 When a pivot's source has no API key configured, it is inserted as 'skipped'
 with ``skip_reason='no_api_key'`` so it surfaces in ``gaps_report``.
+
+The rule table (``_PIVOT_RULES``) is keyed by canonical node type and shared
+across verticals. ``pivots_for`` returns ``[]`` for unregistered types, and
+other verticals (OSINT / DD) add their node-type pivots via ``register_pivots``
+at import time rather than editing this module — so CTI types and OSINT/DD types
+coexist in one uniform lookup.
 """
 from __future__ import annotations
 
@@ -375,6 +381,43 @@ def pivots_for(node_type: str, node_value: str, *,
             continue
         out.append((op, prio, None))
     return out
+
+
+# Pivot-rule tuple shape, shared by _PIVOT_RULES and register_pivots:
+#   (pivot_op, priority, key_source_required_or_None, doc_only)
+PivotRule = tuple[str, int, Optional[str], bool]
+
+
+def register_pivots(node_type: str, rules: list[PivotRule], *, replace: bool = False) -> None:
+    """Register pivot rules for a node type — the extension point for other
+    verticals (OSINT / DD source modules add their node-type pivots here at
+    import time instead of editing the _PIVOT_RULES monolith).
+
+    The table is keyed by canonical node type and shared across verticals, so
+    OSINT/DD types coexist with the CTI ones and ``pivots_for`` works uniformly.
+    Rules are appended (deduping by pivot_op, first registration wins) unless
+    ``replace=True``. Tuple shape is validated to fail fast on bad entries.
+    """
+    for r in rules:
+        if not (isinstance(r, tuple) and len(r) == 4
+                and isinstance(r[0], str) and isinstance(r[1], int)
+                and (r[2] is None or isinstance(r[2], str)) and isinstance(r[3], bool)):
+            raise ValueError(f"invalid pivot rule for {node_type!r}: {r!r} "
+                             "(expected (op:str, priority:int, key_source:str|None, doc_only:bool))")
+    key = canonical_type(node_type)
+    if replace or key not in _PIVOT_RULES:
+        _PIVOT_RULES[key] = list(rules)
+        return
+    existing_ops = {op for op, _, _, _ in _PIVOT_RULES[key]}
+    for r in rules:
+        if r[0] not in existing_ops:
+            _PIVOT_RULES[key].append(r)
+            existing_ops.add(r[0])
+
+
+def known_pivot_types() -> tuple[str, ...]:
+    """Canonical node types that currently have pivot rules registered."""
+    return tuple(_PIVOT_RULES)
 
 
 def discriminating_marker(node_type: str, tags: list[str] | None,

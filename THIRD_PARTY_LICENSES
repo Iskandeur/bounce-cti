@@ -1,0 +1,25 @@
+THIRD-PARTY LICENSES
+====================
+
+This file records third-party source code and data incorporated into
+Bounce-CTI, together with the upstream project, its license, and the files
+concerned. Runtime Python/Node dependencies installed from package managers
+(see requirements.txt and frontend/package.json) are licensed under their own
+terms and are not re-listed here unless their code is vendored into this repo.
+
+Maintenance rule (see CONTRIBUTING.md): whenever a contribution copies or
+adapts third-party code or data, add an entry below in the same commit. Avoid
+copyleft (GPL/AGPL) code; prefer permissive (MIT/Apache-2.0/BSD) sources or a
+clean-room reimplementation.
+
+--------------------------------------------------------------------------------
+(No vendored third-party code or data yet.)
+--------------------------------------------------------------------------------
+
+Template for new entries:
+
+  Project   : <name> — <url>
+  License   : <SPDX id, e.g. MIT / Apache-2.0>
+  Used in   : <path(s) in this repo>
+  Mode      : LIFT (permissive copy) | COPY-DATA (dataset) | adapted
+  Notes     : <attribution required? modifications made?>

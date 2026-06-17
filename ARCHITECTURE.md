@@ -56,7 +56,7 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 > optional `effort` (extended-thinking level). The chosen `effort` is persisted
 > on the investigation row and reused by `resume` / subsequent phases.
 
-- `POST   /api/investigations` — start (auto-detects seed type from value if `seed_type=auto`; supported types: `domain`, `ip`, `hash`, `url`, `jarm`, `asn`, `command_line`, `executable_name` — the last being a bare filename of a malicious binary such as `dropper.exe`, pivoted via MalwareBazaar's `get_filename` — and `email` / `wallet_address` / `username` for actor-level seeds: an email triggers Whoxy reverse-WHOIS + EmailRep + Pulsedive + OpenCTI; a wallet (ETH `0x…`, BTC bech32 / legacy, XMR — auto-detected by address format) cross-references ThreatFox + Pulsedive + OpenCTI; a forum / Telegram handle is graphed as an opaque identifier and probed against ThreatFox / Pulsedive / OpenCTI / URLScan)
+- `POST   /api/investigations` — start (auto-detects seed type from value if `seed_type=auto`; supported types: `domain`, `ip`, `hash`, `url`, `jarm`, `asn`, `command_line`, `executable_name` — the last being a bare filename of a malicious binary such as `dropper.exe`, pivoted via MalwareBazaar's `get_filename` — and `email` / `wallet_address` / `username` for actor-level seeds: an email triggers Whoxy reverse-WHOIS + EmailRep + Pulsedive + OpenCTI; a wallet (ETH `0x…`, BTC bech32 / legacy, XMR — auto-detected by address format) cross-references ThreatFox + Pulsedive + OpenCTI; a forum / Telegram handle is graphed as an opaque identifier and probed against ThreatFox / Pulsedive / OpenCTI / URLScan). Optional `vertical` field (default `cti`; normalised via `backend/verticals.py`, unknown → `cti`) stored on the investigation.
 - `POST   /api/investigations/batch` — start many at once; `combined=true` chains them on one graph
 - `GET    /api/investigations` — list (caller-owned only)
 - `GET    /api/investigations/{id}/graph`
@@ -201,12 +201,64 @@ paths are converted from `C:\…` to `/mnt/c/…` so WSL `claude` can invoke the
 via Windows interop. A separate `mcp-launcher-{module}.log` is written under
 `data/` for each MCP server start to debug timeouts.
 
+### `backend/seeds.py`
+Seed registry — the single source of truth for per-seed-type behaviour. Replaces
+the five `if seed_type == …` ladders that used to live in `agent_runner.py`
+(now fully eliminated). Exposes:
+- `mandatory_tools(seed_type, seed_value)` — the ordered `(tool_name,
+  call_example)` pairs the agent must call before reporting;
+- `investigation_prompt(seed_type, seed_value)` — the main-phase user prompt
+  (`domain`/`hash`/unknown fall through to the generic domain-style branch);
+- `add_seed_block(seed_type, seed_value)` / `pivot_block(seed_type, seed_value)`
+  — the per-type body of the `run_add_seed` / `run_pivot` prompts (shared
+  preamble/suffix stay in agent_runner); `""` for unknown types;
+- `followup_extra_steps(seed_type)` — the per-type follow-up steps for the
+  `run_investigation` follow-up phase;
+- `KNOWN_SEED_TYPES`.
+
+This is the foundation for the multi-vertical (cti/osint/dd) refactor: adding a
+seed type becomes a one-place change. Golden-locked by
+`backend/tests/test_seeds.py` (+ `golden_investigation_prompts.json`,
+`golden_seed_blocks.json`).
+
+### `backend/verticals.py`
+The multi-vertical (CTI / OSINT / DD) abstraction. A `Vertical` dataclass
+captures the per-vertical knobs — `name`, `label`, `agent_name` (for the
+system-prompt builder), `seed_types` (accepted seeds, referencing the seed
+registry), `source_pool` (which MCP pool to mount), and `prompt_block` (the
+vertical-specific system-prompt addendum, empty for CTI). `VERTICALS` registers
+the active verticals; today only `cti` is wired (byte-for-byte the existing
+behaviour). `get_vertical()` / `normalise()` resolve a name and fall back to
+`cti` for unknown/empty input, so bad input never breaks the platform.
+`POST /api/investigations` accepts an optional `vertical` field (default `cti`),
+normalised here and stored on `investigations.vertical`.
+
+`SOURCE_POOL_MODULES` / `source_pool_module()` map a vertical's `source_pool`
+id to the MCP server module that exposes that pool's source tools. The pool id
+doubles as the MCP server *key*, so it sets the tool namespace
+(`mcp__<pool>__*`). For CTI: `cti` → `cti_mcp` (the historical `mcp__cti__*`
+namespace). `agent_runner._write_mcp_config` reads the investigation's vertical
+and mounts the resolved pool — so the generated `mcp-{id}.json` is per-vertical
+(CTI byte-for-byte unchanged). OSINT/DD get registered as their pools and prompt
+blocks land (Phases 2/3). Tested by `backend/tests/test_verticals.py`.
+
+The `{core}+{vertical}` system-prompt builder lives in
+`agent_runner.build_system_prompt(template, vertical)`: it composes a phase
+system prompt from the shared `{core}` template (written in the CTI voice,
+`SYSTEM_PROMPT` / `_FOLLOWUP_SYSTEM_PROMPT` / …) by swapping the `agent_name`
+throughout and appending the vertical's `prompt_block`. It is applied once,
+centrally, inside `_run_claude_phase` (so all phases — main, hypothesis,
+followup, report, pivot-drain, lessons, pivot, add-seed, custom — inherit it)
+and is a byte-for-byte identity for CTI (`agent_name='Bounce-CTI'`,
+`prompt_block=''`; roadmap invariant 4.4). Tested by
+`backend/tests/test_prompt_builder.py`.
+
 ### `backend/graph_store.py`
 SQLite-backed store. Tables:
 
 | Table            | Columns (essentials)                                                                                                          |
 |------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `effort` (extended-thinking level, or NULL = model default), `quota_reset_at` (epoch when a Claude-subscription cooldown lifts), `title` (optional analyst-supplied rename; falls back to `seed_value` in the UI) |
+| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `effort` (extended-thinking level, or NULL = model default), `quota_reset_at` (epoch when a Claude-subscription cooldown lifts), `title` (optional analyst-supplied rename; falls back to `seed_value` in the UI), `vertical` (`cti`\|`osint`\|`dd`, default `cti` — which product vertical the investigation belongs to) |
 | `nodes`          | `id`, `investigation_id`, `type`, `value`, `metadata` (JSON), `tags` (JSON), `confidence`, `source`, `created_at`, UNIQUE(inv,type,value) |
 | `edges`          | `id`, `investigation_id`, `src`, `dst`, `relation`, `evidence`, `source`, `confidence`, `created_at`, UNIQUE(inv,src,dst,relation) |
 | `events`         | `id` AUTOINCREMENT, `investigation_id`, `kind`, `payload` (JSON), `created_at` — full agent stream + state changes            |
@@ -231,8 +283,11 @@ land on the corrected node id instead of a phantom `jarm` one. JARM is never
 inferred merely because a value is a TLS fingerprint.
 
 `init_db()` runs idempotent migrations: it `_ensure_column`s `user_id`/`model`/
-`quota_reset_at` on `investigations` and `is_admin`/`allowed_models`/`label`
-on `users` for upgrades from earlier schemas.
+`effort`/`quota_reset_at`/`title`/`vertical` on `investigations` and
+`is_admin`/`allowed_models`/`label` on `users` for upgrades from earlier
+schemas. `vertical` defaults to `'cti'`, so legacy rows and any caller that
+doesn't pass one keep the original CTI behaviour (`graph_store.get_vertical()`
+also falls back to `'cti'`).
 
 ### `backend/auth.py`
 - HMAC-SHA256 of the PIN with a per-deploy secret stored in `data/secret.key`
@@ -410,6 +465,11 @@ returns `[(pivot_op, priority, skip_reason_or_None)]`. Defused nodes only
 receive doc-only pivots (rdap, dns_resolve); the rest are inserted as
 `skipped` with `skip_reason='defused'`. No-key sources are inserted as
 `skipped` with `skip_reason='no_api_key'` so they surface in `gaps_report`.
+Unregistered node types return `[]`. The rule table is keyed by canonical type
+and shared across verticals; `register_pivots(type, rules, replace=False)` is
+the cross-vertical extension point (OSINT/DD source modules add their node-type
+pivots at import time instead of editing the monolith), and
+`known_pivot_types()` lists the registered types.
 
 Also exports `CLOUD_ASNS` (multi-tenant cloud/CDN ASN list, used by the
 convergence check), per-node fan-out caps (`MAX_HIGH_PRIO_PER_NODE=8`,
@@ -606,6 +666,27 @@ npm run dev     # dev server with HMR on :5173, proxies /api + /ws to :8001
 
 The project uses **GitHub Actions** for continuous deployment. Every push to
 `main` triggers an automatic deploy to the production VPS.
+
+### Merge-gate (`.github/workflows/ci.yml`)
+
+Because `main` deploys straight to prod with no staging, a CI merge-gate runs
+on every PR targeting `main` (and as a backstop on push to `main`):
+
+```
+Pull request → main
+  │
+  ▼
+GitHub Actions (.github/workflows/ci.yml)
+  ├─ backend-import : pip install -r requirements.txt
+  │                   → python -m compileall backend
+  │                   → import backend.main
+  ├─ backend-tests  : pip install -r requirements-dev.txt
+  │                   → pytest backend/tests   (golden/regression tests)
+  └─ frontend-build : npm ci → npm run build
+```
+
+A failing gate must be fixed before merge. Combine with branch protection on
+`main` (require PR + passing checks) so a broken commit cannot reach prod.
 
 ### How it works
 
