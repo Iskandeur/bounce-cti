@@ -1,0 +1,417 @@
+[
+  {
+    "case_id": 1,
+    "name": "Salt Typhoon",
+    "error": "c01 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 2,
+    "name": "MuddyWater (Chaos/Stagecomp, 2026)",
+    "inv_id": "e6d3f6876f01",
+    "nodes": 25,
+    "edges": 26,
+    "cti_calls": 24,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "criminalip_ip",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "zoomeye_jarm"
+    ],
+    "nr": 63.6,
+    "nr_hits": 7,
+    "nr_total": 11,
+    "nr_missing": [
+      "domain:uploadfiler",
+      "ip:172.86.126.208",
+      "ip:116.203.208.186",
+      "malware:chaos"
+    ],
+    "er": 33.3,
+    "er_hits": 1,
+    "er_total": 3,
+    "er_missing": [
+      "3df9dcc45d2a3b1f--contacts-->uploadfiler",
+      "24857fe82f454719--hosted_on-->172.86.126.208"
+    ],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 63.63636363636363,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "apt_targeted",
+      "history_len": 1,
+      "hypothesis_history": [
+        {
+          "category": "apt_targeted",
+          "confidence": "high",
+          "reason": "First observations (VT 48/70, MalwareBazaar MuddyWater signature, low-fanout dedicated C2) immediately fit an Iranian state-aligned APT sample; never contradicted."
+        }
+      ],
+      "final_category": "apt_targeted",
+      "valid": true
+    },
+    "hallucinations": [],
+    "data_decayed": false,
+    "ps": 100.0,
+    "eff": 100.0,
+    "rst": 100,
+    "hyp_score": 100,
+    "yield_factor": 1.0,
+    "markers": 4,
+    "cap": 100.0,
+    "rec": 65.2,
+    "mk": 100,
+    "overall": 77.8
+  },
+  {
+    "case_id": 3,
+    "name": "Bumblebee\u2192Akira",
+    "inv_id": "e17b1a564b61",
+    "nodes": 36,
+    "edges": 39,
+    "cti_calls": 33,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "criminalip_ip",
+      "netlas_jarm",
+      "netlas_search",
+      "zoomeye_jarm",
+      "zoomeye_search"
+    ],
+    "nr": 47.1,
+    "nr_hits": 8,
+    "nr_total": 17,
+    "nr_missing": [
+      "domain:opmanager",
+      "domain:ev2sirbd269o5j",
+      "domain:angryipscanner",
+      "domain:axiscamerastation",
+      "domain:ip-scanner",
+      "ip:188.40.187.145",
+      "ip:172.96.137.160",
+      "ip:193.242.184.150",
+      "ip:185.174.100.203"
+    ],
+    "er": 33.3,
+    "er_hits": 1,
+    "er_total": 3,
+    "er_missing": [
+      "186b26df--contacts-->opmanager",
+      "172.96.137.160--c2-->victim"
+    ],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 58.8235294117647,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 2,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "Initial: trojanized signed MSI, 23/51 VT, gencbl/shanyapacker family"
+        },
+        {
+          "category": "traffer_or_tds / initial_access_loader",
+          "confidence": "high",
+          "reason": "OTX 8 pulses revealed SEO-poisoning -> Bumblebee loader -> AdaptixC2 -> Akira ransomware chain (DFIR Report); this is a targeted human-operated ransomware initial-access vector, not generic commodity malware"
+        }
+      ],
+      "final_category": "traffer_or_tds / initial_access_loader (Bumblebee -> AdaptixC2 -> Akira)",
+      "valid": true
+    },
+    "hallucinations": [],
+    "data_decayed": false,
+    "ps": 100.0,
+    "eff": 100.0,
+    "rst": 100,
+    "hyp_score": 100,
+    "yield_factor": 1.0,
+    "markers": 4,
+    "cap": 100.0,
+    "rec": 59.8,
+    "mk": 100,
+    "overall": 75.1
+  },
+  {
+    "case_id": 4,
+    "name": "Interlock",
+    "error": "c04 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 5,
+    "name": "Eye Pyramid cross-brand",
+    "error": "c05 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 6,
+    "name": "LummaC2 About-Cats",
+    "error": "c06 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 7,
+    "name": "SocGholish",
+    "error": "c07 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 8,
+    "name": "Amadey/StealC GitLab",
+    "inv_id": "f9d662f6b576",
+    "nodes": 33,
+    "edges": 45,
+    "cti_calls": 58,
+    "phase3_tools_used": [
+      "abuseipdb_check",
+      "certspotter_serial",
+      "criminalip_ip",
+      "dom_fingerprints"
+    ],
+    "nr": 50.0,
+    "nr_hits": 4,
+    "nr_total": 8,
+    "nr_missing": [
+      "ip:185.215.113",
+      "asn:as51381",
+      "domain:gitlab.bzctoons.net",
+      "domain:bzctoons.net"
+    ],
+    "er": 33.3,
+    "er_hits": 1,
+    "er_total": 3,
+    "er_missing": [
+      "185.215.113--hosted_on_asn-->as51381",
+      "gitlab.bzctoons.ne--hosts_stager-->stealc"
+    ],
+    "pc": 100.0,
+    "pc_hits": 4,
+    "pc_total": 4,
+    "pc_missed": [],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 50.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 1,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "First-call MalwareBazaar confirmed Amadey loader + Stealc/SvcStealer payloads with extracted C2 config"
+        }
+      ],
+      "final_category": "commodity_malware",
+      "valid": true
+    },
+    "hallucinations": [],
+    "data_decayed": false,
+    "ps": 100.0,
+    "eff": 100.0,
+    "rst": 100,
+    "hyp_score": 100,
+    "yield_factor": 1.0,
+    "markers": 1,
+    "cap": 100.0,
+    "rec": 58.3,
+    "mk": 100,
+    "overall": 75.6
+  },
+  {
+    "case_id": 9,
+    "name": "Tycoon 2FA",
+    "inv_id": "4b883dd96984",
+    "nodes": 24,
+    "edges": 21,
+    "cti_calls": 32,
+    "phase3_tools_used": [
+      "certspotter_issuances",
+      "certspotter_serial",
+      "dom_fingerprints",
+      "netlas_jarm",
+      "zoomeye_jarm"
+    ],
+    "nr": 50.0,
+    "nr_hits": 3,
+    "nr_total": 6,
+    "nr_missing": [
+      "kit_fingerprint:turnstile",
+      "actor:storm-1747",
+      "phishing_kit:tycoon 2fa"
+    ],
+    "er": 100.0,
+    "er_hits": 1,
+    "er_total": 1,
+    "er_missing": [],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "ct_burst_window"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 40,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": false,
+      "node_pct": 50.0,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "fronted_c2",
+      "history_len": 2,
+      "hypothesis_history": [
+        {
+          "category": "fronted_c2",
+          "confidence": "high",
+          "reason": "First observations: VT 13 malicious + OTX Tycoon2FA pulse + Cloudflare-fronted \u2014 chose fronted_c2 to drive R14 origin unmask."
+        },
+        {
+          "category": "phishing_kit_cluster",
+          "confidence": "high",
+          "reason": "urlscan revealed templated Tycoon2FA AiTM kit across 9 wildcard subdomains with decoy homepages + obfuscated @-paths; settled on phishing_kit_cluster (Tycoon2FA PhaaS). Origin unmask blocked by source tiers."
+        }
+      ],
+      "final_category": "phishing_kit_cluster",
+      "valid": true
+    },
+    "hallucinations": [],
+    "data_decayed": true,
+    "ps": 75.0,
+    "eff": 100.0,
+    "rst": 100,
+    "hyp_score": 100,
+    "yield_factor": 1.0,
+    "markers": 2,
+    "cap": 90.0,
+    "rec": null,
+    "mk": 0,
+    "overall": 77.5
+  },
+  {
+    "case_id": 10,
+    "name": "Contagious Interview",
+    "error": "c10 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 11,
+    "name": "Smishing Triad",
+    "error": "c11 not in this run's subset (no data)"
+  },
+  {
+    "case_id": 12,
+    "name": "ClearFake",
+    "inv_id": "49a6e5bd53df",
+    "nodes": 25,
+    "edges": 23,
+    "cti_calls": 17,
+    "phase3_tools_used": [
+      "abuseipdb_check"
+    ],
+    "nr": 50.0,
+    "nr_hits": 4,
+    "nr_total": 8,
+    "nr_missing": [
+      "cert_cn:921hapudyqwdvy.com",
+      "ip:*yacolo",
+      "asn:as203493",
+      "tool:keitaro"
+    ],
+    "er": 0.0,
+    "er_hits": 0,
+    "er_total": 1,
+    "er_missing": [
+      "921hapudyqwdvy--cert_cn-->921hapudyqwdvy"
+    ],
+    "pc": 75.0,
+    "pc_hits": 3,
+    "pc_total": 4,
+    "pc_missed": [
+      "shodan_cert_cn_search"
+    ],
+    "dc": 100,
+    "over_inclusion": 0,
+    "over_defuse": 0,
+    "bd": 100,
+    "budget_extension_count": 0,
+    "rq": 70,
+    "rq_meta": {
+      "actor_hit": true,
+      "marker_hit": true,
+      "node_pct": 66.66666666666667,
+      "has_summary": true
+    },
+    "hypothesis": {
+      "wh_present": true,
+      "category": "commodity_malware",
+      "history_len": 2,
+      "hypothesis_history": [
+        {
+          "category": "commodity_malware",
+          "confidence": "high",
+          "reason": "Initial: VT malicious=15 + 'dga' tag + OTX ClearFake attribution on first observation"
+        },
+        {
+          "category": "traffer_or_tds",
+          "confidence": "high",
+          "reason": "Confirmed: ClearFake is a fake-update/drive-by delivery framework (TDS-adjacent) running a DGA C2 cluster over a Cloudflare-fronted Hetzner origin"
+        }
+      ],
+      "final_category": "traffer_or_tds",
+      "valid": true
+    },
+    "hallucinations": [],
+    "data_decayed": true,
+    "ps": 75.0,
+    "eff": 100.0,
+    "rst": 100,
+    "hyp_score": 100,
+    "yield_factor": 1.0,
+    "markers": 2,
+    "cap": 90.0,
+    "rec": null,
+    "mk": 100,
+    "overall": 65.8
+  }
+]

@@ -222,7 +222,12 @@ A red gate must be fixed before merge. Pair this with branch protection on
   and the mixed CDN+leaked-origin case (2026-06-17 eval F-PIVOT-MISS: the old
   all-IPs-must-be-CDN check skipped Cloudflare-fronted seeds that also exposed a
   real origin IP), even when the agent would otherwise skip the adaptive
-  suggestion), then ensures a final
+  suggestion; CT burst-window cohort hint fires when `crtsh_subdomains` was called
+  on the seed domain but no node carries `issuance_date` or `burst` in metadata —
+  the agent is prompted to re-examine CT `not_before` dates and add a
+  `ct_burst_cohort` report node with `metadata.issuance_date`, satisfying the
+  EVAL_PROTOCOL scorer's `ct_burst_window` pivot rule and unblocking Case 9
+  Tycoon-2FA PS 75→100 (2026-06-17 fix)), then ensures a final
   `investigation_summary` report node (`phase_report_write`), then runs an
   autonomous pivot-drain loop (`phase_pivot_drain_<N>`, added 2026-05) that
   reads the report's own `pivot_suggestions` and the pivot queue, executes

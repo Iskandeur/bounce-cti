@@ -7,37 +7,35 @@ from collections import Counter
 sys.path.insert(0, "/tmp/eval_run")
 from cases import CASES
 
-DATE = "2026-06-01"
+DATE = "2026-06-17"
 RUN_DIR = os.path.join("/home/user/bounce-cti", open("/tmp/eval_run/dir.txt").read().strip())
 SCORED = json.load(open("/tmp/eval_run/scored.json"))
 META = json.load(open("/tmp/eval_run/meta.json")) if os.path.exists("/tmp/eval_run/meta.json") else {"cases": {}}
-BRANCH = "claude/wizardly-pascal-yBZVT"
+BRANCH = "claude/vigilant-mayer-3ylpgh"
 CASE11_SEED = next(c["seed_value"] for c in CASES if c["case_id"] == 11)
 
-# Prior run (2026-05-28 / ccee7e3) per-case overalls for delta calculation.
+# Prior run (2026-06-17 / 69fc13c) per-case v2 overalls for delta calculation.
 PRIOR = {
-    1: 56.1, 2: 61.8, 3: 64.0, 4: 43.8, 5: 52.6, 6: 82.5,
-    7: 63.6, 8: 67.2, 9: 60.8, 10: 41.2, 11: 60.0, 12: 72.1,
+    2: 77.8, 3: 65.3, 8: 75.6, 9: 77.5, 12: 82.5,
 }
-PRIOR_LABEL = "2026-05-28 prior"
-PRIOR_MEAN = 60.5
-PRIOR_PASS = 2
-PRIOR_WH = 12
-PRIOR_P3 = 10
-PRIOR_ER_STR = "16.7 (n=6)"
-PRIOR_COVERAGE_BREACH = "[4, 5, 10]"
+PRIOR_LABEL = "2026-06-17 prior (69fc13c)"
+PRIOR_MEAN = 75.7
+PRIOR_PASS = 4
+PRIOR_WH = 5
+PRIOR_P3 = 4
+PRIOR_ER_STR = "53.3 (n=5)"
+PRIOR_COVERAGE_BREACH = "none"
 # Apr-20 (46e59dc) last full-12 baseline before the autonomy/hypothesis-first refactors.
 APR20 = {
     1: 51.1, 2: 47.9, 3: 54.3, 4: 70.0, 5: 60.0, 6: 67.5,
     7: 48.1, 8: 54.2, 9: 70.5, 10: 37.9, 11: 60.8, 12: 72.5,
 }
-# v3 CAP baseline = the 2026-05-31/6e6aaeb run re-scored under the v3 Capability
-# track (decay-proof). This is the delta baseline for v3 runs going forward.
+# v3 CAP baseline = the 2026-06-17/69fc13c fresh-subset nightly run.
+# These are the regression-gate values — any case below these is a P0.
 PRIOR_CAP = {
-    1: 90.0, 2: 100.0, 3: 90.2, 4: 90.5, 5: 100.0, 6: 70.0,
-    7: 100.0, 8: 65.0, 9: 78.6, 10: 68.0, 11: 100.0, 12: 80.0,
+    2: 100.0, 3: 90.0, 8: 100.0, 9: 90.0, 12: 90.0,
 }
-PRIOR_CAP_MEAN = 86.0
+PRIOR_CAP_MEAN = 94.0
 
 
 def status_of(cid):
