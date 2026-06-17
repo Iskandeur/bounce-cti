@@ -631,6 +631,18 @@ async def username_enumerate(username: str) -> dict:
 
 
 @mcp.tool()
+async def gravatar_email(email: str) -> dict:
+    """Look up a public Gravatar profile for an email address (free, no API
+    key) — maps MD5(email) to whatever the owner made public: display name,
+    preferred username, linked social accounts, personal URLs. Strong email→
+    identity pivot. Returns {found, display_name, preferred_username,
+    accounts:[{service,username,url}], urls}. `found=False` just means no
+    public Gravatar (not that the person doesn't exist) — add a node per
+    linked account/username and link it to the email."""
+    return await _src("gravatar").lookup_email(email)
+
+
+@mcp.tool()
 async def project_honeypot_check(ip: str) -> dict:
     """Project Honey Pot http:BL DNSBL lookup. Returns threat score
     (0..255, 25+ is bad) and type flags (suspicious/harvester/comment

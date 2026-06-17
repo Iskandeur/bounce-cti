@@ -104,9 +104,10 @@ backend/
                         #   threat_actor nodes (+ kit-handle tags to phishing_kit
                         #   nodes). add_edge auto-stubs missing
                         #   endpoints (phantom_autostub).
-    cti_mcp.py          # MCP server: ~79 async CTI source tools
+    cti_mcp.py          # MCP server: ~80 async CTI source tools
                         #   (incl. malwarebazaar_imphash — PE imphash cluster,
-                        #   username_enumerate — Sherlock-style profile sweep)
+                        #   username_enumerate — Sherlock-style profile sweep,
+                        #   gravatar_email — email→public profile / accounts)
   sources/              # One file per CTI source (all async, all cached):
                         #   Existing: crtsh, rdap, whois (RFC 3912 / port-43),
                         #     dns_tools, virustotal,
@@ -139,6 +140,9 @@ backend/
                         #     Sherlock, MIT — see THIRD_PARTY_LICENSES). Shared
                         #     into the cti pool so both the OSINT username seed
                         #     and CTI actor-handle pivots use it.
+                        #     gravatar (free, no-key email→public profile:
+                        #     MD5(email)→display name + linked social accounts +
+                        #     URLs; email pivot, shared into the cti pool).
                         #   Shared: http_client
   tests/                # pytest suite (golden / regression tests, e.g.
                         #   test_seeds.py locks the seed-registry output).
