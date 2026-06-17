@@ -230,6 +230,17 @@ _QUOTA_FALLBACK_COOLDOWN_S = float(
     os.environ.get("BOUNCE_QUOTA_FALLBACK_COOLDOWN_S", "3600")
 )
 
+# A spawned `claude -p` should emit its first stream-json event (the `system`
+# init) within a few seconds. If it emits *nothing* for this long it is wedged —
+# a misconfigured binary, a broken MCP launch, or a hung handshake — not slow
+# thinking (thinking happens after the init event). Kill it and surface a clear
+# `agent_no_output` failure rather than letting the phase hang to its 20-min
+# ceiling. The 2026-06-17 outage (claude binary off-PATH → silent FileNotFound)
+# would have surfaced in 2 min instead of looking like a slow run. 0 disables.
+_FIRST_EVENT_TIMEOUT_S = float(
+    os.environ.get("BOUNCE_AGENT_FIRST_EVENT_TIMEOUT_S", "120")
+)
+
 
 # Global registry of running agent processes, keyed by investigation id.
 # Used by stop_investigation() to kill a running agent on demand.
@@ -2475,6 +2486,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                 _note_quota(True, reset_at, marker or decoded, "stderr")
 
     saw_result = {"v": False}
+    first_event = {"seen": False}
 
     async def pump_stdout():
         assert proc.stdout is not None
@@ -2482,6 +2494,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
             text = line.decode(errors="replace").strip()
             if not text:
                 continue
+            first_event["seen"] = True
             try:
                 evt = json.loads(text)
                 _log(inv_id, "agent_" + evt.get("type", "msg"), evt)
@@ -2505,8 +2518,21 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
         - Absolute ceiling of 20 minutes per phase.
         """
         hard_deadline = time.monotonic() + 20 * 60
+        spawn_t = time.monotonic()
         while True:
             if proc.returncode is not None:
+                return
+            # No-first-event guard: a healthy claude -p emits its `system` init
+            # within seconds. Silence this long means the spawn is wedged (bad
+            # binary, broken MCP launch) — kill it and surface agent_no_output so
+            # the phase fails fast (rc != 0 → terminal error) instead of hanging.
+            if (_FIRST_EVENT_TIMEOUT_S > 0 and not first_event["seen"]
+                    and time.monotonic() - spawn_t > _FIRST_EVENT_TIMEOUT_S):
+                _log(inv_id, "agent_no_output",
+                     {"reason": "no_stream_json_within_timeout",
+                      "timeout_s": _FIRST_EVENT_TIMEOUT_S, "phase": phase})
+                try: proc.kill()
+                except Exception: pass
                 return
             if saw_result["v"]:
                 try:

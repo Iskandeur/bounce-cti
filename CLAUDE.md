@@ -299,6 +299,14 @@ A red gate must be fixed before merge. Pair this with branch protection on
   idempotent (`_has_working_hypothesis`, `_has_investigation_summary`,
   pivot-drain convergence) so already-finished work is skipped. The frontend
   polls `GET /api/quota` for the global banner + per-inv countdown.
+- **No-first-event watchdog**: a healthy `claude -p` emits its `system` init
+  event within seconds; the per-phase `watchdog()` in `_run_claude_phase` kills
+  a spawn that emits *no* stream-json for `BOUNCE_AGENT_FIRST_EVENT_TIMEOUT_S`
+  (default 120s, 0 disables) and logs an `agent_no_output` event so a wedged
+  spawn (bad binary, broken MCP launch) fails fast with a terminal error
+  instead of hanging to the 20-min ceiling. This is the guardrail for the kind
+  of silent-spawn failure behind the 2026-06-17 outage (the `claude` binary was
+  off the systemd service PATH → `FileNotFoundError` → zero output).
 - **Key rotation**: `backend/key_pool.py` lets each source accept either
   `<SRC>_API_KEY=k1` (single) or `<SRC>_API_KEYS=k1,k2,k3` (multi, takes precedence).
   Cooldown on 429 (60s default), full-day cooldown on quota exhausted. Sources call
