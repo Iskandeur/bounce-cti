@@ -13,7 +13,7 @@ from ..pivot_mapping import (
     pivots_for, MAX_HIGH_PRIO_PER_NODE, MAX_LOW_PRIO_PER_NODE, MAX_PENDING_QUEUE,
     canonical_type, cloud_platform_domain, _CLOUD_PLATFORM_SUPPRESSED_OPS,
     is_role_mailbox, _EMAIL_PIVOT_OPS, is_hex_serial, _SERIAL_OPS,
-    known_bad_marker, actor_handle_for_tag, key_source_for_op,
+    known_bad_marker, actor_handle_for_tag, kit_handle_for_tag, key_source_for_op,
 )
 
 INV_ID = os.environ.get("BOUNCE_INV_ID", "default")
@@ -118,13 +118,19 @@ def add_node(type: str, value: str, metadata: dict | None = None,
 
     type: one of domain, ip, hash, url, cert, asn, email, registrar, ns,
           favicon_hash, jarm, ja3, ja3s, cert_serial, tracking_id, form_action,
-          wallet_address, js_hash, title_hash, person, threat_actor, report
+          wallet_address, js_hash, title_hash, person, threat_actor,
+          phishing_kit, report
 
           threat_actor: a named adversary / intrusion set / campaign (e.g.
             "UNC1549", "MuddyWater"). You normally don't create this by hand —
             tag a node with a known actor handle and add_node auto-promotes it
             to a threat_actor node + attributed_to edge. Create directly only
             when you have explicit, corroborated attribution.
+
+          phishing_kit: a named phishing / PhaaS kit or framework (e.g.
+            "Tycoon 2FA", "EvilProxy"). Like threat_actor, you normally don't
+            create this by hand — tag a node with a known kit handle and add_node
+            auto-promotes it to a phishing_kit node + uses_kit edge.
 
           jarm / ja3 / ja3s are distinct TLS fingerprints and pivot
           differently — do NOT file a JA3/JA3S under `jarm`. JARM is a
@@ -189,6 +195,27 @@ def add_node(type: str, value: str, metadata: dict | None = None,
         promoted.append(actor)
     if promoted:
         result["threat_actors_promoted"] = promoted
+
+    # Same normalisation for phishing-kit / PhaaS handles: promote a known kit
+    # tag to a first-class `phishing_kit` node + `uses_kit` edge so the tooling
+    # attribution is queryable (e.g. Tycoon 2FA) rather than buried in a tag.
+    kits_promoted = []
+    for t in (tags or []):
+        kit = kit_handle_for_tag(t)
+        if not kit:
+            continue
+        gs.add_node(INV_ID, "phishing_kit", kit,
+                    metadata={"promoted_from_tag": t,
+                              "evidence": f"tag '{t}' on {type}:{value}",
+                              "source": "tag_promotion"},
+                    confidence=min(confidence, 0.7), source="tag_promotion",
+                    tags=["attribution"])
+        gs.add_edge(INV_ID, type, value, "phishing_kit", kit,
+                    "uses_kit", evidence=f"tag '{t}'", source="tag_promotion",
+                    confidence=min(confidence, 0.7))
+        kits_promoted.append(kit)
+    if kits_promoted:
+        result["phishing_kits_promoted"] = kits_promoted
     return result
 
 

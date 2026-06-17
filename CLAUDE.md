@@ -85,7 +85,8 @@ backend/
                         #   + noise pre-filters (cloud_platform_domain,
                         #   is_role_mailbox, is_hex_serial) + KNOWN_BAD_MARKERS
                         #   (positive default-fingerprint table) + ACTOR_HANDLES
-                        #   (tag→threat_actor promotion) + key_source_for_op +
+                        #   (tag→threat_actor promotion) + KIT_HANDLES
+                        #   (tag→phishing_kit promotion) + key_source_for_op +
                         #   register_pivots()/known_pivot_types() (cross-vertical
                         #   extension point: OSINT/DD modules add node-type pivots
                         #   without editing the rules monolith)
@@ -99,7 +100,8 @@ backend/
                         #   pivot_mapping rules (with noise-filter suppression +
                         #   queue-ceiling deferral), auto-tags known-bad
                         #   defaults, and promotes known actor-handle tags to
-                        #   threat_actor nodes. add_edge auto-stubs missing
+                        #   threat_actor nodes (+ kit-handle tags to phishing_kit
+                        #   nodes). add_edge auto-stubs missing
                         #   endpoints (phantom_autostub).
     cti_mcp.py          # MCP server: ~78 async CTI source tools
                         #   (incl. malwarebazaar_imphash — PE imphash cluster)

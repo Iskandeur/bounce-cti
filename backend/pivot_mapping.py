@@ -312,6 +312,31 @@ def actor_handle_for_tag(tag: str) -> Optional[str]:
     return ACTOR_HANDLES.get((tag or "").strip().lower().replace(" ", "_"))
 
 
+# Known phishing-kit / PhaaS handles — the kit analogue of ACTOR_HANDLES (the
+# tooling, not the operator). When the agent tags a node with one of these
+# (based on its own OTX / urlscan / community-KG evidence), graph_mcp promotes
+# it to a first-class `phishing_kit` node + `uses_kit` edge so the kit
+# attribution is queryable rather than buried in a tag. Like ACTOR_HANDLES this
+# is normalisation of the agent's own finding (the tag is its evidence), not new
+# attribution. Kept to UNAMBIGUOUS adversary-in-the-middle / PhaaS kit names —
+# deliberately excludes dual-use tech (e.g. Cloudflare Turnstile, which benign
+# sites also use) to avoid false promotion (2026-06-17 eval FIX-3: c09 Tycoon
+# 2FA identified but never graphed, RQ stuck at 40).
+KIT_HANDLES: dict[str, str] = {
+    "tycoon_2fa": "Tycoon 2FA", "tycoon": "Tycoon 2FA",
+    "evilproxy": "EvilProxy", "evilginx": "Evilginx", "evilginx2": "Evilginx",
+    "mamba_2fa": "Mamba 2FA", "sneaky_2fa": "Sneaky 2FA",
+    "rockstar_2fa": "Rockstar 2FA", "greatness": "Greatness",
+    "dadsec": "DadSec", "naked_pages": "NakedPages", "nakedpages": "NakedPages",
+    "caffeine": "Caffeine", "w3ll": "W3LL",
+}
+
+
+def kit_handle_for_tag(tag: str) -> Optional[str]:
+    """Return the canonical phishing-kit display-name if `tag` is a known kit."""
+    return KIT_HANDLES.get((tag or "").strip().lower().replace(" ", "_"))
+
+
 # Known-bad positive markers — the inverse of defuse_lists. When a node's value
 # exactly matches one of these publicly-documented tool DEFAULTS, auto-tag it so
 # the agent doesn't have to recall the fingerprint from memory. Kept deliberately
