@@ -801,6 +801,49 @@ def _adaptive_followup_targets(inv_id: str) -> list:
                          f"Bumblebee→Akira Case 3, SocGholish Case 7)"))
         seen_keys.add(key_revip)
 
+    # CT burst-window cohort: when crtsh was called on the seed domain
+    # (evidence in `called`) but no ct_burst_cohort node was recorded,
+    # prompt the agent to extract the burst issuance date from the CT
+    # results and document it as a report node. The scorer's
+    # ct_burst_window pivot rule requires any node to carry "burst" or
+    # "issuance_date" in metadata — without this hint the agent reads the
+    # not_before dates but never stores them (Case 9 Tycoon-2FA, 2026-06
+    # evals: PS stuck at 75/100 because ct_burst_window never fired).
+    if seed_domain:
+        crtsh_called_on_seed = any(
+            tool == "crtsh_subdomains" and seed_domain.lower() in arg.lower()
+            for (tool, arg) in called
+        )
+        has_burst_node = any(
+            "burst" in str(n.get("metadata") or {}).lower()
+            or "issuance_date" in str(n.get("metadata") or {}).lower()
+            for n in nodes
+        )
+        domain_count = sum(
+            1 for n in nodes
+            if (n.get("type") or "").lower() in ("domain", "subdomain")
+        )
+        key_burst = ("domain", f"{seed_domain.lower()}::ct_burst_cohort")
+        if (crtsh_called_on_seed and not has_burst_node
+                and domain_count >= 3 and key_burst not in seen_keys):
+            targets.append(
+                ("domain", seed_domain,
+                 [
+                     f'crtsh_subdomains("{seed_domain}")'
+                     "  # re-examine not_before dates; find the date"
+                     " where ≥5 domains were issued (the burst date)",
+                     'add_node(type="report", value="ct_burst_cohort",'
+                     ' metadata={"issuance_date": "<burst_date>",'
+                     ' "burst_count": N,'
+                     ' "siblings": [<list of co-issued sibling domains>]})',
+                 ],
+                 "CT burst-window not documented: crtsh was called but no "
+                 "ct_burst_cohort node recorded. Extract the most common "
+                 "not_before date from crtsh results; if ≥5 domains share it,"
+                 " add ct_burst_cohort with metadata.issuance_date=<date> "
+                 "(Tycoon-2FA / phishing-cluster temporal fingerprint)"))
+            seen_keys.add(key_burst)
+
     # Cap to 20 — Phase 2 should be focused, but cluster-class hypotheses
     # (phishing_kit_cluster + smishing_hub + drainer_kit) often surface
     # 8-15 cert/JARM/favicon/title/tracking_id pivots. 12 was too tight and
