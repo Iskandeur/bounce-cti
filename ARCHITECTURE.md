@@ -314,7 +314,8 @@ MCP server exposing graph write/read tools + the autonomy engine to the agent:
   per node, queue-ceiling deferral). Auto-tags documented known-bad tool
   defaults (`pivot_mapping.KNOWN_BAD_MARKERS`) and promotes a known
   actor-handle tag (`ACTOR_HANDLES`) to a first-class `threat_actor` node +
-  `attributed_to` edge (provenance preserved).
+  `attributed_to` edge, and likewise a known phishing-kit tag (`KIT_HANDLES`)
+  to a `phishing_kit` node + `uses_kit` edge (provenance preserved).
 - `add_edge(src_type, src_value, dst_type, dst_value, relation, evidence, source, confidence)`
   — auto-creates a `phantom_autostub`-tagged stub for any missing endpoint so
   edges never dangle (the analyst can spot the unresolved reference)

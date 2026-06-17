@@ -60,3 +60,18 @@ def test_register_validates_tuple_shape():
         pm.register_pivots("bad_test", [("op", "not_an_int", None, False)])
     with pytest.raises(ValueError):
         pm.register_pivots("bad_test", [("op", 2, None)])  # wrong arity
+
+
+def test_kit_handle_for_tag():
+    # canonicalises spacing/case; unambiguous PhaaS kits only
+    assert pm.kit_handle_for_tag("tycoon_2fa") == "Tycoon 2FA"
+    assert pm.kit_handle_for_tag("Tycoon 2FA") == "Tycoon 2FA"
+    assert pm.kit_handle_for_tag("evilproxy") == "EvilProxy"
+    # dual-use tech must NOT promote (benign sites use Turnstile)
+    assert pm.kit_handle_for_tag("turnstile") is None
+    assert pm.kit_handle_for_tag("not_a_kit") is None
+
+
+def test_actor_handle_for_tag_still_works():
+    assert pm.actor_handle_for_tag("storm-1747") == "Storm-1747"
+    assert pm.actor_handle_for_tag("muddywater") == "MuddyWater"
