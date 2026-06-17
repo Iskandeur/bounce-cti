@@ -349,6 +349,10 @@ def find_node_across_investigations(type_: str, value: str,
     return out
 
 
+_PROTECTIVE_TAGS = {"cdn", "sinkhole", "parking", "blackhole", "dyndns", "defused"}
+_MALICIOUS_FAMILY_TAGS = {"malicious", "c2", "phishing", "malware", "attacker"}
+
+
 def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
              confidence: float = 0.8, source: str = "agent", tags: list[str] | None = None) -> dict:
     type_ = canonical_node_type(type_, value, metadata)
@@ -379,7 +383,12 @@ def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
             existing_md.update(md)
             # Merge sources_seen from both old and new metadata
             existing_md["sources_seen"] = list(set(old_sources + sources_seen))
-            existing_tags = list(set(json.loads(row["tags"] or "[]") + (tags or [])))
+            existing_set = set(json.loads(row["tags"] or "[]"))
+            merged = existing_set | set(tags or [])
+            # Never let malicious-family tags coexist with protective noise markers.
+            if merged & _PROTECTIVE_TAGS:
+                merged -= _MALICIOUS_FAMILY_TAGS
+            existing_tags = list(merged)
             c.execute("UPDATE nodes SET metadata=?, tags=? WHERE id=?",
                       (json.dumps(existing_md), json.dumps(existing_tags), nid))
             event = {"kind": "node_updated", "node": {"id": nid, "type": type_, "value": value,
@@ -462,7 +471,13 @@ def tag_node(inv_id: str, type_: str, value: str, tag: str):
         row = c.execute("SELECT tags FROM nodes WHERE id=?", (nid,)).fetchone()
         if not row:
             return
-        tags = list(set(json.loads(row["tags"] or "[]") + [tag]))
+        existing = set(json.loads(row["tags"] or "[]"))
+        # Never apply malicious-family tags to nodes already marked as infrastructure
+        # noise (CDN/sinkhole/parking). ThreatFox/OTX hits on shared CDN IPs should
+        # not promote those nodes to malicious — that is a false positive by definition.
+        if tag.lower() in _MALICIOUS_FAMILY_TAGS and existing & _PROTECTIVE_TAGS:
+            return
+        tags = list(existing | {tag})
         c.execute("UPDATE nodes SET tags=? WHERE id=?", (json.dumps(tags), nid))
         event = {"kind": "node_tagged", "node_id": nid, "tag": tag}
         c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
