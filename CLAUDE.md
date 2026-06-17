@@ -366,6 +366,13 @@ later), prefix the commit subject with `docs:` so the intent is obvious in `git 
 ## Gotchas
 
 - The `claude` CLI must be installed and authenticated on any machine running investigations.
+  `agent_runner._resolve_claude_bin()` resolves the binary via PATH and then probes
+  `~/.local/bin` (native-installer location), `~/.npm-global/bin`, `/usr/local/bin`,
+  `/usr/bin`. Under systemd the service PATH often omits `~/.local/bin`, so if spawns
+  fail with `claude CLI not found`, set `CLAUDE_BIN` to the absolute path in `.env`
+  and restart. (A PATH gap here was the 2026-06-17 production outage: the bare-name
+  lookup returned None, the spawn raised `FileNotFoundError`, and every investigation
+  produced zero nodes.)
 - VirusTotal free tier: 4 req/min. Investigations may be slow.
 - The `data/` directory is gitignored but must survive deploys (SQLite DB, auth key).
 - WebSocket endpoint is `/ws/{investigation_id}` — reverse proxy must support upgrade headers.

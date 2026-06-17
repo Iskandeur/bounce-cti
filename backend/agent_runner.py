@@ -29,6 +29,34 @@ _MODEL_ALIASES = {
 }
 
 
+def _resolve_claude_bin() -> str:
+    """Locate the `claude` CLI binary.
+
+    `shutil.which` only searches the *spawning* process's PATH. Under systemd
+    the service PATH frequently omits the per-user dir the native Claude Code
+    installer uses (`~/.local/bin`), so a bare `CLAUDE_BIN=claude` resolves to
+    None, the spawn dies with FileNotFoundError, and every phase produces zero
+    output (see the runs/2026-06-17 post-mortem). Probe the usual install
+    locations before giving up so a PATH gap doesn't silently break every
+    investigation. An absolute/relative `CLAUDE_BIN` or one already on PATH
+    wins outright; the bare name falls through to the candidate probe."""
+    found = shutil.which(CLAUDE_BIN)
+    if found:
+        return found
+    if (os.sep in CLAUDE_BIN or os.path.isabs(CLAUDE_BIN)) and os.access(CLAUDE_BIN, os.X_OK):
+        return CLAUDE_BIN
+    home = os.path.expanduser("~")
+    for cand in (
+        os.path.join(home, ".local", "bin", "claude"),    # native installer
+        os.path.join(home, ".npm-global", "bin", "claude"),
+        "/usr/local/bin/claude",
+        "/usr/bin/claude",
+    ):
+        if os.access(cand, os.X_OK):
+            return cand
+    return CLAUDE_BIN  # last resort — the spawn surfaces a clear FileNotFoundError
+
+
 # ── Claude-subscription quota detection ───────────────────────────────────
 # When the subscription's rolling window is exhausted the Claude CLI signals
 # it two ways, both handled here:
@@ -2359,7 +2387,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
     {"hit": bool, "reset_at": float|None, "message": str} — when hit is True
     the Claude subscription was exhausted; callers should abort downstream
     phases and surface a resume affordance to the user."""
-    claude_path = shutil.which(CLAUDE_BIN) or CLAUDE_BIN
+    claude_path = _resolve_claude_bin()
     # Compose the {core}+{vertical} system prompt for this investigation's
     # vertical (no-op for CTI — see build_system_prompt).
     system_prompt = build_system_prompt(system_prompt,
@@ -2397,8 +2425,13 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                 start_new_session=True,
             )
     except FileNotFoundError as e:
+        # Hard infra failure: the claude binary couldn't be spawned. Return the
+        # full 4-tuple the callers unpack — a 3-tuple here raised ValueError at
+        # the call site and crashed run_investigation, leaving the row stuck in
+        # `running` (the runs/2026-06-17 zombie). rc=None then flows into the
+        # existing terminal logic (`error rc=None`).
         _log(inv_id, "agent_error", f"claude CLI not found: {e}")
-        return (None, False, False)
+        return (None, False, False, {"hit": False, "reset_at": None, "message": ""})
 
     _running_procs[inv_id] = proc
 
