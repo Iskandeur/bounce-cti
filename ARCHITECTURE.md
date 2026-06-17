@@ -701,6 +701,7 @@ Inline script (defined in deploy.yml, runs on VPS via SSH)
   ├─ git fetch + reset to origin/main
   ├─ pip install (only if requirements.txt changed)
   ├─ npm ci + npm run build (only if frontend/ changed)
+  ├─ preflight: claude CLI resolves (fatal if CLAUDE_BIN in .env not executable)
   ├─ sudo systemctl restart bounce-cti
   └─ health check (verify service is running)
 ```

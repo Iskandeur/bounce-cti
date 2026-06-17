@@ -41,6 +41,29 @@ jobs:
               cd "$APP/frontend" && npm ci --silent && npm run build && cd "$APP"
             fi
 
+            # Preflight: the agent runner cannot run investigations without the
+            # `claude` CLI. The 2026-06-17 outage was a PATH/binary move that only
+            # surfaced at the first investigation (0 nodes), not at deploy. Catch
+            # it here. CLAUDE_BIN in .env is the authoritative path (set to an
+            # absolute location during that incident); a stale value is the
+            # realistic regression, so treat set-but-not-executable as fatal.
+            echo "==> Preflight: resolving claude CLI..."
+            CLAUDE_BIN_CFG=$(grep -E '^CLAUDE_BIN=' "$APP/.env" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d "\"'" | xargs)
+            if [ -n "$CLAUDE_BIN_CFG" ]; then
+              if [ -x "$CLAUDE_BIN_CFG" ]; then
+                echo "==> Preflight OK: CLAUDE_BIN=$CLAUDE_BIN_CFG"
+              else
+                echo "==> ERROR: CLAUDE_BIN ($CLAUDE_BIN_CFG) from .env is not executable — aborting before restart."
+                exit 1
+              fi
+            elif command -v claude > /dev/null 2>&1; then
+              echo "==> Preflight OK: claude on PATH ($(command -v claude))"
+            elif ls "$HOME/.local/bin/claude" "$HOME/.npm-global/bin/claude" /usr/local/bin/claude /usr/bin/claude > /dev/null 2>&1; then
+              echo "==> Preflight WARN: claude not on deploy PATH but found in a known install dir; agent_runner._resolve_claude_bin should still find it under the service user. Set CLAUDE_BIN in .env to silence this."
+            else
+              echo "==> Preflight WARN: could not resolve claude as the deploy user (the service user's env may differ). Set CLAUDE_BIN in .env to an absolute path to make this check authoritative."
+            fi
+
             echo "==> Restarting service..."
             sudo -n /bin/systemctl restart bounce-cti
             sleep 2

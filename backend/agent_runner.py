@@ -708,8 +708,8 @@ def _adaptive_followup_targets(inv_id: str) -> list:
             break
     if seed_domain:
         ip_nodes = [n for n in nodes if (n.get("type") or "").lower() == "ip"]
-        non_cdn_ips = [n for n in ip_nodes
-                       if "cdn" not in [t.lower() for t in (n.get("tags") or [])]]
+        cdn_ips = [n for n in ip_nodes
+                   if "cdn" in [t.lower() for t in (n.get("tags") or [])]]
         # Has the agent established the seed has cert evidence (so a cert-CN
         # query would actually find something)? Either crtsh/certspotter was
         # called on the seed, or a `cert` / `cert_serial` node references it.
@@ -720,13 +720,18 @@ def _adaptive_followup_targets(inv_id: str) -> list:
             for (tool, arg) in called
         )
         # Fire the cert-CN unmask when:
-        #   (a) classic all-CDN case (≥1 IP, all tagged cdn), OR
+        #   (a) ANY CDN-tagged IP exists — covers the classic all-CDN front AND
+        #       the mixed CDN+leaked-origin case. The old check required EVERY IP
+        #       to be CDN, so a Cloudflare-fronted seed that ALSO exposed a real
+        #       origin IP (Hetzner etc.) never got the cert-CN unmask
+        #       (F-PIVOT-MISS, 2026-06-17 eval — c12 PS stuck at 75). A
+        #       Cloudflare/Fastly IP in the set signals an origin may be hidden,
+        #       regardless of whether one origin already leaked. OR
         #   (b) the seed has 0 IP nodes but cert evidence exists (defensive —
         #       Case 12 ClearFake on 2026-05-05: agent did crtsh but never
         #       dns_resolve, so ip_nodes was empty and the original branch
         #       never triggered).
-        ip_branch_fires = (ip_nodes and not non_cdn_ips) or \
-                          (not ip_nodes and cert_evidence)
+        ip_branch_fires = bool(cdn_ips) or (not ip_nodes and cert_evidence)
         if ip_branch_fires:
             shodan_called_with_cn = any(
                 "ssl.cert.subject.cn" in arg

@@ -518,8 +518,17 @@ def compute_cap_rec(case, *, nr, er, pc, dc, bd, rq_meta, hyp, calls, nodes,
 
 def score_negative(neg):
     """RST-only scoring for a §9b negative/restraint case. 100 = correctly
-    restrained; −25 per benign node in a malicious cluster; 0 if any actor/
-    malware attribution asserted. CAP for a negative == its RST."""
+    restrained; −25 per benign INFRASTRUCTURE node in a malicious cluster; 0 if
+    any actor/malware attribution asserted. CAP for a negative == its RST.
+
+    Restraint measures over-attribution of the BENIGN SEED'S OWN INFRASTRUCTURE
+    LINEAGE — calling the CDN / hosting / registration evil. It deliberately does
+    NOT dock for a pivot-discovered artifact (e.g. a malware ``hash``) that is
+    *independently* malicious: tagging a real malware sample that merely abused a
+    benign CDN as ``malicious`` is correct CTI, not over-attribution of the seed.
+    So ``promoted`` is scoped to infrastructure node types only (2026-06-17 eval
+    finding — the restraint floor was being docked on legitimately-malicious hash
+    pivots, not on CDN infra, which is verifiably clean)."""
     cid = neg["case_id"]
     out_dir = f"/tmp/eval_run/{neg.get('dir') or ('n%02d' % cid)}"
     try:
@@ -531,10 +540,14 @@ def score_negative(neg):
     attribution = [n for n in nodes if (n.get("type") or "").lower()
                    in ("actor", "threat_actor", "malware", "ransomware",
                        "framework", "phishing_kit", "kit")]
-    # benign node promoted into a malicious cluster = tagged malicious/c2/phishing
+    # benign INFRASTRUCTURE node promoted into a malicious cluster = an
+    # infra-lineage node (domain/ip/asn/ns/registrar/cert) tagged malicious/c2/…
     bad_tags = {"malicious", "c2", "phishing", "malware", "attacker"}
+    infra_types = {"domain", "ip", "asn", "ns", "registrar",
+                   "cert", "cert_serial", "cert_cn"}
     promoted = [n for n in nodes
-                if any(t.lower() in bad_tags for t in (n.get("tags") or []))]
+                if (n.get("type") or "").lower() in infra_types
+                and any(t.lower() in bad_tags for t in (n.get("tags") or []))]
     if attribution:
         rst = 0
     else:
