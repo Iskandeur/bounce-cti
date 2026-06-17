@@ -619,6 +619,18 @@ async def emailrep_check(email: str) -> dict:
 
 
 @mcp.tool()
+async def username_enumerate(username: str) -> dict:
+    """Enumerate public profiles for a username across ~22 well-known platforms
+    (dev, social, forum, blog, gaming) — free, no API key, Sherlock-style.
+    Only checks whether a *public* profile page exists; fetches no private data.
+    Use on a `username` seed or an actor/forum/Telegram handle surfaced mid-
+    investigation. Returns found:[{app,category,url}] + an `unknown` list for
+    sites that blocked the probe (absence of evidence ≠ evidence of absence) —
+    add a node per found profile and link it to the username/handle."""
+    return await _src("username_enum").enumerate_username(username)
+
+
+@mcp.tool()
 async def project_honeypot_check(ip: str) -> dict:
     """Project Honey Pot http:BL DNSBL lookup. Returns threat score
     (0..255, 25+ is bad) and type flags (suspicious/harvester/comment

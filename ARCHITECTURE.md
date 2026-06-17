@@ -449,7 +449,20 @@ Phase 4 (added 2026-05-21): broad source-coverage expansion.
 - `takeover` — subdomain-takeover heuristic (curated cloud-provider
   fingerprint list, HTTP GET on the host's own root page)
 
-These add 20 MCP tools, taking the total to ~77. The `circl_hash_lookup`,
+OSINT (Phase 2):
+- `username_enum` — free, no-key Sherlock-style username sweep
+  (`username_enumerate` tool). Probes a curated manifest of ~22 public
+  platforms (dev/social/forum/blog/gaming) for a public profile at
+  `/{username}`, using an `e_code`/`e_string`/`m_string` detection model
+  (status-only for clean 404 sites; body markers for soft-404 sites). Pure
+  `_classify()` core is unit-tested; probing uses the new
+  `http_client.get_text` (raw status/body, transient errors not cached).
+  Lives in the shared cti pool so both the OSINT `username` seed and CTI
+  actor-handle pivots use it; `pivot_mapping` enqueues it for `username`
+  nodes. Manifest adapted COPY-DATA (with attribution) from blackbird +
+  Sherlock (MIT) — see `THIRD_PARTY_LICENSES`.
+
+These add 21 MCP tools, taking the total to ~78. The `circl_hash_lookup`,
 `tor_exit_check`, `dnstwist_permutations`, `leakix_host`, and
 `pulsedive_indicator` wrappers attach `_pivot_hints` (see `backend/hints.py`)
 that steer the agent into NSRL defusion, tor-exit defusion, typosquat

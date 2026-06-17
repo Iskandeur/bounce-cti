@@ -42,6 +42,30 @@ async def post_json(url: str, headers: dict | None = None, json_body: dict | Non
     return data
 
 
+async def get_text(url: str, headers: dict | None = None, params: dict | None = None,
+                   ttl: float = 86400, cache_key: str | None = None,
+                   follow_redirects: bool = True) -> dict:
+    """GET returning the raw response shape {status, final_url, text} rather than
+    parsed JSON — needed by sources that probe HTML pages (e.g. username
+    enumeration). Transient failures (status 0) are NOT cached so a network
+    blip doesn't poison the cache for the full TTL."""
+    key = cache_key or f"TXT|{url}|{params}"
+    cached = cache_get(key, ttl=ttl)
+    if cached is not None:
+        return cached
+    h = {"User-Agent": UA}
+    if headers:
+        h.update(headers)
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=follow_redirects) as c:
+            r = await c.get(url, headers=h, params=params)
+            data = {"status": r.status_code, "final_url": str(r.url), "text": r.text[:8000]}
+    except Exception as e:  # network error / timeout — surface, don't cache
+        return {"status": 0, "final_url": url, "text": "", "error": str(e)[:200]}
+    cache_set(key, data)
+    return data
+
+
 async def post_form(url: str, headers: dict | None = None, form_data: dict | None = None,
                     ttl: float = 86400, cache_key: str | None = None) -> dict:
     """POST with application/x-www-form-urlencoded body (needed by MalwareBazaar, URLhaus)."""
