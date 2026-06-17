@@ -870,6 +870,20 @@ def _is_parked(inv_id: str) -> bool:
         # because a co-resident parking-lander IP (172.234.24.211, tagged
         # `parking`) tripped the loop below before the seed's own le_seized tag
         # could exempt it. Check the seed first and bail out of the whole check.
+        #
+        # A seed that is itself clearly MALICIOUS is likewise exempt: it must not
+        # be short-circuited as "parked" just because peripheral nodes — most
+        # often its nameservers at a registrar parking service — carry a
+        # `parking` tag. c12 (ClearFake, 2026-06-17 eval): the seed was tagged
+        # clearfake_c2/c2/malicious/dga (VT malicious=15) but
+        # ns1/ns2.renewyourname.net were tagged `parking`, so the entire followup
+        # phase (incl. the mandatory cert-CN origin unmask) was skipped.
+        MALICIOUS_SEED_TAGS = {
+            "malicious", "c2", "phishing", "botnet", "ransomware", "dropper",
+            "loader", "stealer", "trojan", "rat", "malware", "dga", "apt",
+        }
+        MALICIOUS_SUBSTR = ("c2", "malware", "phish", "ransom", "botnet",
+                            "dropper", "loader", "stealer", "trojan")
         for n in nodes:
             if "seed" not in [t.lower() for t in (n.get("tags") or [])]:
                 continue
@@ -877,7 +891,18 @@ def _is_parked(inv_id: str) -> bool:
             smd = n.get("metadata") or {}
             if "le_seized" in stags or (smd.get("sinkhole_kind") or "").lower() == "le_seized":
                 return False
+            # Campaign-specific tags (e.g. clearfake_c2, lummac2) are caught by
+            # the substring pass; generic family tags by the set membership.
+            if (set(stags) & MALICIOUS_SEED_TAGS
+                    or any(sub in t for t in stags for sub in MALICIOUS_SUBSTR)):
+                return False
         for n in nodes:
+            # NS parking ≠ seed parking: a domain registrar's parking
+            # nameservers are routinely tagged `parking` during RDAP/DNS
+            # enrichment even for a fully malicious seed. Don't let them trip the
+            # short-circuit (FIX-1, 2026-06-17 eval c12).
+            if (n.get("type") or "").lower() == "ns":
+                continue
             tags = [t.lower() for t in (n.get("tags") or [])]
             md = n.get("metadata") or {}
             if "parking" in tags or "blackhole" in tags:
