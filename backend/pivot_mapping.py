@@ -145,6 +145,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("urlscan_search", 4, None, False),
     ],
     "username": [
+        ("username_enumerate", 2, None, False),
         ("threatfox_search", 2, None, False),
         ("pulsedive_indicator", 3, "pulsedive", False),
         ("opencti_lookup_indicator", 3, "opencti", False),

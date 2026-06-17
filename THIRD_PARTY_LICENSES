@@ -13,7 +13,24 @@ copyleft (GPL/AGPL) code; prefer permissive (MIT/Apache-2.0/BSD) sources or a
 clean-room reimplementation.
 
 --------------------------------------------------------------------------------
-(No vendored third-party code or data yet.)
+
+  Project   : blackbird — https://github.com/p1ngul1n0/blackbird
+  License   : MIT
+  Used in   : backend/sources/username_enum.py
+  Mode      : COPY-DATA (site-detection manifest)
+  Notes     : The username-site manifest and the e_code/e_string/m_string
+              existence-detection model are adapted (with attribution) from
+              blackbird's public, MIT-licensed site metadata. No project code
+              is copied — only the publicly published detection metadata, a
+              curated subset re-expressed in our own structure.
+
+  Project   : Sherlock — https://github.com/sherlock-project/sherlock
+  License   : MIT
+  Used in   : backend/sources/username_enum.py
+  Mode      : COPY-DATA (site-detection manifest)
+  Notes     : Same as above — Sherlock's public site manifest informed the
+              curated platform list / detection markers. Metadata only, no code.
+
 --------------------------------------------------------------------------------
 
 Template for new entries:
