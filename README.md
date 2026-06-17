@@ -25,6 +25,11 @@ DOM fingerprints) building a live infrastructure graph in your browser.
   Opus 4.6 / 4.7 / 4.8, Haiku 4.5) and an extended-thinking effort level
   (low → max, or the model default) per investigation. Admins gate which
   models each user may spawn.
+- **Investigation vertical**: choose the lens for a new investigation — **CTI**
+  (threat-infrastructure attribution, the default) or **OSINT** (identity /
+  entity footprint correlation, incl. a free no-key username sweep across ~22
+  public platforms). The selector appears in the new-investigation form; bare
+  handles are seeded as usernames under OSINT.
 - **Shareable investigations**: signed share links with section opt-in
   (graph / report / timeline / evidence / chats), expiry, and import-into-account flow.
 - **PDF in / PDF out**: bootstrap an investigation from a vendor write-up

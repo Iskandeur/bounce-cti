@@ -132,9 +132,11 @@ function refang(s) {
 // Auto-detect IOC type from a (refanged) value.
 // Keep in sync with backend/main.py:detect_seed_type.
 const EXEC_EXTENSIONS_RE = /\.(exe|dll|sys|scr|bat|cmd|ps1|vbs|vbe|hta|pif|wsh|wsf|jse|msi|ocx|drv|lnk|dylib|elf)$/i
-function detectIOCType(raw) {
+function detectIOCType(raw, vertical = 'cti') {
   const v = refang(raw).trim()
   if (!v) return 'domain'
+  // OSINT: an @-prefixed handle is unambiguously an identity seed.
+  if (vertical === 'osint' && /^@[A-Za-z0-9._-]{1,64}$/.test(v)) return 'username'
   if (/^(https?|ftp):\/\//i.test(v)) return 'url'
   if (/^(as|asn)\s*\d{1,10}$/i.test(v)) return 'asn'
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(v)) return 'ip'
@@ -154,7 +156,10 @@ function detectIOCType(raw) {
   // Legacy BTC Base58 — checked LAST because the 1.../3... pattern collides
   // with arbitrary strings. Must be ≥25 chars and Base58 alphabet only.
   if (/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(v)) return 'wallet_address'
-  return 'domain'
+  // OSINT fallback: anything not matching a structured IOC above (a bare
+  // handle like "darkcoder" or "john_doe") is treated as a username, not a
+  // domain. CTI keeps the historical domain fallback.
+  return vertical === 'osint' ? 'username' : 'domain'
 }
 
 // ── HighlightedText ──────────────────────────────────────────────────────────
@@ -484,6 +489,20 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // what used to be 'single' and 'batch' (paste one IOC or a list, same input).
   const [inputMode, setInputMode] = useState('ioc')
   const [model, setModel] = useState('sonnet')
+  // Vertical (product lens) the new investigation runs under: 'cti' (default)
+  // or 'osint'. Persisted so the analyst's last choice survives reloads. The
+  // selectable list is fetched from /api/verticals so the UI stays in sync
+  // with the backend registry instead of hardcoding.
+  const [vertical, setVertical] = useState(() => {
+    try { return localStorage.getItem('bounce-vertical') || 'cti' } catch { return 'cti' }
+  })
+  const [verticals, setVerticals] = useState([])
+  useEffect(() => {
+    try { localStorage.setItem('bounce-vertical', vertical) } catch { /* ignore */ }
+  }, [vertical])
+  useEffect(() => {
+    fetch('/api/verticals').then(r => r.ok ? r.json() : []).then(setVerticals).catch(() => {})
+  }, [])
   // Extended-thinking effort level passed to the agent (CLI --effort). ''
   // means "use the model default". Persisted so it survives reloads.
   const [effort, setEffort] = useState(() => {
@@ -1499,7 +1518,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       const cleaned = values[0]
       const r = await fetch('/api/investigations', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seed_type: detectIOCType(cleaned), seed_value: cleaned, model, effort })
+        body: JSON.stringify({ seed_type: detectIOCType(cleaned, vertical), seed_value: cleaned, model, effort, vertical })
       })
       const { id } = await r.json()
       await refreshInvs()
@@ -1507,10 +1526,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       setSeedText('')
       return
     }
-    const items = values.map(v => ({ seed_type: detectIOCType(v), seed_value: v }))
+    const items = values.map(v => ({ seed_type: detectIOCType(v, vertical), seed_value: v }))
     const r = await fetch('/api/investigations/batch', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, model, effort, combined: batchCombined })
+      body: JSON.stringify({ items, model, effort, combined: batchCombined, vertical })
     })
     const d = await r.json()
     await refreshInvs()
@@ -2265,6 +2284,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             />
             {sampleError && <div className="pdf-error">{sampleError}</div>}
           </div>
+        )}
+        {verticals.length > 1 && (
+          <>
+            <div className="section-label">Vertical</div>
+            <select value={vertical} onChange={e => setVertical(e.target.value)}
+                    title="Investigation lens. CTI = threat-infrastructure attribution. OSINT = identity / entity footprint correlation.">
+              {verticals.map(v => <option key={v.name} value={v.name}>{v.label}</option>)}
+            </select>
+          </>
         )}
         <div className="section-label">Model</div>
         <select value={model} onChange={e => setModel(e.target.value)}>

@@ -57,8 +57,9 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 > on the investigation row and reused by `resume` / subsequent phases.
 
 - `POST   /api/investigations` — start (auto-detects seed type from value if `seed_type=auto`; supported types: `domain`, `ip`, `hash`, `url`, `jarm`, `asn`, `command_line`, `executable_name` — the last being a bare filename of a malicious binary such as `dropper.exe`, pivoted via MalwareBazaar's `get_filename` — and `email` / `wallet_address` / `username` for actor-level seeds: an email triggers Whoxy reverse-WHOIS + EmailRep + Pulsedive + OpenCTI; a wallet (ETH `0x…`, BTC bech32 / legacy, XMR — auto-detected by address format) cross-references ThreatFox + Pulsedive + OpenCTI; a forum / Telegram handle is graphed as an opaque identifier and probed against ThreatFox / Pulsedive / OpenCTI / URLScan). Optional `vertical` field (default `cti`; normalised via `backend/verticals.py`, unknown → `cti`) stored on the investigation.
-- `POST   /api/investigations/batch` — start many at once; `combined=true` chains them on one graph
+- `POST   /api/investigations/batch` — start many at once; `combined=true` chains them on one graph. Accepts the same optional `vertical` field (applied to every investigation in the batch)
 - `GET    /api/investigations` — list (caller-owned only)
+- `GET    /api/verticals` — selectable verticals for the new-investigation form (`[{name, label, seed_types}]`, from `backend/verticals.py`). Drives the frontend vertical selector + per-vertical seed-type hints so the UI stays in sync with the registry
 - `GET    /api/investigations/{id}/graph`
 - `GET    /api/investigations/{id}/transcript` — agent's reasoning + tool-call
   transcript ordered by event time. Used by the UI to rebuild the timeline
