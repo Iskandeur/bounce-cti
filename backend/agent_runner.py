@@ -310,12 +310,26 @@ def quota_block_active() -> tuple[bool, Optional[float], Optional[str]]:
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def _source_tool_prefix(inv_id: str) -> str:
+    """MCP tool-name prefix for this investigation's source pool (``mcp__<pool>__``).
+
+    The source-tool counters/extractors below key off this so they follow the
+    vertical's pool namespace rather than a hardcoded ``mcp__cti__``. For CTI and
+    OSINT-v1 (both on the cti pool) this is ``mcp__cti__`` (iso-functional)."""
+    try:
+        pool = verticals.get_vertical(gs.get_vertical(inv_id)).source_pool
+    except Exception:
+        pool = "cti"
+    return f"mcp__{pool}__"
+
+
 def _get_called_cti_tools(inv_id: str) -> set:
-    """Extract the set of CTI tool base names actually invoked during an investigation.
+    """Extract the set of source-tool base names actually invoked during an investigation.
 
     Only counts tool_use blocks in assistant messages — ignores tool names that
     merely appear in the init event's available-tools list.
     """
+    prefix = _source_tool_prefix(inv_id)
     with gs.conn() as c:
         rows = c.execute(
             "SELECT payload FROM events WHERE investigation_id=?",
@@ -332,8 +346,8 @@ def _get_called_cti_tools(inv_id: str) -> set:
         for block in d.get("msg", {}).get("message", {}).get("content", []):
             if block.get("type") == "tool_use":
                 name = block.get("name", "")
-                if name.startswith("mcp__cti__"):
-                    tools.add(name[len("mcp__cti__"):])
+                if name.startswith(prefix):
+                    tools.add(name[len(prefix):])
     return tools
 
 
@@ -345,6 +359,7 @@ def _count_cti_calls(inv_id: str) -> int:
     spend lands inside the EVAL_PROTOCOL §4.5 budget bands. A single agent
     turn can emit several parallel tool_use blocks, so this counts blocks,
     not turns — matching exactly how the eval scorer counts BD."""
+    prefix = _source_tool_prefix(inv_id)
     with gs.conn() as c:
         rows = c.execute(
             "SELECT payload FROM events WHERE investigation_id=?",
@@ -360,7 +375,7 @@ def _count_cti_calls(inv_id: str) -> int:
             continue
         for block in d.get("msg", {}).get("message", {}).get("content", []):
             if block.get("type") == "tool_use" and \
-               str(block.get("name", "")).startswith("mcp__cti__"):
+               str(block.get("name", "")).startswith(prefix):
                 n += 1
     return n
 
@@ -369,6 +384,7 @@ def _get_called_tool_invocations(inv_id: str) -> set:
     """Like _get_called_cti_tools but returns (tool_name, primary_arg_str_lower).
     Used by the adaptive-followup logic to detect which (tool, value) pairs
     were actually invoked, so we don't re-trigger them."""
+    prefix = _source_tool_prefix(inv_id)
     with gs.conn() as c:
         rows = c.execute(
             "SELECT payload FROM events WHERE investigation_id=?",
@@ -386,9 +402,9 @@ def _get_called_tool_invocations(inv_id: str) -> set:
             if block.get("type") != "tool_use":
                 continue
             name = block.get("name", "")
-            if not name.startswith("mcp__cti__"):
+            if not name.startswith(prefix):
                 continue
-            short = name[len("mcp__cti__"):]
+            short = name[len(prefix):]
             inp = block.get("input") or {}
             # Pick the first non-empty string-ish value as primary arg
             primary = ""
@@ -2399,6 +2415,20 @@ _ALLOWED_TOOLS = (
 _DISALLOWED_TOOLS = "Bash,Edit,Write,MultiEdit,Read,Glob,Grep,NotebookEdit,WebSearch,WebFetch,Task,TodoWrite"
 
 
+def build_allowed_tools(pool: str) -> str:
+    """The --allowedTools whitelist for a given source pool.
+
+    _ALLOWED_TOOLS is authored for the cti pool (mcp__cti__* + the pool-agnostic
+    mcp__graph__* tools). A vertical mounting a different source pool gets the
+    same source-tool short-names under its own namespace (mcp__<pool>__*), so we
+    just rewrite the source prefix; the mcp__graph__* entries are untouched. For
+    the cti pool (CTI and OSINT-v1) this returns _ALLOWED_TOOLS unchanged
+    (iso-functional)."""
+    if pool == "cti":
+        return _ALLOWED_TOOLS
+    return _ALLOWED_TOOLS.replace("mcp__cti__", f"mcp__{pool}__")
+
+
 def _build_env(inv_id: str) -> dict:
     """Build a minimal env for the spawned `claude` process."""
     parent = os.environ
@@ -2472,10 +2502,13 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
     the Claude subscription was exhausted; callers should abort downstream
     phases and surface a resume affordance to the user."""
     claude_path = _resolve_claude_bin()
-    # Compose the {core}+{vertical} system prompt for this investigation's
-    # vertical (no-op for CTI — see build_system_prompt).
-    system_prompt = build_system_prompt(system_prompt,
-                                        verticals.get_vertical(gs.get_vertical(inv_id)))
+    # Resolve this investigation's vertical once and use it for both the
+    # {core}+{vertical} system prompt and the per-pool tool whitelist (no-op for
+    # CTI and OSINT-v1, which both use the cti source pool — see
+    # build_system_prompt / build_allowed_tools).
+    vertical = verticals.get_vertical(gs.get_vertical(inv_id))
+    system_prompt = build_system_prompt(system_prompt, vertical)
+    allowed_tools = build_allowed_tools(vertical.source_pool)
     _log(inv_id, f"phase_{phase}_starting", {"prompt_preview": prompt[:200]})
 
     cmd = [
@@ -2488,7 +2521,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
         "--verbose",
         "--permission-mode", "bypassPermissions",
         "--max-turns", str(max_turns),
-        "--allowedTools", _ALLOWED_TOOLS,
+        "--allowedTools", allowed_tools,
         "--disallowedTools", _DISALLOWED_TOOLS,
     ]
 

@@ -62,6 +62,17 @@ def test_prompt_builder_applies_osint_lens():
     assert ar.build_system_prompt(ar.SYSTEM_PROMPT, verticals.CTI) == ar.SYSTEM_PROMPT
 
 
+def test_build_allowed_tools_is_namespace_aware():
+    # cti pool → unchanged (iso-functional for CTI and OSINT-v1)
+    assert ar.build_allowed_tools("cti") == ar._ALLOWED_TOOLS
+    # a dedicated pool rewrites only the source prefix; graph tools untouched
+    osint_tools = ar.build_allowed_tools("osint")
+    assert "mcp__osint__crtsh_subdomains" in osint_tools
+    assert "mcp__cti__" not in osint_tools
+    assert "mcp__graph__add_node" in osint_tools   # graph namespace is pool-agnostic
+    assert osint_tools.count(",") == ar._ALLOWED_TOOLS.count(",")  # same tool count
+
+
 def test_allowed_seed_types_matches_registry():
     historical = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line",
                   "executable_name", "email", "wallet_address", "username"}
