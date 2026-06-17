@@ -8,18 +8,23 @@
   "negatives": [1, 2, 3],
   "status": "BLOCKED",
   "blocker": {
-    "layer": "platform_auth",
-    "summary": "claude -p subprocess spawns but emits zero stream-json output (0 tool calls, 0 nodes)",
-    "leading_cause": "2026-06-15 claude -p subscription-subsidy removal broke programmatic auth on the VPS; ANTHROPIC_API_KEY fallback (PR #15) unmerged",
+    "layer": "platform_deploy",
+    "summary": "claude binary not on systemd service PATH -> FileNotFoundError on every spawn -> zero output (0 tool calls, 0 nodes)",
+    "confirmed_cause": "claude CLI at /home/bounce/.local/bin/claude (native installer) not on service PATH; shutil.which('claude') returned None, bare-name fallback raised FileNotFoundError. Secondary bug: FileNotFoundError handler returned 3-tuple vs 4-tuple unpack -> run_investigation crash -> zombie running status.",
+    "wrong_hypothesis": "2026-06-15 claude -p subscription-subsidy removal -- WITHDRAWN: that change was postponed; manual claude -p authenticates fine.",
+    "fix_commit": "c53a4eb",
+    "operational_unblock": "set CLAUDE_BIN=/home/bounce/.local/bin/claude in .env and restart",
     "ruled_out": [
       "quota gate (api/quota exhausted=false)",
-      "c127a80 CDN fix (imports clean, logic sound, deploy green)",
+      "c127a80 CDN fix (imports clean, run_mcp.py starts in venv)",
       "deploy/build failure (GH Actions green, backend API healthy)",
-      "backend down (API responsive)"
+      "backend down (API responsive)",
+      "June-15 subscription change (postponed; manual claude -p works)"
     ],
     "evidence": {
-      "investigations_since_2026_06_15": 1,
-      "last_successful_eval": "2026-06-01 (de5a31b, pre-change)",
+      "agent_error": "claude CLI not found: [Errno 2] No such file or directory",
+      "which_claude": "/home/bounce/.local/bin/claude",
+      "service_path": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/snap/bin",
       "c02_inv_id": "b701e131ab3c",
       "c02_attempts": [
         {"kind": "original", "submitted": "09:55", "killed_by": "deploy c127a80 at 10:06", "nodes": 0},
@@ -49,5 +54,5 @@
     "negatives_rst": {"1": 100, "2": 50, "3": 50},
     "restraint_floor": 75
   },
-  "recommended_action": "Set ANTHROPIC_API_KEY on the VPS (or merge PR #15 billing-fallback), confirm with one lightweight investigation, then re-run the nightly subset."
+  "recommended_action": "Operational unblock applied (CLAUDE_BIN abspath + restart). Merge PR #19 for the permanent resolver+tuple fix. Confirm with one lightweight investigation, then re-run the nightly subset."
 }

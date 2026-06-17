@@ -4,12 +4,25 @@
 > execute a single `claude -p` investigation. This scorecard documents the
 > blocker and its diagnosis rather than capability scores; **no CAP/PS/RST/HYP
 > numbers were produced** because zero graph nodes were ever generated.
+>
+> **ROOT CAUSE CONFIRMED (post-mortem, 2026-06-17 ~12:00 UTC):** the `claude`
+> CLI binary was **not on the systemd service's PATH** — it had moved to
+> `/home/bounce/.local/bin/claude` (native-installer location), which the
+> service PATH (`…:/usr/bin:/snap/bin`) does not include. `agent_runner`
+> resolved it with `shutil.which("claude") → None`, fell back to the bare name,
+> and every spawn raised `FileNotFoundError`. The `agent_error` events in
+> `data/bounce.db` say exactly this: `claude CLI not found: [Errno 2] No such
+> file or directory`. **The June-15 subscription hypothesis below was WRONG** —
+> the change was postponed, and a manual `claude -p` on the VPS (with the binary
+> located) works end-to-end. Fixed in commit `c53a4eb` (binary resolver +
+> tuple-arity fix) and unblocked operationally by setting `CLAUDE_BIN` to the
+> absolute path.
 
 **Run environment**
 - Branch: `claude/wizardly-pascal-s9tq75` (local), against `main` deployed VPS at https://bounce.alexandre-pinoteau.fr/ (HEAD == origin/main == `90c516b` at run start; fix `c127a80` deployed at 10:06 UTC)
 - Model: `opus-4.8`
 - Mode: **nightly fresh subset** — Cases 2, 3, 8, 9, 12 + Negative N1–N3, sequential one-by-one (quota-survivable runner).
-- Date: 2026-06-17 (note: **2 days after the 2026-06-15 `claude -p` subscription-subsidy removal**).
+- Date: 2026-06-17.
 
 ## Outcome
 
@@ -26,31 +39,51 @@ c02 was attempted **three times**:
 
 ## Root-cause diagnosis
 
-The agent emits `phase_main_starting` (logged in `agent_runner.py:2367`, **before** the
-`claude -p` subprocess is spawned at line 2369) and then nothing: **zero
-`stream-json` output, zero tool calls, zero nodes.** This is the signature of a
-`claude -p` subprocess that launches but never produces output.
+The agent emits `phase_main_starting` (logged in `agent_runner.py`, **before** the
+`claude -p` subprocess is spawned) and then nothing: **zero `stream-json` output,
+zero tool calls, zero nodes.** That is the signature of a spawn that fails before
+producing any output.
 
-Evidence ruling causes in/out:
+**Confirmed cause — `claude` binary not on the service PATH.** The `events` table
+for inv `b701e131ab3c` shows, on every attempt:
+
+```
+agent_error | claude CLI not found: [Errno 2] No such file or directory
+```
+
+The binary is at `/home/bounce/.local/bin/claude` (Claude Code's native
+installer), and the systemd service PATH is
+`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/snap/bin` — `~/.local/bin` is
+absent. `agent_runner` used `shutil.which("claude")`, got `None`, fell back to the
+bare name `"claude"`, and `create_subprocess_exec` raised `FileNotFoundError`. A
+secondary bug compounded it: the `FileNotFoundError` handler returned a 3-tuple
+while callers unpack 4, so `run_investigation` crashed on the unpack and left the
+row stuck `running` (the "zombie") instead of failing cleanly.
+
+Evidence ruling other causes out:
 
 | Hypothesis | Verdict | Evidence |
 |---|---|---|
-| **June-15 subscription-subsidy removal broke programmatic `claude -p` auth** | **LEADING** | Today is 2 days post-change. The API-key fallback (draft **PR #15**) is unmerged, so the VPS has no `ANTHROPIC_API_KEY` to fall back to. Only **1** investigation has run since June 15 (this one); last successful eval was **June 1** (pre-change). |
-| Normal quota gate | ruled out | `GET /api/quota` → `exhausted:false`. The agent's quota detector never fired. |
-| Our `c127a80` fix broke the graph MCP server | ruled out | `graph_store.py` imports cleanly; `_NOISE_TAGS`/`_MALICIOUS_TAGS` guards in `tag_node`/`add_node` are logically sound (set ops on strings, no error path). Deploy `c127a80` **succeeded** (GH Actions green at 10:06). |
-| Deploy left the service degraded | ruled out | Backend API healthy throughout (investigation list / graph / transcript endpoints all responsive). |
-| Backend down | ruled out | API responds normally. |
+| `claude` binary not on service PATH | **CONFIRMED** | `agent_error: claude CLI not found` in `data/bounce.db`; `which claude` → `/home/bounce/.local/bin/claude`, not on the service PATH. Manual `claude -p` with the binary located runs end-to-end (MCP servers `connected`). |
+| ~~June-15 subscription-subsidy removal~~ | **WRONG / withdrawn** | The change was **postponed** (Anthropic email, 2026-06-15). Subscription `claude -p` is unchanged; manual runs authenticate fine. |
+| Normal quota gate | ruled out | `GET /api/quota` → `exhausted:false`. |
+| `c127a80` CDN fix broke the graph MCP server | ruled out | `graph_store.py` imports cleanly; standalone `run_mcp.py graph_mcp` (in the venv) starts fine. |
+| Deploy left the service degraded | ruled out | Backend API healthy throughout. |
 
-## Recommended action (owner)
+## Resolution
 
-1. **Unblock the VPS `claude -p` auth** — set `ANTHROPIC_API_KEY` in the VPS env
-   (the agentic credit is billed at API rates anyway), **or** finish + merge
-   **PR #15** (the `billing_mode` API-fallback in `agent_runner._build_env`).
-2. Confirm with a single lightweight investigation (e.g. a parked domain) that
-   nodes appear, then **re-run this nightly subset** — phases are idempotent, so
-   a fresh run is clean.
+- **Operational unblock (applied):** set `CLAUDE_BIN=/home/bounce/.local/bin/claude`
+  in `/opt/bounce-cti/.env` and restart the service. Points the backend straight
+  at the binary regardless of the service PATH.
+- **Code fix (commit `c53a4eb`, on PR #19):** `agent_runner._resolve_claude_bin()`
+  now probes `~/.local/bin`, `~/.npm-global/bin`, `/usr/local/bin`, `/usr/bin`
+  after the PATH lookup, and the `FileNotFoundError` handler returns the proper
+  4-tuple so a missing CLI fails cleanly (`error rc=None`) instead of zombie
+  `running`.
+- Confirm with a single lightweight investigation (e.g. a parked domain) that
+  nodes appear, then **re-run this nightly subset** — phases are idempotent.
 
-## Fix shipped this run
+## Other fix shipped this run
 
 **CDN/parking malicious-tag suppression** (`backend/graph_store.py`, commit
 `c127a80`, already on `main`). Suppresses malicious-family tags

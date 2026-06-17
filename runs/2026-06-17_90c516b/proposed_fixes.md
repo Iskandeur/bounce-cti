@@ -4,33 +4,36 @@ The nightly run was **blocked** before any case scored, so this list is driven
 by the blocker diagnosis rather than capability gaps. Priorities are ordered by
 what unblocks the eval and protects production.
 
-## P0 — Restore `claude -p` execution on the VPS (BLOCKER)
+## P0 — `claude` binary off the service PATH (BLOCKER) — FIXED (`c53a4eb`)
 
-**Symptom.** Every `claude -p` investigation spawns and then produces zero
-`stream-json` output — 0 tool calls, 0 nodes — leaving the investigation in a
-zombie `running` state. The quota gate reads `exhausted:false`, so the agent's
-own quota detector never fires.
+**Symptom.** Every `claude -p` investigation spawned and produced zero
+`stream-json` output — 0 tool calls, 0 nodes — leaving a zombie `running` state.
 
-**Cause (leading).** 2026-06-15 removed the `claude -p` / Agent-SDK subscription
-subsidy. The VPS authenticates `claude -p` via the subscription and has **no
-`ANTHROPIC_API_KEY` fallback** (PR #15, which adds the `billing_mode`
-api-fallback to `agent_runner._build_env`, is still a **draft**). This is the
-first investigation attempted since the change; the last green eval was June 1.
+**Confirmed cause.** The `claude` CLI moved to `/home/bounce/.local/bin/claude`
+(Claude Code native installer), which is **not on the systemd service's PATH**
+(`…:/usr/bin:/snap/bin`). `agent_runner` used `shutil.which("claude") → None`,
+fell back to the bare name, and `create_subprocess_exec` raised
+`FileNotFoundError` (recorded verbatim as `agent_error` in `data/bounce.db`). A
+secondary bug — the `FileNotFoundError` handler returned a 3-tuple while callers
+unpack 4 — crashed `run_investigation` and produced the zombie `running` status
+instead of a clean failure.
 
-**Fix.**
-1. Set `ANTHROPIC_API_KEY` in the VPS `.env` (agentic credit is billed at API
-   rates regardless) — fastest unblock.
-2. **Or** finish + merge **PR #15** so `billing_mode` flips to `api_fallback`
-   automatically when the agentic credit is exhausted.
+> The earlier "June-15 subscription-subsidy removal" guess was **wrong**: that
+> change was postponed (Anthropic email 2026-06-15), and manual `claude -p` on
+> the VPS authenticates and runs end-to-end.
 
-**Hardening follow-up.** The current quota detector doesn't recognise this new
-failure mode (subprocess produces *no* output instead of a quota-error line). Add
-a **"no first event within N seconds"** watchdog in `agent_runner._run_claude`
-that, when `claude -p` emits no `stream-json` within (say) 120s, kills the
-subprocess and flips the investigation to `failed` with a clear
-`agent_no_output` reason — instead of leaving it `running` forever. This converts
-a silent hang into an actionable, surfaced failure and prevents the
-sequential-runner from wedging for 150 min per case.
+**Fix (shipped, commit `c53a4eb`, PR #19).**
+1. `agent_runner._resolve_claude_bin()` — after the PATH lookup, probe
+   `~/.local/bin`, `~/.npm-global/bin`, `/usr/local/bin`, `/usr/bin`.
+2. The `FileNotFoundError` handler returns the proper 4-tuple, so a missing CLI
+   fails cleanly (`error rc=None`) instead of a zombie `running`.
+3. **Operational unblock (applied):** `CLAUDE_BIN=/home/bounce/.local/bin/claude`
+   in `.env` + service restart.
+
+**Hardening follow-up (still open).** Add a **"no first event within N seconds"**
+watchdog in `_run_claude_phase`: if `claude -p` emits no `stream-json` within
+(say) 120s, kill it and flip to `failed` with an `agent_no_output` reason — so
+any *other* silent-spawn failure surfaces instead of hanging.
 
 ## P1 — Live-validate the shipped CDN/parking tag-suppression fix
 

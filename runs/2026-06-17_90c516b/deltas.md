@@ -36,7 +36,9 @@ expectation is **unverified** — the run never executed.
 
 ## Infra delta vs prior run
 
-The decisive change between the last green run (2026-06-01) and tonight is the
-**2026-06-15 removal of the `claude -p` subscription subsidy**. No eval
-infrastructure or agent-prompt change explains the blocker; the environment
-changed underneath a working harness.
+The decisive change between the last green run (2026-06-01) and tonight was that
+the **`claude` CLI relocated to `~/.local/bin/claude`** (native installer),
+off the systemd service's PATH, so every spawn raised `FileNotFoundError`. The
+environment moved underneath a working harness. (An earlier guess blamed the
+2026-06-15 subscription-subsidy change — that was **wrong**; the change was
+postponed.) Fixed in commit `c53a4eb`.

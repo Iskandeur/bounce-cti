@@ -7,7 +7,7 @@
 
 | Count | Mode | Layer | Cases affected |
 |------:|:-----|:------|:---------------|
-| 1 | `claude -p` subprocess spawns but emits zero `stream-json` output (0 tool calls, 0 nodes) | **platform / auth** | c02 (×3 attempts); c03/c08/c09/c12/N1–N3 never reached |
+| 1 | `claude` binary not on service PATH → `FileNotFoundError` on spawn → zero output (0 tool calls, 0 nodes) | **platform / deploy** | c02 (×3 attempts); c03/c08/c09/c12/N1–N3 never reached |
 
 No per-case capability failures (pivot-miss, hallucination, restraint, hypothesis)
 were observed because **no case produced any graph**.
@@ -19,18 +19,23 @@ were observed because **no case produced any graph**.
 <nothing — no tool_use, no node_added, no result>
 ```
 
-`agent_runner.py` logs `phase_main_starting` *before* spawning `claude -p`
-(line 2367 vs 2369), so this signature = the subprocess launched and then
-produced no output whatsoever.
+`agent_runner.py` logs `phase_main_starting` *before* spawning `claude -p`, so
+this signature = the spawn failed before producing any output. The `events`
+table confirms it: `agent_error: claude CLI not found: [Errno 2] No such file
+or directory`.
 
 ## Not failure modes (explicitly ruled out)
 
 - ❌ Quota exhaustion — `/api/quota` → `exhausted:false`.
-- ❌ The `c127a80` CDN-tag fix — imports clean, logic sound, deploy green.
-- ❌ Deploy/build failure — GH Actions deploy succeeded; backend API healthy.
+- ❌ The `c127a80` CDN-tag fix — imports clean; standalone `run_mcp.py` starts.
+- ❌ June-15 subscription change — **postponed**; manual `claude -p` authenticates.
 
-## Single root cause
+## Single root cause (CONFIRMED)
 
-All paths converge on the **2026-06-15 `claude -p` subscription-subsidy
-removal** breaking programmatic auth on the VPS, with no `ANTHROPIC_API_KEY`
-fallback configured (PR #15 unmerged). See `scorecard.md`.
+The `claude` binary was **not on the systemd service's PATH** — it lives at
+`/home/bounce/.local/bin/claude` (native installer), absent from the service
+PATH. `shutil.which("claude") → None` → bare-name fallback → `FileNotFoundError`
+on every spawn. A secondary bug (3-tuple return from the `FileNotFoundError`
+handler vs. 4-tuple unpack) crashed `run_investigation` and produced the zombie
+`running` status. Both fixed in commit `c53a4eb`; operationally unblocked by
+setting `CLAUDE_BIN` to the absolute path. See `scorecard.md`.
