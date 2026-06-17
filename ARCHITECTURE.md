@@ -227,11 +227,15 @@ captures the per-vertical knobs — `name`, `label`, `agent_name` (for the
 system-prompt builder), `seed_types` (accepted seeds, referencing the seed
 registry), `source_pool` (which MCP pool to mount), and `prompt_block` (the
 vertical-specific system-prompt addendum, empty for CTI). `VERTICALS` registers
-the active verticals; today only `cti` is wired (byte-for-byte the existing
-behaviour). `get_vertical()` / `normalise()` resolve a name and fall back to
-`cti` for unknown/empty input, so bad input never breaks the platform.
-`POST /api/investigations` accepts an optional `vertical` field (default `cti`),
-normalised here and stored on `investigations.vertical`.
+the active verticals: `cti` (byte-for-byte the existing behaviour) and `osint`
+(Phase 2, slice 1 — an OSINT *lens*: reuses the CTI source pool/namespace for v1,
+differs only by `agent_name=Bounce-OSINT` + an OSINT `prompt_block` that reframes
+the goal from threat-infra attribution to identity/entity footprint correlation;
+a dedicated `mcp__osint__*` source pool is a later slice). `get_vertical()` /
+`normalise()` resolve a name and fall back to `cti` for unknown/empty input, so
+bad input never breaks the platform. `POST /api/investigations` accepts an
+optional `vertical` field (default `cti`), normalised here and stored on
+`investigations.vertical`.
 
 `SOURCE_POOL_MODULES` / `source_pool_module()` map a vertical's `source_pool`
 id to the MCP server module that exposes that pool's source tools. The pool id
@@ -239,8 +243,9 @@ doubles as the MCP server *key*, so it sets the tool namespace
 (`mcp__<pool>__*`). For CTI: `cti` → `cti_mcp` (the historical `mcp__cti__*`
 namespace). `agent_runner._write_mcp_config` reads the investigation's vertical
 and mounts the resolved pool — so the generated `mcp-{id}.json` is per-vertical
-(CTI byte-for-byte unchanged). OSINT/DD get registered as their pools and prompt
-blocks land (Phases 2/3). Tested by `backend/tests/test_verticals.py`.
+(CTI byte-for-byte unchanged; OSINT v1 reuses the `cti` pool). DD gets registered
+as its pool and prompt block land (Phase 3). Tested by
+`backend/tests/test_verticals.py`.
 
 The `{core}+{vertical}` system-prompt builder lives in
 `agent_runner.build_system_prompt(template, vertical)`: it composes a phase

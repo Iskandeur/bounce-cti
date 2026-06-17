@@ -26,9 +26,10 @@ backend/
                         #   vertical foundation (Phase 1).
   verticals.py          # Vertical registry: the CTI/OSINT/DD abstraction.
                         #   Vertical{name,label,agent_name,seed_types,
-                        #   source_pool,prompt_block} + VERTICALS (only 'cti'
-                        #   active) + get_vertical/normalise (unknown → cti
-                        #   fallback) + source pool selection
+                        #   source_pool,prompt_block} + VERTICALS (cti + osint
+                        #   lens; osint reuses the cti pool for v1, differs by
+                        #   agent_name + prompt_block) + get_vertical/normalise
+                        #   (unknown → cti fallback) + source pool selection
                         #   (SOURCE_POOL_MODULES, consumed by
                         #   agent_runner._write_mcp_config). {core}+{vertical}
                         #   system-prompt builder (agent_runner.build_system_prompt)
