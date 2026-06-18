@@ -136,6 +136,14 @@ def _mandatory_username(v: str) -> list[tuple[str, str]]:
     ]
 
 
+def _mandatory_phone(v: str) -> list[tuple[str, str]]:
+    return [
+        ("phone_lookup", f'phone_lookup("{v}")'),
+        ("threatfox_search", f'threatfox_search("{v}")'),
+        ("opencti_lookup_indicator", f'opencti_lookup_indicator("{v}")'),
+    ]
+
+
 # Registry of mandatory-tool builders. Seed types absent here (command_line and
 # any unknown type) have no IOC-level mandatory tools — their prompt drives the
 # per-IOC pivots once embedded indicators are graphed.
@@ -150,6 +158,7 @@ _MANDATORY: dict[str, Callable[[str], list[tuple[str, str]]]] = {
     "email": _mandatory_email,
     "wallet_address": _mandatory_wallet_address,
     "username": _mandatory_username,
+    "phone": _mandatory_phone,
 }
 
 
@@ -165,7 +174,7 @@ def mandatory_tools(seed_type: str, seed_value: str) -> list[tuple[str, str]]:
 # no mandatory IOC tools, so it is registered but absent from ``_MANDATORY``.
 KNOWN_SEED_TYPES: tuple[str, ...] = (
     "ip", "domain", "url", "jarm", "asn", "hash", "executable_name",
-    "email", "wallet_address", "username", "command_line",
+    "email", "wallet_address", "username", "phone", "command_line",
 )
 
 
@@ -405,6 +414,33 @@ def investigation_prompt(seed_type: str, seed_value: str) -> str:
             "        metadata.attribution_status=\"no_public_record\" and keep\n"
             "        the report minimal — the handle alone is not actionable."
         )
+    elif seed_type == "phone":
+        return (
+            f"Seed indicator: type=phone value={seed_value}\n"
+            "This is a phone number — could be a scam/fraud callback number, a\n"
+            "Telegram/WhatsApp contact for a vendor, a phishing SMS sender, or an\n"
+            "actor's registration/2FA number. Supply E.164 (+countrycode…). Your\n"
+            "job is to qualify the number and surface every public mention.\n\n"
+            f"STEP 1: add_node(phone, {seed_value}, tags=[\"seed\"])\n"
+            f"STEP 2: phone_lookup({seed_value}) — offline libphonenumber metadata.\n"
+            "        Copy onto the node metadata: country/region, carrier, line_type\n"
+            "        (mobile/fixed/voip/toll_free), and validity. A VoIP / invalid /\n"
+            "        toll-free number is a strong burner/spoofing signal — tag it\n"
+            "        (e.g. `voip_line`, `invalid_number`).\n"
+            f"STEP 3: threatfox_search({seed_value}) — listed in any IOC bundle?\n"
+            f"STEP 4: opencti_lookup_indicator({seed_value}) — community KG mention.\n"
+            f"STEP 5: urlscan_search(\"{seed_value}\") — the number may appear in\n"
+            "        scanned scam/phishing page DOM (callback widgets, contact info).\n"
+            "        Graph each matching page as a url node tied back with embedded_in.\n"
+            "STEP 6: For every domain / email / username co-mentioned with the number\n"
+            "        in returned records, graph it (add_node + uses_contact edge).\n"
+            "STEP 7: Final report — value=\"investigation_summary\". The summary MUST\n"
+            "        state: the country/carrier/line type, whether the number is a\n"
+            "        likely burner (VoIP/invalid), and which campaign / actor it\n"
+            "        attributes to (if any). If no public source mentions it, set\n"
+            "        metadata.attribution_status=\"no_public_record\" and keep the\n"
+            "        report minimal — the line metadata alone is the deliverable."
+        )
     elif seed_type == "command_line":
         return (
             f"Seed indicator: type=command_line value={seed_value}\n"
@@ -586,6 +622,17 @@ def add_seed_block(seed_type: str, seed_value: str) -> str:
             "Every domain / IP / hash co-mentioned with the handle becomes a node\n"
             "with a uses_handle edge to the username.\n"
         )
+    elif seed_type == "phone":
+        return (
+            "This is a phone add-seed (supply E.164 +countrycode…). Required tools:\n"
+            f"  - phone_lookup({seed_value})  — set metadata.country/carrier/line_type\n"
+            f"  - threatfox_search({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - urlscan_search(\"{seed_value}\")\n"
+            "Tag the node `voip_line` / `invalid_number` when the lookup says so.\n"
+            "Every domain / email / username co-mentioned becomes a node with a\n"
+            "uses_contact edge to the phone.\n"
+        )
     return ""
 
 
@@ -693,6 +740,14 @@ def pivot_block(seed_type: str, seed_value: str) -> str:
             "This is a username pivot. Call these tools (skip already-graphed):\n"
             f"  - threatfox_search({seed_value})\n"
             f"  - pulsedive_indicator({seed_value})\n"
+            f"  - opencti_lookup_indicator({seed_value})\n"
+            f"  - urlscan_search(\"{seed_value}\")\n"
+        )
+    elif seed_type == "phone":
+        return (
+            "This is a phone pivot (E.164). Call these tools (skip already-graphed):\n"
+            f"  - phone_lookup({seed_value})\n"
+            f"  - threatfox_search({seed_value})\n"
             f"  - opencti_lookup_indicator({seed_value})\n"
             f"  - urlscan_search(\"{seed_value}\")\n"
         )

@@ -478,6 +478,14 @@ OSINT (Phase 2):
   after a username sweep shows a GitHub presence. Pure `_parse()` core is
   unit-tested; `pivot_mapping` enqueues it for `username` nodes. Shared into
   the cti pool.
+- `phone_enrich` — offline phone-number enrichment (`phone_lookup` tool) via
+  Google's libphonenumber (the `phonenumbers` package, Apache-2.0) — **no
+  network, no key**. Returns validity, country / region, carrier, line type
+  (mobile / fixed-line / VoIP / toll-free / …), timezones, and canonical
+  E.164 / international formats. Powers the new OSINT **`phone` seed type** and
+  qualifies a phone IOC (real mobile vs VoIP burner) before pivoting. Pure
+  `_parse()` core is unit-tested; `pivot_mapping` enqueues it for `phone`
+  nodes. Shared into the cti pool.
 - `wallet_enrich` — cryptocurrency wallet on-chain enrichment (`wallet_enrich`
   tool). BTC (bech32 / legacy) via blockstream.info Esplora API (**free, no
   key**); ETH (`0x…`) via Etherscan v2 (needs `ETHERSCAN_API_KEY` via
@@ -490,7 +498,7 @@ OSINT (Phase 2):
   approach is a concept port from flowsint (Apache-2.0) — see
   `THIRD_PARTY_LICENSES`.
 
-These add 25 MCP tools, taking the total to ~82. The `circl_hash_lookup`,
+These add 26 MCP tools, taking the total to ~83. The `circl_hash_lookup`,
 `tor_exit_check`, `dnstwist_permutations`, `leakix_host`, and
 `pulsedive_indicator` wrappers attach `_pivot_hints` (see `backend/hints.py`)
 that steer the agent into NSRL defusion, tor-exit defusion, typosquat

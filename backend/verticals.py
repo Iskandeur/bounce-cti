@@ -85,7 +85,7 @@ OSINT = Vertical(
     name="osint",
     label="OSINT",
     agent_name="Bounce-OSINT",
-    seed_types=("username", "email", "domain", "wallet_address", "ip"),
+    seed_types=("username", "email", "phone", "domain", "wallet_address", "ip"),
     source_pool="cti",          # v1 reuses the CTI pool/namespace (see note above)
     prompt_block=_OSINT_PROMPT_BLOCK,
 )

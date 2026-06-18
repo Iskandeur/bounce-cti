@@ -74,6 +74,7 @@ def test_build_allowed_tools_is_namespace_aware():
 
 
 def test_allowed_seed_types_matches_registry():
-    historical = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line",
-                  "executable_name", "email", "wallet_address", "username"}
-    assert set(seeds.KNOWN_SEED_TYPES) == historical
+    # The original CTI set plus the OSINT people seeds added in Phase 2.
+    expected = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line",
+                "executable_name", "email", "wallet_address", "username", "phone"}
+    assert set(seeds.KNOWN_SEED_TYPES) == expected

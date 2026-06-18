@@ -2,7 +2,7 @@
 
 ## What this is
 
-Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submits a seed (domain / IP / hash / URL / JARM / ASN / command_line / executable_name / email / wallet_address / username), the backend spawns a headless `claude -p` agent that queries ~50 public CTI source tools via MCP (commercial scanners + abuse feeds + the OpenCTI community knowledge graph), builds an infrastructure graph in SQLite, and streams it live to a React + Cytoscape frontend over WebSocket. Investigations are scoped to PIN-authenticated users, can be shared via signed links, and can be exported as PDF or STIX 2.1.
+Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submits a seed (domain / IP / hash / URL / JARM / ASN / command_line / executable_name / email / wallet_address / username / phone), the backend spawns a headless `claude -p` agent that queries ~50 public CTI source tools via MCP (commercial scanners + abuse feeds + the OpenCTI community knowledge graph), builds an infrastructure graph in SQLite, and streams it live to a React + Cytoscape frontend over WebSocket. Investigations are scoped to PIN-authenticated users, can be shared via signed links, and can be exported as PDF or STIX 2.1.
 
 The `executable_name` seed type lets the analyst paste just the basename of a malicious binary (e.g. `dropper.exe`) without uploading the file or knowing its hash — the agent pivots via MalwareBazaar's `get_filename` query to recover sample hashes and then runs the standard hash workflow on the top hits for family attribution.
 
@@ -104,12 +104,13 @@ backend/
                         #   threat_actor nodes (+ kit-handle tags to phishing_kit
                         #   nodes). add_edge auto-stubs missing
                         #   endpoints (phantom_autostub).
-    cti_mcp.py          # MCP server: ~82 async CTI source tools
+    cti_mcp.py          # MCP server: ~83 async CTI source tools
                         #   (incl. malwarebazaar_imphash — PE imphash cluster,
                         #   username_enumerate — Sherlock-style profile sweep,
                         #   gravatar_email — email→public profile / accounts,
                         #   github_profile — GitHub user identity enrichment,
-                        #   wallet_enrich — crypto wallet on-chain activity)
+                        #   wallet_enrich — crypto wallet on-chain activity,
+                        #   phone_lookup — offline phone metadata)
   sources/              # One file per CTI source (all async, all cached):
                         #   Existing: crtsh, rdap, whois (RFC 3912 / port-43),
                         #     dns_tools, virustotal,
@@ -151,6 +152,11 @@ backend/
                         #     github_profile (free, no-key GitHub user→identity
                         #     enrichment: name/company/blog/twitter handle;
                         #     username pivot, shared into the cti pool).
+                        #     phone_enrich (offline, no-key phone metadata via
+                        #     libphonenumber/phonenumbers Apache-2.0: validity,
+                        #     country/region, carrier, line type, timezones;
+                        #     powers the new `phone` OSINT seed + phone pivot,
+                        #     shared into the cti pool).
                         #     wallet_enrich (crypto wallet on-chain activity:
                         #     BTC via blockstream.info no-key, ETH via Etherscan
                         #     w/ optional ETHERSCAN_API_KEY — balance, volume,
