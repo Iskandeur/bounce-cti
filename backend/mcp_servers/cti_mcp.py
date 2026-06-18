@@ -655,6 +655,20 @@ async def github_profile(username: str) -> dict:
 
 
 @mcp.tool()
+async def website_extract(url: str) -> dict:
+    """Fetch a web page and extract its outbound links, external domains,
+    emails, and links to known social platforms (GitHub/Twitter-X/Telegram/
+    LinkedIn/Instagram/YouTube/TikTok/Facebook), plus the title and a text
+    excerpt. Free, no key. The "footprint a site / profile page" OSINT pivot:
+    turns one URL into connected identities and infrastructure. Graph each
+    social_profiles[] entry as a username node (uses_handle edge), each
+    external domain as a domain node, and each email as an email node, all
+    linked back to the url. Use on a person's site, a phishing page, or any
+    URL node to expand the graph."""
+    return await _src("website_enrich").extract(url)
+
+
+@mcp.tool()
 async def phone_lookup(number: str) -> dict:
     """Enrich a phone number (offline, no key) — validity, country / region,
     carrier, line type (mobile / fixed-line / VoIP / toll-free / …), timezones,

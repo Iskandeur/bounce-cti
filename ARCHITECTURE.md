@@ -498,7 +498,18 @@ OSINT (Phase 2):
   approach is a concept port from flowsint (Apache-2.0) — see
   `THIRD_PARTY_LICENSES`.
 
-These add 26 MCP tools, taking the total to ~83. The `circl_hash_lookup`,
+- `website_enrich` — webpage content extraction (`website_extract` tool) —
+  **free, no key**. Fetches a URL and extracts (stdlib regex, no BeautifulSoup)
+  the title, a text excerpt, outbound links (internal vs external), external
+  domains, emails, and links to known social platforms (GitHub / Twitter-X /
+  Telegram / LinkedIn / Instagram / YouTube / TikTok / Facebook) with the
+  handle parsed out. The "footprint a site / profile page" OSINT pivot — turns
+  one URL into connected identities and infrastructure. Pure `_extract()` core
+  is unit-tested; `pivot_mapping` enqueues it for `url` nodes. Shared into the
+  cti pool. Concept ported from flowsint (Apache-2.0) — see
+  `THIRD_PARTY_LICENSES`.
+
+These add 27 MCP tools, taking the total to ~84. The `circl_hash_lookup`,
 `tor_exit_check`, `dnstwist_permutations`, `leakix_host`, and
 `pulsedive_indicator` wrappers attach `_pivot_hints` (see `backend/hints.py`)
 that steer the agent into NSRL defusion, tor-exit defusion, typosquat

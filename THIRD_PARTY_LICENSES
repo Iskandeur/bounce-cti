@@ -33,17 +33,23 @@ clean-room reimplementation.
 
   Project   : flowsint — https://github.com/reconurge/flowsint
   License   : Apache-2.0
-  Used in   : backend/sources/wallet_enrich.py
+  Used in   : backend/sources/wallet_enrich.py, backend/sources/phone_enrich.py,
+              backend/sources/website_enrich.py
   Mode      : adapted (concept port)
-  Notes     : The crypto-wallet enrichment approach (ETH via Etherscan v2; the
-              transaction / counterparty extraction model) is adapted from
-              flowsint's Apache-2.0 `flowsint-enrichers` crypto modules
-              (to_transactions / to_nfts), re-expressed in this repo's async
-              source pattern (http_client + key_pool + cache). The BTC path
-              (blockstream.info Esplora, no key) is our own addition. Apache-2.0
-              permits reuse with attribution. Further flowsint enrichers
-              (email / phone / social / website / org) are candidates for the
-              same treatment.
+  Notes     : Several flowsint Apache-2.0 `flowsint-enrichers` modules are
+              re-expressed in this repo's async source pattern (http_client +
+              key_pool + cache), not code-copied — flowsint binds its own
+              framework libs (flowsint_core / reconspread / recontrack) +
+              BeautifulSoup, which we don't take on.
+                - crypto (to_transactions / to_nfts) → wallet_enrich.py
+                  (ETH/Etherscan model; BTC/blockstream path is our addition).
+                - phone → phone_enrich.py (offline libphonenumber metadata).
+                - website (to_text / to_links) → website_enrich.py (link /
+                  domain / email / social-profile extraction via stdlib regex,
+                  no BeautifulSoup).
+              Apache-2.0 permits reuse with attribution. Remaining flowsint
+              enrichers (email/social breach, org) are candidates for the same
+              treatment.
 
 --------------------------------------------------------------------------------
 
