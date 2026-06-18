@@ -46,6 +46,20 @@ def test_manifest_is_well_formed():
         assert set(s) >= {"app", "cat", "url", "e_code", "e_string", "m_string"}
 
 
+def test_apify_platforms_surface_as_deferred(monkeypatch):
+    # No Apify token → anti-bot platforms are listed as deferred, not dropped.
+    monkeypatch.delenv("APIFY_API_TOKEN", raising=False)
+
+    async def fake_get_text(url, ttl=0, cache_key=None, **kw):
+        return {"status": 404, "text": ""}
+
+    monkeypatch.setattr(ue, "get_text", fake_get_text)
+    out = asyncio.run(ue.enumerate_username("someone"))
+    deferred_apps = {d["app"] for d in out["deferred"]}
+    assert {"Instagram", "TikTok", "LinkedIn"} <= deferred_apps
+    assert all("reason" in d for d in out["deferred"])
+
+
 def test_enumerate_end_to_end_mocked(monkeypatch):
     # Map app -> canned probe response; @handle is stripped, found list sorted.
     canned = {

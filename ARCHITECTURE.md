@@ -452,24 +452,34 @@ Phase 4 (added 2026-05-21): broad source-coverage expansion.
 
 OSINT (Phase 2):
 - `username_enum` — free, no-key Sherlock-style username sweep
-  (`username_enumerate` tool). Probes a curated manifest of ~22 public
-  platforms (dev/social/forum/blog/gaming) for a public profile at
+  (`username_enumerate` tool). Probes a curated manifest of ~30 public
+  platforms (dev/social/forum/blog/gaming/creator) for a public profile at
   `/{username}`, using an `e_code`/`e_string`/`m_string` detection model
   (status-only for clean 404 sites; body markers for soft-404 sites). Pure
-  `_classify()` core is unit-tested; probing uses the new
-  `http_client.get_text` (raw status/body, transient errors not cached).
-  Lives in the shared cti pool so both the OSINT `username` seed and CTI
-  actor-handle pivots use it; `pivot_mapping` enqueues it for `username`
-  nodes. Manifest adapted COPY-DATA (with attribution) from blackbird +
-  Sherlock (MIT) — see `THIRD_PARTY_LICENSES`.
+  `_classify()` core is unit-tested; probing uses `http_client.get_text`
+  (raw status/body, transient errors not cached). Anti-bot platforms
+  (Instagram/TikTok/X/LinkedIn/Facebook) are surfaced as `deferred` behind an
+  **Apify scraping seam** (`_APIFY_PLATFORMS` / `_apify_enabled()`, gated on
+  `APIFY_API_TOKEN`) — paid, not enabled; the documented extension point for
+  the paid OSINT source tier. Lives in the shared cti pool so both the OSINT
+  `username` seed and CTI actor-handle pivots use it; `pivot_mapping` enqueues
+  it for `username` nodes. Manifest adapted COPY-DATA (with attribution) from
+  blackbird + Sherlock (MIT) — see `THIRD_PARTY_LICENSES`.
 - `gravatar` — free, no-key email→public-profile lookup (`gravatar_email`
   tool). Maps `MD5(lowercased email)` to whatever the owner made public:
   display name, preferred username, linked social accounts, personal URLs.
   Strong email→identity pivot (also enriches a registrant email in CTI). Pure
   `_parse_profile()` core is unit-tested; `pivot_mapping` enqueues it for
   `email` nodes. Shared into the cti pool.
+- `github_profile` — free, no-key GitHub user enrichment (`github_profile`
+  tool, `api.github.com/users/{login}`, 60 req/h unauth; honours an optional
+  `GITHUB_TOKEN`). Returns real name, company, location, bio, blog URL,
+  self-declared Twitter/X handle, account age — an identity-correlation pivot
+  after a username sweep shows a GitHub presence. Pure `_parse()` core is
+  unit-tested; `pivot_mapping` enqueues it for `username` nodes. Shared into
+  the cti pool.
 
-These add 22 MCP tools, taking the total to ~79. The `circl_hash_lookup`,
+These add 24 MCP tools, taking the total to ~81. The `circl_hash_lookup`,
 `tor_exit_check`, `dnstwist_permutations`, `leakix_host`, and
 `pulsedive_indicator` wrappers attach `_pivot_hints` (see `backend/hints.py`)
 that steer the agent into NSRL defusion, tor-exit defusion, typosquat

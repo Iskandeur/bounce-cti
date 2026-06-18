@@ -643,6 +643,18 @@ async def gravatar_email(email: str) -> dict:
 
 
 @mcp.tool()
+async def github_profile(username: str) -> dict:
+    """Enrich a GitHub username with its public profile (free, no API key) —
+    real name, company, location, bio, blog URL, self-declared Twitter/X
+    handle, account age. Strong identity-correlation pivot after a username
+    sweep shows a GitHub presence: the blog / twitter_username / company fields
+    often link a handle to a person or other accounts. `found=False` just means
+    no public GitHub user by that login. Add nodes for the linked
+    blog/twitter/email and link them to the username."""
+    return await _src("github_profile").lookup_user(username)
+
+
+@mcp.tool()
 async def project_honeypot_check(ip: str) -> dict:
     """Project Honey Pot http:BL DNSBL lookup. Returns threat score
     (0..255, 25+ is bad) and type flags (suspicious/harvester/comment
