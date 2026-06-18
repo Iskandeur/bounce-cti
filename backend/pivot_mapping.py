@@ -147,6 +147,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     ],
     "username": [
         ("username_enumerate", 2, None, False),
+        ("github_profile", 3, None, False),  # free, no key — identity enrichment
         ("threatfox_search", 2, None, False),
         ("pulsedive_indicator", 3, "pulsedive", False),
         ("opencti_lookup_indicator", 3, "opencti", False),

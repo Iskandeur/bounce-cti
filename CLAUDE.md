@@ -104,10 +104,11 @@ backend/
                         #   threat_actor nodes (+ kit-handle tags to phishing_kit
                         #   nodes). add_edge auto-stubs missing
                         #   endpoints (phantom_autostub).
-    cti_mcp.py          # MCP server: ~80 async CTI source tools
+    cti_mcp.py          # MCP server: ~81 async CTI source tools
                         #   (incl. malwarebazaar_imphash — PE imphash cluster,
                         #   username_enumerate — Sherlock-style profile sweep,
-                        #   gravatar_email — email→public profile / accounts)
+                        #   gravatar_email — email→public profile / accounts,
+                        #   github_profile — GitHub user identity enrichment)
   sources/              # One file per CTI source (all async, all cached):
                         #   Existing: crtsh, rdap, whois (RFC 3912 / port-43),
                         #     dns_tools, virustotal,
@@ -134,15 +135,21 @@ backend/
                         #     dnstwist (local typosquat enumeration),
                         #     takeover (subdomain-takeover heuristic)
                         #   OSINT (Phase 2): username_enum (free, no-key
-                        #     Sherlock-style profile sweep across ~22 public
+                        #     Sherlock-style profile sweep across ~30 public
                         #     platforms; e_code/e_string/m_string detection
                         #     manifest adapted COPY-DATA from blackbird +
-                        #     Sherlock, MIT — see THIRD_PARTY_LICENSES). Shared
-                        #     into the cti pool so both the OSINT username seed
-                        #     and CTI actor-handle pivots use it.
+                        #     Sherlock, MIT — see THIRD_PARTY_LICENSES; anti-bot
+                        #     platforms (Instagram/TikTok/X/LinkedIn/Facebook)
+                        #     surfaced as `deferred` behind an Apify scraping
+                        #     seam, paid/not enabled). Shared into the cti pool
+                        #     so both the OSINT username seed and CTI actor-
+                        #     handle pivots use it.
                         #     gravatar (free, no-key email→public profile:
                         #     MD5(email)→display name + linked social accounts +
                         #     URLs; email pivot, shared into the cti pool).
+                        #     github_profile (free, no-key GitHub user→identity
+                        #     enrichment: name/company/blog/twitter handle;
+                        #     username pivot, shared into the cti pool).
                         #   Shared: http_client
   tests/                # pytest suite (golden / regression tests, e.g.
                         #   test_seeds.py locks the seed-registry output).

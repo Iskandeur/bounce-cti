@@ -20,6 +20,7 @@ is reused; no project code is copied. See ``THIRD_PARTY_LICENSES.md``.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 
 from .http_client import get_text
@@ -29,6 +30,29 @@ from .http_client import get_text
 _TTL = 21600
 _MAX_CONCURRENCY = 10
 _VALID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+# ── Apify seam (paid scraping backend, NOT enabled) ─────────────────────────
+# Platforms that block direct HTTP probing (anti-bot / JS-only) and so can't be
+# checked for free. They're declared here so the capability gap is *visible*
+# (surfaced as `deferred` in the result) rather than silently absent. Wiring a
+# scraping backend later — Apify is the intended one — means: set an APIFY token,
+# add a per-platform actor id below, and route these through that adapter in
+# enumerate_username(). No dead code now; this is the documented extension point
+# for the paid OSINT source tier (mirrors the DD "premium source slot").
+_APIFY_PLATFORMS: list[dict] = [
+    {"app": "Instagram", "cat": "social"},
+    {"app": "TikTok", "cat": "social"},
+    {"app": "X", "cat": "social"},
+    {"app": "LinkedIn", "cat": "professional"},
+    {"app": "Facebook", "cat": "social"},
+]
+
+
+def _apify_enabled() -> bool:
+    """Whether a paid scraping backend is wired. False until the Apify adapter
+    + token land — the `deferred` platforms stay unprobed but visible."""
+    return bool(os.getenv("APIFY_API_TOKEN"))
+
 
 # Site manifest. Each entry:
 #   app       display name
@@ -70,6 +94,16 @@ _SITES: list[dict] = [
     {"app": "ChessCom", "cat": "gaming", "url": "https://www.chess.com/member/{u}", "e_code": 200, "e_string": None, "m_string": None},
     # — music —
     {"app": "LastFm", "cat": "misc", "url": "https://www.last.fm/user/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    # — design / portfolio (404-clean) —
+    {"app": "Behance", "cat": "creator", "url": "https://www.behance.net/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Dribbble", "cat": "creator", "url": "https://dribbble.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Linktree", "cat": "creator", "url": "https://linktr.ee/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "ProductHunt", "cat": "creator", "url": "https://www.producthunt.com/@{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "ItchIo", "cat": "gaming", "url": "https://{u}.itch.io/", "e_code": 200, "e_string": None, "m_string": None},
+    # — data / security community (404-clean) —
+    {"app": "Kaggle", "cat": "dev", "url": "https://www.kaggle.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "HackerOne", "cat": "dev", "url": "https://hackerone.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "GitHubGist", "cat": "dev", "url": "https://gist.github.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
 ]
 
 
@@ -128,6 +162,12 @@ async def enumerate_username(username: str) -> dict:
         else:
             unknown.append({"app": site["app"], "status": status})
     found.sort(key=lambda d: d["app"].lower())
+    # Anti-bot platforms we can't probe for free — visible, not silently absent.
+    deferred = [] if _apify_enabled() else [
+        {"app": p["app"], "category": p["cat"],
+         "reason": "needs a scraping backend (Apify; paid, not enabled)"}
+        for p in _APIFY_PLATFORMS
+    ]
     return {
         "username": u,
         "checked": len(_SITES),
@@ -135,5 +175,6 @@ async def enumerate_username(username: str) -> dict:
         "found_count": len(found),
         "not_found_count": not_found,
         "unknown": unknown,
+        "deferred": deferred,
         "source": "username_enum (site manifest adapted from Sherlock / blackbird, MIT)",
     }
