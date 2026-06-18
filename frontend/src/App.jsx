@@ -1742,7 +1742,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (!activeInv) return
     const v = refang(addSeedValue)
     if (!v) return
-    const effectiveType = detectIOCType(v)
+    // Detect under the active investigation's vertical so a bare handle added
+    // to an OSINT investigation seeds as a username, not a domain.
+    const activeVertical = invs.find(i => i.id === activeInv)?.vertical || 'cti'
+    const effectiveType = detectIOCType(v, activeVertical)
     await fetch(`/api/investigations/${activeInv}/add_seed`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ seed_type: effectiveType, seed_value: v, model, effort })
@@ -2362,6 +2365,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     </span>
                   )}
                   <span className="inv-type">{i.seed_type}</span>
+                  {i.vertical === 'osint' && (
+                    <span className="inv-vertical-badge" title="OSINT vertical">OSINT</span>
+                  )}
                 </div>
                 <div className="inv-item-meta">
                   <span className="inv-status-dot" style={{ background: STATUS_COLOR[i.status] || '#8b949e' }} />
