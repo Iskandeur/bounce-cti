@@ -476,6 +476,7 @@ class BatchStartReq(BaseModel):
     model: str = "opus"
     effort: Optional[str] = None
     combined: bool = False  # True → all IOCs on a single investigation graph
+    vertical: str = "cti"
 
 
 @app.post("/api/investigations/batch")
@@ -490,6 +491,7 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
     _require_quota_available()
     model = _check_model(user_id, req.model)
     effort = _check_effort(req.effort)
+    vertical = verticals.normalise(req.vertical)
     items = req.items[:50]
     valid = []
     for it in items:
@@ -511,7 +513,7 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
         # detection. Peer-seed semantics live in run_add_seed's prompt —
         # the agent won't invent edges between seeds.
         st0, sv0 = valid[0]
-        inv_id = gs.create_investigation(st0, sv0, user_id=user_id, model=model, effort=effort)
+        inv_id = gs.create_investigation(st0, sv0, user_id=user_id, model=model, effort=effort, vertical=vertical)
         extra_seeds = valid[1:]
         # Pre-register the extra seeds as orphan seed-tagged nodes so the
         # listing panel shows the full multi-seed count immediately, instead
@@ -549,7 +551,7 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
         # Separate batch: one investigation per IOC
         ids = []
         for st, sv in valid:
-            inv_id = gs.create_investigation(st, sv, user_id=user_id, model=model, effort=effort)
+            inv_id = gs.create_investigation(st, sv, user_id=user_id, model=model, effort=effort, vertical=vertical)
             asyncio.create_task(run_investigation(inv_id, st, sv, model=model))
             ids.append({"id": inv_id, "seed_type": st, "seed_value": sv})
         return {"started": ids, "skipped": len(req.items) - len(ids)}
@@ -558,6 +560,16 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
 @app.get("/api/investigations")
 def list_inv(user_id: int = Depends(current_user)):
     return gs.list_investigations(user_id=user_id)
+
+
+@app.get("/api/verticals")
+def get_verticals(user_id: int = Depends(current_user)):
+    """List selectable verticals (CTI / OSINT) for the new-investigation form.
+
+    Drives the frontend vertical selector + per-vertical seed-type hints, so
+    the UI stays in sync with the backend registry instead of hardcoding."""
+    return [{"name": v.name, "label": v.label, "seed_types": list(v.seed_types)}
+            for v in (verticals.get_vertical(n) for n in verticals.KNOWN_VERTICALS)]
 
 
 @app.get("/api/investigations/{inv_id}/graph")
