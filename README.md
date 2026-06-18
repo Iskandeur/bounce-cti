@@ -29,7 +29,8 @@ DOM fingerprints) building a live infrastructure graph in your browser.
   (threat-infrastructure attribution, the default) or **OSINT** (identity /
   entity footprint correlation, incl. a free no-key username sweep across ~22
   public platforms). The selector appears in the new-investigation form; bare
-  handles are seeded as usernames under OSINT.
+  handles are seeded as usernames under OSINT (including when adding a seed to
+  an existing OSINT investigation). OSINT investigations are badged in the list.
 - **Shareable investigations**: signed share links with section opt-in
   (graph / report / timeline / evidence / chats), expiry, and import-into-account flow.
 - **PDF in / PDF out**: bootstrap an investigation from a vendor write-up

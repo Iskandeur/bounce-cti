@@ -1628,6 +1628,19 @@ button.secondary:hover {
   border-radius: var(--radius-sm);
   letter-spacing: 0.03em;
 }
+/* OSINT-vertical badge on investigation list items (purple, matches the
+   `username`/`threat_actor` node accent). CTI is the default and stays
+   unbadged to avoid clutter. */
+.inv-vertical-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  background: rgba(163, 113, 247, 0.12);
+  color: #a371f7;
+  border: 1px solid rgba(163, 113, 247, 0.3);
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
 
 /* ── Service-restart banner ──────────────────────────────────────────────── */
 .server-down-banner {
