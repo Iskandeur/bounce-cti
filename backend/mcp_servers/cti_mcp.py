@@ -655,6 +655,20 @@ async def github_profile(username: str) -> dict:
 
 
 @mcp.tool()
+async def wallet_enrich(address: str) -> dict:
+    """Enrich a cryptocurrency wallet with on-chain activity. BTC (bech32 /
+    legacy) via blockstream.info (free, no key): balance, total received/sent,
+    tx count, recent activity window, and a counterparty sample. ETH (`0x…`)
+    via Etherscan (needs ETHERSCAN_API_KEY; degrades to chain-only when absent).
+    XMR / unknown formats return non-traceable. This tells a live, high-volume
+    ransom/scam wallet apart from a dormant or burner one and surfaces
+    counterparty addresses to pivot on — set `metadata.chain` and the
+    balance/volume on the wallet node, and add the sampled counterparties as
+    `wallet_address` nodes linked with a `transacts_with` edge."""
+    return await _src("wallet_enrich").lookup_wallet(address)
+
+
+@mcp.tool()
 async def project_honeypot_check(ip: str) -> dict:
     """Project Honey Pot http:BL DNSBL lookup. Returns threat score
     (0..255, 25+ is bad) and type flags (suspicious/harvester/comment

@@ -104,11 +104,12 @@ backend/
                         #   threat_actor nodes (+ kit-handle tags to phishing_kit
                         #   nodes). add_edge auto-stubs missing
                         #   endpoints (phantom_autostub).
-    cti_mcp.py          # MCP server: ~81 async CTI source tools
+    cti_mcp.py          # MCP server: ~82 async CTI source tools
                         #   (incl. malwarebazaar_imphash — PE imphash cluster,
                         #   username_enumerate — Sherlock-style profile sweep,
                         #   gravatar_email — email→public profile / accounts,
-                        #   github_profile — GitHub user identity enrichment)
+                        #   github_profile — GitHub user identity enrichment,
+                        #   wallet_enrich — crypto wallet on-chain activity)
   sources/              # One file per CTI source (all async, all cached):
                         #   Existing: crtsh, rdap, whois (RFC 3912 / port-43),
                         #     dns_tools, virustotal,
@@ -150,6 +151,13 @@ backend/
                         #     github_profile (free, no-key GitHub user→identity
                         #     enrichment: name/company/blog/twitter handle;
                         #     username pivot, shared into the cti pool).
+                        #     wallet_enrich (crypto wallet on-chain activity:
+                        #     BTC via blockstream.info no-key, ETH via Etherscan
+                        #     w/ optional ETHERSCAN_API_KEY — balance, volume,
+                        #     tx count, activity window, counterparty sample;
+                        #     concept ported from flowsint Apache-2.0, see
+                        #     THIRD_PARTY_LICENSES; wallet_address pivot, shared
+                        #     into the cti pool).
                         #   Shared: http_client
   tests/                # pytest suite (golden / regression tests, e.g.
                         #   test_seeds.py locks the seed-registry output).
