@@ -132,6 +132,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("crtsh_query", 3, None, False),
     ],
     "email": [
+        ("gravatar_email", 2, None, False),  # free, no key — email → linked accounts
         ("whoxy_reverse", 3, "whoxy", False),
         ("emailrep_check", 3, None, False),  # key optional
         ("pulsedive_indicator", 3, "pulsedive", False),

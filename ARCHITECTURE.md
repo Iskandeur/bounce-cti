@@ -461,8 +461,14 @@ OSINT (Phase 2):
   actor-handle pivots use it; `pivot_mapping` enqueues it for `username`
   nodes. Manifest adapted COPY-DATA (with attribution) from blackbird +
   Sherlock (MIT) — see `THIRD_PARTY_LICENSES`.
+- `gravatar` — free, no-key email→public-profile lookup (`gravatar_email`
+  tool). Maps `MD5(lowercased email)` to whatever the owner made public:
+  display name, preferred username, linked social accounts, personal URLs.
+  Strong email→identity pivot (also enriches a registrant email in CTI). Pure
+  `_parse_profile()` core is unit-tested; `pivot_mapping` enqueues it for
+  `email` nodes. Shared into the cti pool.
 
-These add 21 MCP tools, taking the total to ~78. The `circl_hash_lookup`,
+These add 22 MCP tools, taking the total to ~79. The `circl_hash_lookup`,
 `tor_exit_check`, `dnstwist_permutations`, `leakix_host`, and
 `pulsedive_indicator` wrappers attach `_pivot_hints` (see `backend/hints.py`)
 that steer the agent into NSRL defusion, tor-exit defusion, typosquat
