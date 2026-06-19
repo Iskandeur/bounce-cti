@@ -1040,6 +1040,27 @@ def export_takedown(inv_id: str, user_id: int = Depends(current_user)):
     return {"count": len(bundles), "items": bundles}
 
 
+@app.get("/api/investigations/{inv_id}/osint_dossier")
+def export_osint_dossier(inv_id: str, user_id: int = Depends(current_user)):
+    """Render an OSINT identity dossier (Markdown) for the investigation.
+
+    Identity-centric counterpart to the CTI exports: subject, footprint summary,
+    discovered accounts / handles / emails / phones / wallets, connections, and
+    provenance. Useful for any investigation but written for the OSINT vertical."""
+    _require_owner(inv_id, user_id)
+    try:
+        from . import osint_export
+        g = gs.get_graph(inv_id)
+        with gs.conn() as c:
+            row = c.execute("SELECT * FROM investigations WHERE id=?", (inv_id,)).fetchone()
+        inv = dict(row) if row else {"id": inv_id}
+        content = osint_export.render_dossier(g, inv)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"dossier render failed: {e}")
+    return {"format": "markdown", "content": content,
+            "filename": f"bounce-osint-{inv_id}.dossier.md"}
+
+
 @app.get("/api/investigations/{inv_id}/nodes/{node_id}/evidence")
 def node_evidence(inv_id: str, node_id: str, user_id: int = Depends(current_user)):
     """Return raw cached CTI source data relevant to a node.

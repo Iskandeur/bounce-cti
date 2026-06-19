@@ -72,6 +72,12 @@ backend/
                         #   (ei_class, machine, entry). Zero new deps; runs
                         #   in-process so the binary never leaves the host.
                         #   Output lands on hash_node.metadata.static_analysis
+  osint_export.py       # Render an OSINT investigation as a Markdown identity
+                        #   dossier (subject + accounts/handles + identifiers
+                        #   [emails/phones/wallets] + connections + provenance);
+                        #   identity-centric counterpart to action_exports.
+                        #   Pure render_dossier(graph, inv); served at
+                        #   GET /api/investigations/{id}/osint_dossier
   pdf_report.py         # Render an investigation as a downloadable PDF
   stix_export.py        # Render an investigation as a STIX 2.1 bundle
   key_pool.py           # API key rotation pool: round-robin, cooldown on 429,
