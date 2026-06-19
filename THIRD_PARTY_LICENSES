@@ -72,6 +72,17 @@ clean-room reimplementation.
               sector information licensed under the Open Government Licence v3.0."
               (Supersedes the OFSI Consolidated List, withdrawn 2026-01-28.)
 
+  Project   : SEC EDGAR — https://www.sec.gov/search-filings/edgar-application-programming-interfaces
+  License   : US Government work — public domain (free to access and reuse,
+              incl. commercial redistribution)
+  Used in   : backend/sources/edgar.py (DD vertical)
+  Mode      : data via official API (no code copied)
+  Notes     : "All Government-created content on sec.gov and EDGAR public filing
+              content are free to access and reuse." A descriptive User-Agent is
+              required (empty UA → 403); fair-access rate ≤10 req/s. Do not use
+              the SEC seal or the "SEC"/"EDGAR" marks in a product name. GDPR
+              still applies to any natural-person data (insiders).
+
   Project   : UK Companies House — https://developer.company-information.service.gov.uk
   License   : Open Government Licence v3.0
   Used in   : backend/sources/companies_house.py (DD vertical)
