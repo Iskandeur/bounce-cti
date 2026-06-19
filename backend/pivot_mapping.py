@@ -141,6 +141,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     ],
     "wallet_address": [
         ("threatfox_search", 2, None, False),
+        ("wallet_enrich", 2, None, False),  # BTC free; ETH needs key (graceful)
         ("pulsedive_indicator", 3, "pulsedive", False),
         ("opencti_lookup_indicator", 3, "opencti", False),
         ("urlscan_search", 4, None, False),

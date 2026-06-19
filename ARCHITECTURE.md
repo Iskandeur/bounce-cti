@@ -478,8 +478,19 @@ OSINT (Phase 2):
   after a username sweep shows a GitHub presence. Pure `_parse()` core is
   unit-tested; `pivot_mapping` enqueues it for `username` nodes. Shared into
   the cti pool.
+- `wallet_enrich` — cryptocurrency wallet on-chain enrichment (`wallet_enrich`
+  tool). BTC (bech32 / legacy) via blockstream.info Esplora API (**free, no
+  key**); ETH (`0x…`) via Etherscan v2 (needs `ETHERSCAN_API_KEY` via
+  `key_pool`, degrades to chain-only without it); XMR / unknown returned
+  non-traceable. Surfaces balance, total received/sent, tx count, recent
+  activity window, and a counterparty sample — distinguishes a live high-volume
+  ransom/scam wallet from a dormant/burner one and opens counterparty pivots.
+  Pure `_parse_btc()` / `_parse_eth()` cores are unit-tested; `pivot_mapping`
+  enqueues it for `wallet_address` nodes. Shared into the cti pool. The crypto
+  approach is a concept port from flowsint (Apache-2.0) — see
+  `THIRD_PARTY_LICENSES`.
 
-These add 24 MCP tools, taking the total to ~81. The `circl_hash_lookup`,
+These add 25 MCP tools, taking the total to ~82. The `circl_hash_lookup`,
 `tor_exit_check`, `dnstwist_permutations`, `leakix_host`, and
 `pulsedive_indicator` wrappers attach `_pivot_hints` (see `backend/hints.py`)
 that steer the agent into NSRL defusion, tor-exit defusion, typosquat

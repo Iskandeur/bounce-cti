@@ -31,6 +31,20 @@ clean-room reimplementation.
   Notes     : Same as above — Sherlock's public site manifest informed the
               curated platform list / detection markers. Metadata only, no code.
 
+  Project   : flowsint — https://github.com/reconurge/flowsint
+  License   : Apache-2.0
+  Used in   : backend/sources/wallet_enrich.py
+  Mode      : adapted (concept port)
+  Notes     : The crypto-wallet enrichment approach (ETH via Etherscan v2; the
+              transaction / counterparty extraction model) is adapted from
+              flowsint's Apache-2.0 `flowsint-enrichers` crypto modules
+              (to_transactions / to_nfts), re-expressed in this repo's async
+              source pattern (http_client + key_pool + cache). The BTC path
+              (blockstream.info Esplora, no key) is our own addition. Apache-2.0
+              permits reuse with attribution. Further flowsint enrichers
+              (email / phone / social / website / org) are candidates for the
+              same treatment.
+
 --------------------------------------------------------------------------------
 
 Template for new entries:
