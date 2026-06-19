@@ -519,6 +519,19 @@ These add 27 MCP tools, taking the total to ~84. The `circl_hash_lookup`,
 that steer the agent into NSRL defusion, tor-exit defusion, typosquat
 add-nodes, leak triage, and threat-cluster expansion respectively.
 
+### `backend/mcp_servers/dd_mcp.py`
+MCP server for the **Due-Diligence (KYB) source pool** (`mcp__dd__*`), mounted
+for investigations whose vertical is `dd` (separate from the CTI pool — disjoint
+domain + the product's monetisation boundary). v1 tool:
+
+- `gleif_lookup` — resolve a company by **name or LEI** via GLEIF (`backend/
+  sources/gleif.py`; free, no key, **CC0**): legal name, jurisdiction, status,
+  legal form, registered address, plus Level-2 "who owns whom" relationships
+  (direct/ultimate parent, direct children). Powers the `company` seed.
+  ⚠️ Level-2 is **estimated corporate ownership, NOT authoritative beneficial
+  ownership (UBO/RBE)** — the DD prompt enforces that labelling, and forbids
+  adverse-media / criminal-offence inference (GDPR art. 10 / French art. 46).
+
 ### `backend/key_pool.py`
 In-process API key pool with round-robin rotation, cooldown on 429
 (`mark_rate_limited(src, key, cooldown_seconds)`) and full-day cooldown on

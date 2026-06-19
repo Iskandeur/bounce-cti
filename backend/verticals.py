@@ -90,12 +90,55 @@ OSINT = Vertical(
     prompt_block=_OSINT_PROMPT_BLOCK,
 )
 
-# DD (due diligence) is intentionally NOT registered yet — it gets added here when
-# its source pool and prompt block exist (Phase 3). Any unknown vertical resolves
-# to CTI so the platform never breaks on bad input.
+# ── DD (Due Diligence / KYB) ────────────────────────────────────────────────
+# First vertical with its OWN source pool (mcp__dd__*, module dd_mcp) — the
+# domain (company registries / sanctions / ownership) is disjoint from CTI, and
+# this is the product's monetisation boundary. v1 ships GLEIF (company identity +
+# Level-2 hierarchy). Two non-negotiable legal rules are baked into the prompt:
+# ownership is ESTIMATED (never authoritative UBO/RBE, gated post-CJUE C-37/20),
+# and NO adverse-media / criminal-offence inference (GDPR art.10 / art.46 I&L).
+_DD_PROMPT_BLOCK = """\
+══════════════════════════════════════════════
+DUE-DILIGENCE (KYB) LENS — read this AFTER the rules above
+══════════════════════════════════════════════
+You are operating in Due-Diligence / KYB mode. The graph tools, budget rules and
+reporting contract above still apply, but your subject is a LEGAL ENTITY (or its
+corporate group), and your job is factual verification, not threat attribution:
+
+- Establish the company's IDENTITY and CORPORATE HIERARCHY from authoritative,
+  factual registry data (start with gleif_lookup): legal name, LEI, jurisdiction,
+  status, registered address, and the direct/ultimate parent + subsidiaries.
+- Graph each entity as a `company` node (metadata.lei / jurisdiction / status)
+  and each relationship as a `parent_of` / `subsidiary_of` edge to another
+  `company` node. Expand the group up to the ultimate parent and down one level.
+- ⚠️ OWNERSHIP IS ESTIMATED. GLEIF Level-2 and any open-source ownership you
+  infer are CORPORATE consolidation data, NOT authoritative beneficial ownership.
+  Always label it "estimated / inferred ownership" and state in the report that
+  it is NOT the official beneficial owner (RBE) and not a substitute for an
+  access-gated registry consultation by an obligated entity.
+- ⚠️ DO NOT generate adverse-media, criminal, or wrongdoing claims about any
+  natural person from open web text in this mode. Stick to factual registry /
+  sanctions-list facts. (Adverse-media screening is a separate, legally-gated
+  capability and is OUT OF SCOPE here.)
+- Benign-by-default: a company is a subject of verification, not a suspect. The
+  working_hypothesis should describe the entity, its group structure, and the
+  confidence/limits of what open data establishes.
+"""
+
+DD = Vertical(
+    name="dd",
+    label="Due Diligence",
+    agent_name="Bounce-DD",
+    seed_types=("company",),
+    source_pool="dd",           # dedicated pool → mcp__dd__* (module dd_mcp)
+    prompt_block=_DD_PROMPT_BLOCK,
+)
+
+# Any unknown vertical resolves to CTI so the platform never breaks on bad input.
 VERTICALS: dict[str, Vertical] = {
     CTI.name: CTI,
     OSINT.name: OSINT,
+    DD.name: DD,
 }
 
 DEFAULT_VERTICAL = "cti"
@@ -111,6 +154,7 @@ KNOWN_VERTICALS: tuple[str, ...] = tuple(VERTICALS)
 # their own module here as they land.
 SOURCE_POOL_MODULES: dict[str, str] = {
     "cti": "cti_mcp",
+    "dd": "dd_mcp",
 }
 
 

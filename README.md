@@ -26,8 +26,11 @@ DOM fingerprints) building a live infrastructure graph in your browser.
   (low → max, or the model default) per investigation. Admins gate which
   models each user may spawn.
 - **Investigation vertical**: choose the lens for a new investigation — **CTI**
-  (threat-infrastructure attribution, the default) or **OSINT** (identity /
-  entity footprint correlation). OSINT adds people/identity seeds — a free
+  (threat-infrastructure attribution, the default), **OSINT** (identity /
+  entity footprint correlation), or **Due Diligence / KYB** (company identity +
+  corporate hierarchy from authoritative registries — v1 seeds a `company` and
+  resolves it via GLEIF, incl. Level-2 "who owns whom"; ownership is shown as
+  *estimated*, never as authoritative beneficial ownership). OSINT adds people/identity seeds — a free
   no-key **username** sweep across ~54 public platforms, **email**→public
   profile (Gravatar) and GitHub-profile enrichment, a **phone** lookup (offline
   carrier / line-type / country), and **wallet** on-chain activity (BTC free,

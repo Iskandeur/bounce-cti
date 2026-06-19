@@ -1,0 +1,45 @@
+"""MCP server exposing Due-Diligence (KYB) source lookups to the agent.
+
+This is the **DD source pool** (`mcp__dd__*`), mounted for investigations whose
+vertical is ``dd`` (see ``backend/verticals.py``). It is kept separate from the
+CTI pool: the domain is different (company registries, sanctions, ownership),
+and the DD vertical is the product's monetisation boundary.
+
+Sources exposed here are **factual** company / sanctions / ownership data under
+commercial-OK licences (GLEIF CC0, OFAC public-domain, EU/UK open licences — see
+THIRD_PARTY_LICENSES). Two hard product rules, enforced in the DD system prompt:
+
+  * ownership is **estimated / inferred**, never "authoritative beneficial owner
+    (UBO/RBE)" — the RBE is access-gated post-CJUE C-37/20;
+  * **no adverse-media / criminal-offence inference** here (GDPR art. 10 /
+    French art. 46 loi I&L) — that requires a processor-for-obligated-client
+    structure, out of scope for this pool.
+"""
+from mcp.server.fastmcp import FastMCP
+import importlib
+
+mcp = FastMCP("bounce-dd")
+
+_src_cache = {}
+
+
+def _src(name: str):
+    m = _src_cache.get(name)
+    if m is None:
+        m = importlib.import_module(f"backend.sources.{name}")
+        _src_cache[name] = m
+    return m
+
+
+@mcp.tool()
+async def gleif_lookup(query: str) -> dict:
+    """Resolve a company by **name or LEI** via GLEIF (free, no key, CC0): legal
+    name, jurisdiction, status, legal form, registered address, plus Level-2
+    "who owns whom" relationships (direct/ultimate parent, direct children).
+    Pass a 20-char LEI for an exact record (+ relationships) or a company name
+    for the top matches. Graph each entity as a `company` node (set
+    metadata.lei / jurisdiction / status) and each relationship as a `company`
+    node linked with a `parent_of` / `subsidiary_of` edge. ⚠️ Level-2 is
+    corporate ownership, NOT authoritative beneficial ownership — label any
+    ownership as ESTIMATED/INFERRED, never as the official UBO/RBE."""
+    return await _src("gleif").lookup(query)

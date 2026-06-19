@@ -8,7 +8,7 @@ from backend import agent_runner as ar
 
 
 def test_cti_and_osint_registered():
-    assert set(verticals.KNOWN_VERTICALS) == {"cti", "osint"}
+    assert set(verticals.KNOWN_VERTICALS) == {"cti", "osint", "dd"}
     assert verticals.DEFAULT_VERTICAL == "cti"
 
 
@@ -21,7 +21,7 @@ def test_cti_accepts_all_known_seed_types():
 
 
 def test_unknown_vertical_falls_back_to_cti():
-    for bad in [None, "", "dd", "nonsense", "OSINTT"]:
+    for bad in [None, "", "kyb", "nonsense", "OSINTT"]:
         assert verticals.normalise(bad) == "cti"
         assert verticals.get_vertical(bad).name == "cti"
 
@@ -43,7 +43,9 @@ def test_is_known():
     assert verticals.is_known("CTI") is True       # case-insensitive
     assert verticals.is_known("osint") is True
     assert verticals.is_known("OSINT") is True
-    assert verticals.is_known("dd") is False
+    assert verticals.is_known("dd") is True
+    assert verticals.is_known("DD") is True
+    assert verticals.is_known("kyb") is False
     assert verticals.is_known(None) is False
 
 
@@ -74,7 +76,18 @@ def test_build_allowed_tools_is_namespace_aware():
 
 
 def test_allowed_seed_types_matches_registry():
-    # The original CTI set plus the OSINT people seeds added in Phase 2.
+    # CTI set + OSINT people seeds (Phase 2) + DD company seed (Phase 3).
     expected = {"domain", "ip", "hash", "url", "jarm", "asn", "command_line",
-                "executable_name", "email", "wallet_address", "username", "phone"}
+                "executable_name", "email", "wallet_address", "username", "phone",
+                "company"}
     assert set(seeds.KNOWN_SEED_TYPES) == expected
+
+
+def test_dd_vertical_registered():
+    dd = verticals.get_vertical("dd")
+    assert dd.name == "dd" and dd.agent_name == "Bounce-DD"
+    assert dd.source_pool == "dd"
+    assert "company" in dd.seed_types
+    # dd pool maps to its own MCP module (dedicated mcp__dd__* namespace)
+    assert verticals.source_pool_module("dd") == "dd_mcp"
+    assert "estimated" in dd.prompt_block.lower() or "inferred" in dd.prompt_block.lower()

@@ -146,6 +146,10 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("opencti_lookup_indicator", 3, "opencti", False),
         ("urlscan_search", 4, None, False),
     ],
+    # DD vertical (dd pool). A company node expands its corporate hierarchy.
+    "company": [
+        ("gleif_lookup", 2, None, False),  # GLEIF CC0, no key
+    ],
     "wallet_address": [
         ("threatfox_search", 2, None, False),
         ("wallet_enrich", 2, None, False),  # BTC free; ETH needs key (graceful)
@@ -465,7 +469,8 @@ def discriminating_marker(node_type: str, tags: list[str] | None,
 
     # Always discriminating
     if node_type in ("jarm", "ja3", "ja3s", "favicon_hash", "cert_serial",
-                      "tracking_id", "wallet_address", "email", "phone", "person"):
+                      "tracking_id", "wallet_address", "email", "phone", "person",
+                      "company"):
         return True
 
     # Defused tags neutralise the marker. `blackhole` joins the list — a
