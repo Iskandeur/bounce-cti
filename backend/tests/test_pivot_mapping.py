@@ -32,6 +32,17 @@ def test_company_canonical_key_folds_variants():
     assert k("") == ""
 
 
+def test_infer_jurisdiction_from_legal_form():
+    j = pm.infer_jurisdiction
+    assert j("Siemens Mobility GmbH") == "DE"
+    assert j("Siemens AG") == "DE"
+    assert j("Danone Eaux France SAS") == "FR"
+    assert j("Apple Operations LLC") == "US"
+    assert j("Sberbank CIB (UK) LIMITED") is None   # 'Ltd/Limited' too ambiguous → skip
+    assert j("Some Holding SA") is None              # 'SA' multi-country → skip
+    assert j("plain name") is None
+
+
 def test_is_privacy_mail():
     assert pm.is_privacy_mail("alexandre.pinoteau@protonmail.com")
     assert pm.is_privacy_mail("x@proton.me")

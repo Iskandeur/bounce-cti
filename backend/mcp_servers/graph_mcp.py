@@ -12,7 +12,7 @@ from ..defuse_lists import defuse_check
 from ..pivot_mapping import (
     pivots_for, MAX_HIGH_PRIO_PER_NODE, MAX_LOW_PRIO_PER_NODE, MAX_PENDING_QUEUE,
     canonical_type, cloud_platform_domain, is_mail_host, company_canonical_key,
-    _CLOUD_PLATFORM_SUPPRESSED_OPS,
+    infer_jurisdiction, _CLOUD_PLATFORM_SUPPRESSED_OPS,
     is_role_mailbox, is_privacy_mail, _EMAIL_PIVOT_OPS, is_hex_serial, _SERIAL_OPS,
     known_bad_marker, actor_handle_for_tag, kit_handle_for_tag, key_source_for_op,
 )
@@ -41,6 +41,8 @@ def _suppressed_ops(type_: str, value: str, metadata: dict | None = None) -> set
     # suppresses when the jurisdiction is KNOWN and mismatched (unknown → try).
     if ctype == "company":
         jur = str((metadata or {}).get("jurisdiction") or "").upper()
+        if not jur:
+            jur = (infer_jurisdiction(value) or "").upper()  # from legal-form suffix
         if jur:
             sup = set()
             if jur != "GB":

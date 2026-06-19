@@ -13,12 +13,19 @@ def test_normalize_strips_suffix_punct_diacritics():
 
 def test_score_exact_subset_jaccard():
     assert s._score("acme", {"acme"}, "ACME Ltd") == 100
-    # token subset (>=2 tokens)
+    # screened name fully inside the list entry (query ⊆ candidate) → 95
     assert s._score("john smith", {"john", "smith"}, "John Q Smith") == 95
     # single common token must NOT trigger subset rule
     assert s._score("john", {"john"}, "John Q Smith") < 95
     # disjoint
     assert s._score("acme", {"acme"}, "Globex") == 0
+
+
+def test_score_does_not_match_short_list_entry_inside_long_name():
+    # The false-positive driver: a short generic list name (candidate) sitting
+    # inside a longer real name (query) must NOT score 95 (2026-06-19 DD retro).
+    assert s._score("jean marie saint paul", {"jean", "marie", "saint", "paul"},
+                    "Saint-Paul") < 95
 
 
 # ── OFAC SDN.CSV (positional, no header) ───────────────────────────────────

@@ -376,9 +376,10 @@ A red gate must be fixed before merge. Pair this with branch protection on
   reverse-WHOIS on role mailboxes like `abuse@`; **reverse-WHOIS on privacy-mail
   registrants** (protonmail/tuta/… via `is_privacy_mail` — never resolves);
   serial lookups on non-hex cert serials; and **DD jurisdiction routing** — a
-  `company` node carrying `metadata.jurisdiction` only enqueues the matching
-  registry, so a FR/DE/… company doesn't auto-enqueue Companies House
-  `no_api_key` noise) — surfaced as `skipped` (`skip_reason='noise_filter'`),
+  `company` node's `metadata.jurisdiction` (or, when absent, one **inferred from
+  its legal-form suffix** via `infer_jurisdiction`: GmbH/AG→DE, SAS/SARL→FR,
+  LLC/Inc→US, K.K.→JP, Sdn Bhd→MY…) only enqueues the matching registry, so a
+  FR/DE/… subsidiary doesn't auto-enqueue Companies House `no_api_key` noise) — surfaced as `skipped` (`skip_reason='noise_filter'`),
   not silently dropped. **Company dedup**: `graph_mcp.add_node` folds a `company`
   that matches an existing one by **LEI or canonical name**
   (`company_canonical_key`: HTML-unescape + lowercase + drop corp suffixes) into
