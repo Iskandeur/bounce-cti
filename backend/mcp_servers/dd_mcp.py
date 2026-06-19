@@ -60,6 +60,17 @@ async def sanctions_screen(name: str, lists: list[str] | None = None) -> dict:
 
 
 @mcp.tool()
+async def sanctions_screen_batch(names: list[str], lists: list[str] | None = None) -> dict:
+    """Screen MANY names against OFAC/EU/UK in ONE call (the lists are fetched
+    once and reused). Pass every company + person name in the graph at once
+    instead of calling sanctions_screen per node. Returns per-name results +
+    `flagged` (the names with hits) + `any_hit`. Use this as the primary
+    sanctions step on a multi-entity DD graph; tag each flagged node
+    `sanctioned`. Hits are CANDIDATES for human review, not determinations."""
+    return await _src("sanctions").screen_batch(names, lists)
+
+
+@mcp.tool()
 async def companies_house_lookup(query: str) -> dict:
     """Resolve a **UK company** by name or company number via Companies House
     (free, needs COMPANIES_HOUSE_API_KEY; OGL v3.0). Returns the company

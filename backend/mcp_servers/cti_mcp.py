@@ -655,6 +655,18 @@ async def github_profile(username: str) -> dict:
 
 
 @mcp.tool()
+async def github_commit_emails(username: str) -> dict:
+    """Recover author emails from a GitHub user's recent public push events
+    (free, no key) — the strongest developer-handle → real-identity pivot. A
+    dev's public commits routinely expose a real author email even when the
+    profile hides it. Returns `emails` (with commit counts; `noreply: true`
+    flags GitHub's privacy address, which still leaks the numeric user id). Add
+    each non-noreply email as an `email` node linked to the username, then pivot
+    it (gravatar, reverse-WHOIS)."""
+    return await _src("github_profile").commit_emails(username)
+
+
+@mcp.tool()
 async def website_extract(url: str) -> dict:
     """Fetch a web page and extract its outbound links, external domains,
     emails, and links to known social platforms (GitHub/Twitter-X/Telegram/

@@ -119,18 +119,20 @@ backend/
                         #   threat_actor nodes (+ kit-handle tags to phishing_kit
                         #   nodes). add_edge auto-stubs missing
                         #   endpoints (phantom_autostub).
-    cti_mcp.py          # MCP server: ~84 async CTI source tools
+    cti_mcp.py          # MCP server: ~85 async CTI source tools
                         #   (incl. malwarebazaar_imphash — PE imphash cluster,
                         #   username_enumerate — Sherlock-style profile sweep,
                         #   gravatar_email — email→public profile / accounts,
                         #   github_profile — GitHub user identity enrichment,
+                        #   github_commit_emails — handle→author email harvest,
                         #   wallet_enrich — crypto wallet on-chain activity,
                         #   phone_lookup — offline phone metadata,
                         #   website_extract — page links/emails/social profiles)
     dd_mcp.py           # MCP server: Due-Diligence (KYB) source pool
                         #   (mcp__dd__*), mounted for the `dd` vertical. Tools:
                         #   gleif_lookup (company identity + Level-2 hierarchy),
-                        #   sanctions_screen (OFAC + EU FSF + UK UKSL name screen),
+                        #   sanctions_screen (+ sanctions_screen_batch: OFAC +
+                        #   EU FSF + UK UKSL name screen, batch = one call/graph),
                         #   companies_house_lookup (UK profile + officers + PSC),
                         #   edgar_lookup (SEC EDGAR US-listed issuer identity),
                         #   recherche_entreprises_lookup (FR company + dirigeants).

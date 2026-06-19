@@ -115,8 +115,9 @@ corporate group), and your job is factual verification, not threat attribution:
   (persons with significant control) — graph each as a `person` node
   (`officer_of` / `significant_control_of` edge). PSC is registry-declared
   control, still ESTIMATED ownership (not authoritative UBO).
-- SANCTIONS-SCREEN the subject AND every related company AND every person
-  (officer/PSC) you graphed (sanctions_screen,
+- SANCTIONS-SCREEN everything in ONE call: sanctions_screen_batch([...]) with
+  the subject + every related company + every person (officer/PSC) you graphed
+  (don't screen one-by-one). (Single-node check is sanctions_screen,
   OFAC/EU/UK). On a hit, tag the node `sanctioned` + record the programme/list/
   ref. A hit is a CANDIDATE match for human review (name collisions are common),
   NOT an automated determination — say so.

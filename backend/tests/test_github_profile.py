@@ -37,6 +37,36 @@ def test_lookup_user_rejects_empty():
     assert out["found"] is False and "error" in out
 
 
+def test_extract_commit_emails_ranks_and_flags_noreply():
+    events = [
+        {"type": "PushEvent", "payload": {"commits": [
+            {"author": {"name": "Jane", "email": "jane@real.example"}},
+            {"author": {"name": "Jane", "email": "jane@real.example"}},
+            {"author": {"name": "Jane", "email": "123+jane@users.noreply.github.com"}},
+        ]}},
+        {"type": "WatchEvent", "payload": {}},  # ignored (not a push)
+        {"type": "PushEvent", "payload": {"commits": [
+            {"author": {"name": "Jane", "email": "JANE@real.example"}},  # case-fold dupe
+        ]}},
+    ]
+    out = ghp._extract_commit_emails(events, "jane")
+    by = {r["email"]: r for r in out}
+    assert by["jane@real.example"]["commits"] == 3  # case-folded + counted
+    assert by["jane@real.example"]["noreply"] is False
+    assert by["123+jane@users.noreply.github.com"]["noreply"] is True
+    assert out[0]["email"] == "jane@real.example"  # ranked by count
+
+
+def test_extract_commit_emails_handles_junk():
+    assert ghp._extract_commit_emails(None, "x") == []
+    assert ghp._extract_commit_emails([{"type": "PushEvent"}], "x") == []
+
+
+def test_commit_emails_empty_username():
+    out = asyncio.run(ghp.commit_emails("  "))
+    assert out["found"] is False and "error" in out
+
+
 def test_lookup_user_strips_handle_and_caches(monkeypatch):
     seen = {}
 

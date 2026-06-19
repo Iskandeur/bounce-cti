@@ -116,3 +116,21 @@ def test_screen_no_hit(monkeypatch):
 def test_screen_empty_query():
     out = asyncio.run(s.screen("  "))
     assert out["hits"] == [] and "error" in out
+
+
+def test_screen_batch(monkeypatch):
+    async def fake_entries(list_name):
+        return s._parse_eu(_EU) if list_name == "EU" else []
+    monkeypatch.setattr(s, "_entries", fake_entries)
+    out = asyncio.run(s.screen_batch(["Evil Corp", "Totally Clean Inc", "Evil Corp"],
+                                     lists=["EU"]))
+    assert out["queries"] == 2  # deduped
+    assert out["any_hit"] is True
+    assert out["flagged"] == ["Evil Corp"]
+    names = {r["name"]: r["hit_count"] for r in out["results"]}
+    assert names["Evil Corp"] >= 1 and names["Totally Clean Inc"] == 0
+
+
+def test_screen_batch_empty():
+    out = asyncio.run(s.screen_batch([]))
+    assert out["queries"] == 0 and out["any_hit"] is False

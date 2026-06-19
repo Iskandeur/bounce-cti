@@ -517,7 +517,10 @@ OSINT (Phase 2):
   cti pool. Concept ported from flowsint (Apache-2.0) — see
   `THIRD_PARTY_LICENSES`.
 
-These add 27 MCP tools, taking the total to ~84. The `circl_hash_lookup`,
+A `github_commit_emails` tool harvests author emails from a GitHub user's
+public push events (the strongest dev-handle→identity pivot).
+
+These add 28 MCP tools, taking the total to ~85. The `circl_hash_lookup`,
 `tor_exit_check`, `dnstwist_permutations`, `leakix_host`, and
 `pulsedive_indicator` wrappers attach `_pivot_hints` (see `backend/hints.py`)
 that steer the agent into NSRL defusion, tor-exit defusion, typosquat
@@ -544,7 +547,9 @@ domain + the product's monetisation boundary). Tools:
   conservative normalised comparison (exact / token-subset / Jaccard, no fuzzy
   dep yet). Returns scored candidate hits + `sanctioned: bool`. ⚠️ Hits are
   **candidates for human review**, never an automated determination. (UN SC and
-  World Bank are excluded — their terms forbid commercial redistribution.)
+  World Bank are excluded — their terms forbid commercial redistribution.) A
+  `sanctions_screen_batch` variant screens every company+person name in one
+  call (lists fetched once) to avoid per-node fan-out.
 - `companies_house_lookup` — UK Companies House (`backend/sources/
   companies_house.py`; free key, HTTP Basic; **OGL v3.0**). Resolve a company by
   name or number → profile + **officers** (directors/secretaries) + **PSC**
