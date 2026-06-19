@@ -107,6 +107,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("urlscan_search", 2, None, False),
         ("wayback", 3, None, False),
         ("dom_fingerprints", 2, None, False),
+        ("website_extract", 3, None, False),  # links/emails/social — free, no key
         ("opencti_lookup_indicator", 3, "opencti", False),
         # Tier 1/2 additions (2026-05-21)
         ("phishtank_check", 3, None, False),
