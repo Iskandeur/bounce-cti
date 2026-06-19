@@ -152,6 +152,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("sanctions_screen", 2, None, False),  # OFAC/EU/UK, no key
         ("companies_house_lookup", 3, "companies_house", False),  # UK officers/PSC (key)
         ("edgar_lookup", 3, None, False),  # US-listed issuers, no key
+        ("recherche_entreprises_lookup", 3, None, False),  # FR company + dirigeants, no key
     ],
     # DD: an officer / PSC / actor person — screen them against sanctions.
     "person": [

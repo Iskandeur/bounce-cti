@@ -83,3 +83,17 @@ async def edgar_lookup(query: str) -> dict:
     tickers / sic), add former names as aliases, and sanctions_screen it. US
     issuers only — returns found=false for private/non-US entities."""
     return await _src("edgar").lookup(query)
+
+
+@mcp.tool()
+async def recherche_entreprises_lookup(query: str) -> dict:
+    """Resolve a **French company** by name or SIREN via the government
+    Recherche d'entreprises API (free, no key; Licence Ouverte 2.0; aggregates
+    INSEE Sirene + INPI RNE). Returns identity (SIREN, legal name, status, legal
+    form, activity, creation date, registered address) and **dirigeants**
+    (officers). Graph the company as a `company` node (metadata.siren) and each
+    natural-person dirigeant as a `person` node (officer_of edge) — then
+    sanctions_screen each person. (A dirigeant with kind=="company" is a
+    corporate officer → graph as a company, not a person.) FR entities only.
+    Officer data is GDPR-regulated: factual use only, ownership stays ESTIMATED."""
+    return await _src("recherche_entreprises").lookup(query)
