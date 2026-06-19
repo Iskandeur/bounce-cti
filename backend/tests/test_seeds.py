@@ -194,3 +194,15 @@ def test_investigation_prompt_domain_and_hash_use_generic_branch():
     generic = seeds.investigation_prompt("domain", "evil.com")
     assert "type=domain value=evil.com" in generic
     assert "onyphe_ctl(evil.com)" in generic
+
+
+def test_phone_seed_registered():
+    # The OSINT `phone` seed type is wired end to end in the registry.
+    assert "phone" in seeds.KNOWN_SEED_TYPES
+    tools = seeds.mandatory_tools("phone", "+16502530000")
+    assert tools and tools[0][0] == "phone_lookup"
+    assert "phone_lookup(\"+16502530000\")" in dict((t, c) for t, c in tools).values() \
+        or any("phone_lookup" in c for _, c in tools)
+    for fn in (seeds.investigation_prompt, seeds.add_seed_block, seeds.pivot_block):
+        block = fn("phone", "+16502530000")
+        assert block and "phone_lookup" in block

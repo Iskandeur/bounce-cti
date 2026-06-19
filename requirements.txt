@@ -13,3 +13,7 @@ python-multipart>=0.0.6
 # dnstwist — local typosquat / IDN-homoglyph permutation engine (Phase 4).
 # Invoked as a subprocess by backend/sources/dnstwist.py.
 dnstwist>=20240807
+# phonenumbers — Google libphonenumber port (Apache-2.0). Offline phone
+# metadata (country / carrier / line-type) for the OSINT `phone` seed.
+# Used by backend/sources/phone_enrich.py. No network, no key.
+phonenumbers>=8.13

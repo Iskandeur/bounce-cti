@@ -655,6 +655,18 @@ async def github_profile(username: str) -> dict:
 
 
 @mcp.tool()
+async def phone_lookup(number: str) -> dict:
+    """Enrich a phone number (offline, no key) — validity, country / region,
+    carrier, line type (mobile / fixed-line / VoIP / toll-free / …), timezones,
+    and canonical E.164 / international formats, from Google's libphonenumber
+    metadata. Supply E.164 (`+countrycode…`). Use it to qualify a phone seed/IOC
+    before pivoting: a VoIP / invalid / toll-free line is a strong burner or
+    spoofing signal. Set metadata.country / carrier / line_type on the phone node
+    and tag `voip_line` / `invalid_number` when applicable."""
+    return await _src("phone_enrich").lookup_phone(number)
+
+
+@mcp.tool()
 async def wallet_enrich(address: str) -> dict:
     """Enrich a cryptocurrency wallet with on-chain activity. BTC (bech32 /
     legacy) via blockstream.info (free, no key): balance, total received/sent,

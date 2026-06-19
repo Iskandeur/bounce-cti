@@ -15,7 +15,7 @@ const NODE_COLORS = {
   country: '#ff7b72', person: '#ff80b3', command_line: '#f0883e',
   executable_name: '#ffb86b', wallet_address: '#f1c40f',
   username: '#a371f7', ja3: '#caa6ff', ja3s: '#9d7fe0',
-  threat_actor: '#ff5c8a'
+  phone: '#2dd4bf', threat_actor: '#ff5c8a'
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
@@ -23,7 +23,7 @@ const NODE_SHAPES = {
   jarm: 'pentagon', url: 'cut-rectangle', country: 'tag', person: 'star',
   command_line: 'rhomboid', executable_name: 'vee',
   email: 'round-tag', wallet_address: 'rhomboid', username: 'star',
-  ja3: 'heptagon', ja3s: 'octagon', threat_actor: 'star'
+  phone: 'round-diamond', ja3: 'heptagon', ja3s: 'octagon', threat_actor: 'star'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
                        error: '#f85149', quota_exceeded: '#d29922' }
@@ -66,6 +66,7 @@ const MALTEGO_TYPES = {
   executable_name: () => 'maltego.File',
   wallet_address: () => 'maltego.Phrase',
   username:  () => 'maltego.Alias',
+  phone:     () => 'maltego.PhoneNumber',
   report:    () => null,
 }
 
@@ -138,6 +139,8 @@ function detectIOCType(raw, vertical = 'cti') {
   // OSINT: an @-prefixed handle is unambiguously an identity seed.
   if (vertical === 'osint' && /^@[A-Za-z0-9._-]{1,64}$/.test(v)) return 'username'
   if (/^(https?|ftp):\/\//i.test(v)) return 'url'
+  // E.164 phone (a leading + then 7-15 digits, tolerating spaces/()-. seps).
+  if (/^\+[1-9]\d{6,14}$/.test(v.replace(/[\s().\-]/g, ''))) return 'phone'
   if (/^(as|asn)\s*\d{1,10}$/i.test(v)) return 'asn'
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(v)) return 'ip'
   if (/^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(v)) return 'ip'
