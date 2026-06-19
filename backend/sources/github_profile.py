@@ -44,6 +44,53 @@ def _parse(raw: dict, username: str) -> dict:
     }
 
 
+def _extract_commit_emails(events, username: str) -> list[dict]:
+    """Harvest commit author name/email pairs from public PushEvents. Pure
+    (unit-tested). GitHub's noreply addresses are kept but flagged — a
+    `<id>+<login>@users.noreply.github.com` still reveals the numeric user id."""
+    from collections import Counter
+    emails: dict[str, dict] = {}
+    counts: Counter = Counter()
+    if not isinstance(events, list):
+        return []
+    for ev in events:
+        if not isinstance(ev, dict) or ev.get("type") != "PushEvent":
+            continue
+        for commit in (ev.get("payload", {}) or {}).get("commits", []) or []:
+            author = (commit.get("author") or {}) if isinstance(commit, dict) else {}
+            email = (author.get("email") or "").strip().lower()
+            if not email or "@" not in email:
+                continue
+            counts[email] += 1
+            if email not in emails:
+                emails[email] = {
+                    "email": email,
+                    "name": author.get("name"),
+                    "noreply": email.endswith("@users.noreply.github.com"),
+                }
+    for e, rec in emails.items():
+        rec["commits"] = counts[e]
+    return sorted(emails.values(), key=lambda r: r["commits"], reverse=True)[:20]
+
+
+async def commit_emails(username: str) -> dict:
+    """Recover author emails from a GitHub user's recent public push events —
+    the strongest developer-handle → real-identity pivot. Free, no key
+    (honours GITHUB_TOKEN)."""
+    u = (username or "").strip().lstrip("@").strip()
+    if not u:
+        return {"username": username, "found": False, "error": "empty username"}
+    headers = {"Accept": "application/vnd.github+json"}
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    raw = await get_json(f"{_API}/{u}/events/public", params={"per_page": "100"},
+                         headers=headers, ttl=43200, cache_key=f"ghevents|{u.lower()}")
+    found = _extract_commit_emails(raw, u)
+    return {"username": u, "found": bool(found), "email_count": len(found),
+            "emails": found, "source": "github (public push events)"}
+
+
 async def lookup_user(username: str) -> dict:
     """Look up a public GitHub profile by login."""
     u = (username or "").strip().lstrip("@").strip()

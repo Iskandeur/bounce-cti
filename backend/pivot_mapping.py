@@ -168,6 +168,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     "username": [
         ("username_enumerate", 2, None, False),
         ("github_profile", 3, None, False),  # free, no key — identity enrichment
+        ("github_commit_emails", 3, None, False),  # handle → real author email
         ("threatfox_search", 2, None, False),
         ("pulsedive_indicator", 3, "pulsedive", False),
         ("opencti_lookup_indicator", 3, "opencti", False),
@@ -448,8 +449,8 @@ def pivots_for(node_type: str, node_value: str, *,
 # sanctions_screen (a criminal/legal-data axis) from auto-enqueuing on a `person`
 # node in an OSINT run (wrong domain + GDPR/defamation risk).
 DD_ONLY_OPS: frozenset[str] = frozenset({
-    "gleif_lookup", "sanctions_screen", "companies_house_lookup",
-    "edgar_lookup", "recherche_entreprises_lookup",
+    "gleif_lookup", "sanctions_screen", "sanctions_screen_batch",
+    "companies_house_lookup", "edgar_lookup", "recherche_entreprises_lookup",
 })
 # Threat-CTI / abuse-feed ops suppressed in the OSINT lens: a benign identity
 # footprint shouldn't trigger malware/abuse fan-out (the 2026-06-19 OSINT run

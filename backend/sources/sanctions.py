@@ -265,3 +265,29 @@ async def screen(query: str, lists: list[str] | None = None) -> dict:
     if errors:
         out["lists_unavailable"] = errors
     return out
+
+
+async def screen_batch(names: list[str], lists: list[str] | None = None) -> dict:
+    """Screen many names in one call (the lists are fetched/parsed once and
+    reused from the in-process cache across all names). Returns per-name results
+    + a flagged shortlist. Avoids the 1-call-per-node fan-out that blew the DD
+    budget (2026-06-19 retro: 51 single sanctions_screen pivots)."""
+    uniq = list(dict.fromkeys((n or "").strip() for n in (names or [])))
+    uniq = [n for n in uniq if n][:200]
+    if not uniq:
+        return {"queries": 0, "results": [], "flagged": [], "any_hit": False,
+                "error": "no names"}
+    results = []
+    for nm in uniq:
+        r = await screen(nm, lists)
+        results.append({"name": nm, "hits": r.get("hits", []),
+                        "hit_count": r.get("hit_count", 0)})
+    flagged = [r["name"] for r in results if r["hit_count"]]
+    return {
+        "queries": len(uniq),
+        "any_hit": bool(flagged),
+        "flagged": flagged,
+        "results": results,
+        "disclaimer": ("Candidate matches for human review — verify against the "
+                       "official list; not an automated determination."),
+    }
