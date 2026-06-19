@@ -145,9 +145,11 @@ def _mandatory_phone(v: str) -> list[tuple[str, str]]:
 
 
 def _mandatory_company(v: str) -> list[tuple[str, str]]:
-    # DD pool (mcp__dd__*). GLEIF is the v1 company-identity + hierarchy source.
+    # DD pool (mcp__dd__*). GLEIF = identity + hierarchy; sanctions screening
+    # is the core KYB check.
     return [
         ("gleif_lookup", f'gleif_lookup("{v}")'),
+        ("sanctions_screen", f'sanctions_screen("{v}")'),
     ]
 
 
@@ -465,7 +467,12 @@ def investigation_prompt(seed_type: str, seed_value: str) -> str:
             "        child: add_node(company, <name>, metadata={\"lei\": <lei>}) and\n"
             "        add_edge with relation `subsidiary_of` (child→parent) or\n"
             "        `parent_of` (parent→child), source=\"gleif\".\n"
-            "STEP 4: Final report — value=\"investigation_summary\". State the\n"
+            f"STEP 4: sanctions_screen(\"{seed_value}\") — and screen EACH parent /\n"
+            "        subsidiary company you graphed. On a hit: tag that company\n"
+            "        node `sanctioned`, record the programme(s) + list + ref. State\n"
+            "        clearly that a hit is a CANDIDATE match for human review (name\n"
+            "        collisions happen), not an automated determination.\n"
+            "STEP 5: Final report — value=\"investigation_summary\". State the\n"
             "        verified identity, the group structure (ultimate parent +\n"
             "        subsidiaries), and the confidence/limits. MANDATORY caveat in\n"
             "        `limitations`: ownership shown is ESTIMATED/INFERRED corporate\n"
@@ -670,6 +677,8 @@ def add_seed_block(seed_type: str, seed_value: str) -> str:
         return (
             "This is a company add-seed (Due-Diligence). Required tools:\n"
             f"  - gleif_lookup(\"{seed_value}\")  — identity + Level-2 hierarchy\n"
+            f"  - sanctions_screen(\"{seed_value}\")  — OFAC/EU/UK; tag `sanctioned`\n"
+            "    on a hit (candidate match for review, not a determination).\n"
             "Graph each parent/subsidiary as a company node with a\n"
             "subsidiary_of / parent_of edge. Set metadata.lei/jurisdiction/status.\n"
             "Ownership is ESTIMATED corporate hierarchy, NOT beneficial ownership.\n"
@@ -797,6 +806,7 @@ def pivot_block(seed_type: str, seed_value: str) -> str:
         return (
             "This is a company pivot (Due-Diligence). Call (skip already-graphed):\n"
             f"  - gleif_lookup(\"{seed_value}\")\n"
+            f"  - sanctions_screen(\"{seed_value}\")  — tag `sanctioned` on a hit\n"
             "Graph parents/subsidiaries as company nodes (subsidiary_of/parent_of).\n"
             "Ownership = ESTIMATED hierarchy, not beneficial ownership.\n"
         )

@@ -522,7 +522,7 @@ add-nodes, leak triage, and threat-cluster expansion respectively.
 ### `backend/mcp_servers/dd_mcp.py`
 MCP server for the **Due-Diligence (KYB) source pool** (`mcp__dd__*`), mounted
 for investigations whose vertical is `dd` (separate from the CTI pool — disjoint
-domain + the product's monetisation boundary). v1 tool:
+domain + the product's monetisation boundary). Tools:
 
 - `gleif_lookup` — resolve a company by **name or LEI** via GLEIF (`backend/
   sources/gleif.py`; free, no key, **CC0**): legal name, jurisdiction, status,
@@ -531,6 +531,16 @@ domain + the product's monetisation boundary). v1 tool:
   ⚠️ Level-2 is **estimated corporate ownership, NOT authoritative beneficial
   ownership (UBO/RBE)** — the DD prompt enforces that labelling, and forbids
   adverse-media / criminal-offence inference (GDPR art. 10 / French art. 46).
+- `sanctions_screen` — screen a company/person **name** against the
+  consolidated sanctions lists cleared for commercial use (`backend/sources/
+  sanctions.py`; free, no key): **OFAC** SDN (US public domain), **EU FSF**
+  (Decision 2011/833/EU), **UK UKSL** (OGL v3.0). The lists are large, so they
+  are fetched with a dedicated raw client and the *parsed* entries are memoised
+  in-process (TTL); per-list parsers are header-tolerant and the matcher is a
+  conservative normalised comparison (exact / token-subset / Jaccard, no fuzzy
+  dep yet). Returns scored candidate hits + `sanctioned: bool`. ⚠️ Hits are
+  **candidates for human review**, never an automated determination. (UN SC and
+  World Bank are excluded — their terms forbid commercial redistribution.)
 
 ### `backend/key_pool.py`
 In-process API key pool with round-robin rotation, cooldown on 429

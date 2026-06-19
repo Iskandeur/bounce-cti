@@ -122,8 +122,9 @@ backend/
                         #   phone_lookup — offline phone metadata,
                         #   website_extract — page links/emails/social profiles)
     dd_mcp.py           # MCP server: Due-Diligence (KYB) source pool
-                        #   (mcp__dd__*), mounted for the `dd` vertical. v1 tool:
-                        #   gleif_lookup (company identity + Level-2 hierarchy).
+                        #   (mcp__dd__*), mounted for the `dd` vertical. Tools:
+                        #   gleif_lookup (company identity + Level-2 hierarchy),
+                        #   sanctions_screen (OFAC + EU FSF + UK UKSL name screen).
                         #   Separate pool from cti (different domain + the
                         #   monetisation boundary). Legal guardrails: ownership =
                         #   ESTIMATED (not UBO/RBE), no adverse-media here.
@@ -190,6 +191,11 @@ backend/
                         #     CC0; powers the `company` seed via the dd pool. NB:
                         #     Level-2 = ESTIMATED corporate ownership, NOT
                         #     authoritative UBO/RBE).
+                        #     sanctions (name screening vs OFAC SDN + EU FSF +
+                        #     UK UKSL consolidated lists; free, no-key, all
+                        #     commercial-OK licences; header-tolerant parsers +
+                        #     normalised matcher; hits = candidates for review,
+                        #     not determinations. dd pool).
                         #   Shared: http_client
   tests/                # pytest suite (golden / regression tests, e.g.
                         #   test_seeds.py locks the seed-registry output).

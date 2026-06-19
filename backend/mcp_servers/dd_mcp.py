@@ -43,3 +43,17 @@ async def gleif_lookup(query: str) -> dict:
     corporate ownership, NOT authoritative beneficial ownership — label any
     ownership as ESTIMATED/INFERRED, never as the official UBO/RBE."""
     return await _src("gleif").lookup(query)
+
+
+@mcp.tool()
+async def sanctions_screen(name: str, lists: list[str] | None = None) -> dict:
+    """Screen a company or person **name** against the consolidated sanctions
+    lists cleared for commercial use — **OFAC** (US SDN), **EU FSF**, **UK
+    UKSL** (free, no key). Optionally restrict `lists` to a subset of
+    ["OFAC","EU","UK"]. Returns scored candidate hits (name, matched alias,
+    list, type, programmes, ref, score 0-100) plus `sanctioned: bool`. Screen
+    every `company`/`person` node — a hit is a strong DD finding: tag the node
+    `sanctioned`, add the programme(s), and cite the list + ref. ⚠️ Hits are
+    CANDIDATES for human review (name collisions happen), NOT an automated
+    determination — say so in the report."""
+    return await _src("sanctions").screen(name, lists)
