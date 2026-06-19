@@ -72,6 +72,16 @@ clean-room reimplementation.
               sector information licensed under the Open Government Licence v3.0."
               (Supersedes the OFSI Consolidated List, withdrawn 2026-01-28.)
 
+  Project   : UK Companies House — https://developer.company-information.service.gov.uk
+  License   : Open Government Licence v3.0
+  Used in   : backend/sources/companies_house.py (DD vertical)
+  Mode      : data via official API (no code copied)
+  Notes     : OGL v3.0 permits commercial use incl. redistribution. ⚠️ OGL does
+              NOT cover the personal data of officers/PSC — that reuse is a
+              separate GDPR responsibility (legal basis, month/year DOB only,
+              no marketing). Attribution: "Contains public sector information
+              licensed under the Open Government Licence v3.0."
+
   Project   : flowsint — https://github.com/reconurge/flowsint
   License   : Apache-2.0
   Used in   : backend/sources/wallet_enrich.py, backend/sources/phone_enrich.py,

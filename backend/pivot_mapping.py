@@ -150,6 +150,11 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     "company": [
         ("gleif_lookup", 2, None, False),     # GLEIF CC0, no key
         ("sanctions_screen", 2, None, False),  # OFAC/EU/UK, no key
+        ("companies_house_lookup", 3, "companies_house", False),  # UK officers/PSC (key)
+    ],
+    # DD: an officer / PSC / actor person — screen them against sanctions.
+    "person": [
+        ("sanctions_screen", 2, None, False),
     ],
     "wallet_address": [
         ("threatfox_search", 2, None, False),

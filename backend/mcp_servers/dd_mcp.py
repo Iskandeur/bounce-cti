@@ -57,3 +57,17 @@ async def sanctions_screen(name: str, lists: list[str] | None = None) -> dict:
     CANDIDATES for human review (name collisions happen), NOT an automated
     determination — say so in the report."""
     return await _src("sanctions").screen(name, lists)
+
+
+@mcp.tool()
+async def companies_house_lookup(query: str) -> dict:
+    """Resolve a **UK company** by name or company number via Companies House
+    (free, needs COMPANIES_HOUSE_API_KEY; OGL v3.0). Returns the company
+    profile + **officers** (directors/secretaries) + **persons with significant
+    control (PSC)**. Pass a company number (e.g. `09876543`, `SC123456`) for the
+    full record incl. officers/PSC, or a name for the top matches. Graph each
+    officer / PSC as a `person` node (uses_role / significant_control edge to the
+    company) — then sanctions_screen each person. PSC is registry-declared
+    control (a public OGL register), still label ownership ESTIMATED, not an
+    authoritative UBO/RBE determination. Returns `available: False` if no key."""
+    return await _src("companies_house").lookup(query)

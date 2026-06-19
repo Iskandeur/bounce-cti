@@ -111,7 +111,12 @@ corporate group), and your job is factual verification, not threat attribution:
 - Graph each entity as a `company` node (metadata.lei / jurisdiction / status)
   and each relationship as a `parent_of` / `subsidiary_of` edge to another
   `company` node. Expand the group up to the ultimate parent and down one level.
-- SANCTIONS-SCREEN the subject AND every related company (sanctions_screen,
+- For UK companies, companies_house_lookup adds OFFICERS (directors) and PSC
+  (persons with significant control) — graph each as a `person` node
+  (`officer_of` / `significant_control_of` edge). PSC is registry-declared
+  control, still ESTIMATED ownership (not authoritative UBO).
+- SANCTIONS-SCREEN the subject AND every related company AND every person
+  (officer/PSC) you graphed (sanctions_screen,
   OFAC/EU/UK). On a hit, tag the node `sanctioned` + record the programme/list/
   ref. A hit is a CANDIDATE match for human review (name collisions are common),
   NOT an automated determination — say so.
