@@ -390,6 +390,21 @@ def find_company_by_lei(inv_id: str, lei: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def list_company_nodes(inv_id: str) -> list[dict]:
+    """All `company` nodes (id, value, metadata) for LEI / name dedup."""
+    with conn() as c:
+        rows = c.execute(
+            "SELECT id, value, metadata FROM nodes WHERE investigation_id=? "
+            "AND type='company' ORDER BY created_at",
+            (inv_id,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        out.append({"id": r["id"], "value": r["value"],
+                    "metadata": json.loads(r["metadata"] or "{}")})
+    return out
+
+
 def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
              confidence: float = 0.8, source: str = "agent", tags: list[str] | None = None) -> dict:
     type_ = canonical_node_type(type_, value, metadata)

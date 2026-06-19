@@ -11,8 +11,9 @@ from .. import source_health
 from ..defuse_lists import defuse_check
 from ..pivot_mapping import (
     pivots_for, MAX_HIGH_PRIO_PER_NODE, MAX_LOW_PRIO_PER_NODE, MAX_PENDING_QUEUE,
-    canonical_type, cloud_platform_domain, is_mail_host, _CLOUD_PLATFORM_SUPPRESSED_OPS,
-    is_role_mailbox, _EMAIL_PIVOT_OPS, is_hex_serial, _SERIAL_OPS,
+    canonical_type, cloud_platform_domain, is_mail_host, company_canonical_key,
+    _CLOUD_PLATFORM_SUPPRESSED_OPS,
+    is_role_mailbox, is_privacy_mail, _EMAIL_PIVOT_OPS, is_hex_serial, _SERIAL_OPS,
     known_bad_marker, actor_handle_for_tag, kit_handle_for_tag, key_source_for_op,
 )
 
@@ -31,6 +32,8 @@ def _suppressed_ops(type_: str, value: str, metadata: dict | None = None) -> set
         return set(_CLOUD_PLATFORM_SUPPRESSED_OPS)
     if type_ == "email" and is_role_mailbox(value):
         return set(_EMAIL_PIVOT_OPS)
+    if type_ == "email" and is_privacy_mail(value):
+        return {"whoxy_reverse"}  # reverse-WHOIS never resolves a privacy-mail registrant
     if ctype == "cert_serial" and not is_hex_serial(value):
         return set(_SERIAL_OPS)
     # DD: route a company to the registry matching its jurisdiction, so a FR/DE/
@@ -187,23 +190,33 @@ def add_node(type: str, value: str, metadata: dict | None = None,
         metadata = dict(metadata or {})
         metadata.setdefault("known_bad_marker", note)
 
-    # DD: dedupe a company on its LEI. A free-text seed ('Danone') and its
-    # resolved legal entity ('DANONE SA') share an LEI but are distinct strings,
-    # which produced a duplicate hub. If a company with this LEI already exists
-    # under a different value, fold the incoming name in as an alias on the
-    # first-seen (canonical) node instead of creating a second node.
-    if type == "company" and (metadata or {}).get("lei"):
-        canon = gs.find_company_by_lei(INV_ID, metadata["lei"])
-        if canon and canon["value"] != value:
-            import json as _json
-            cmd = _json.loads(canon.get("metadata") or "{}")
-            aliases = sorted(set(cmd.get("aliases") or []) | {value})
-            gs.add_node(INV_ID, "company", canon["value"],
-                        metadata={"lei": metadata["lei"], "aliases": aliases},
+    # DD: dedupe a company against an existing one that is the SAME legal entity
+    # under a different string — by LEI, or by canonical name (so the free-text
+    # seed 'Danone' folds into 'DANONE SA', and HTML-entity variants 'ERNST &
+    # YOUNG' / 'ERNST &amp; YOUNG' collapse). Fold the incoming name as an alias
+    # on the first-seen (canonical) node instead of creating a duplicate.
+    if type == "company":
+        lei = (metadata or {}).get("lei")
+        ckey = company_canonical_key(value)
+        canon = None
+        for c in gs.list_company_nodes(INV_ID):
+            if c["value"] == value:
+                continue
+            if (lei and c["metadata"].get("lei") == lei) or \
+               (ckey and company_canonical_key(c["value"]) == ckey):
+                canon = c
+                break
+        if canon:
+            import json as _json  # noqa: F401 (kept local; json used via gs)
+            aliases = sorted(set(canon["metadata"].get("aliases") or []) | {value})
+            md = {"aliases": aliases}
+            if lei:
+                md["lei"] = lei
+            gs.add_node(INV_ID, "company", canon["value"], metadata=md,
                         confidence=confidence, source=source, tags=tags or [])
             return {"id": canon["id"], "type": "company", "value": canon["value"],
                     "merged_into": canon["value"],
-                    "note": f"deduped on LEI {metadata['lei']} → canonical '{canon['value']}' (alias '{value}')"}
+                    "note": f"deduped → canonical '{canon['value']}' (alias '{value}')"}
 
     result = gs.add_node(INV_ID, type, value, metadata=metadata,
                          confidence=confidence, source=source, tags=tags)

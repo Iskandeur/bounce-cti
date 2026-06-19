@@ -146,18 +146,18 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("opencti_lookup_indicator", 3, "opencti", False),
         ("urlscan_search", 4, None, False),
     ],
-    # DD vertical (dd pool). Expand corporate hierarchy + sanctions screen.
+    # DD vertical (dd pool). Expand corporate hierarchy; sanctions are screened
+    # in ONE sanctions_screen_batch call per drain round (mandated in the prompt),
+    # NOT per-node — per-node auto-enqueue exploded the queue to 48 pendings
+    # (2026-06-19 DD retro), so sanctions_screen is deliberately not enqueued here.
     "company": [
         ("gleif_lookup", 2, None, False),     # GLEIF CC0, no key
-        ("sanctions_screen", 2, None, False),  # OFAC/EU/UK, no key
         ("companies_house_lookup", 3, "companies_house", False),  # UK officers/PSC (key)
         ("edgar_lookup", 3, None, False),  # US-listed issuers, no key
         ("recherche_entreprises_lookup", 3, None, False),  # FR company + dirigeants, no key
     ],
-    # DD: an officer / PSC / actor person — screen them against sanctions.
-    "person": [
-        ("sanctions_screen", 2, None, False),
-    ],
+    # DD: officers / PSC are screened via the batch call, not a per-node pivot.
+    "person": [],
     "wallet_address": [
         ("threatfox_search", 2, None, False),
         ("wallet_enrich", 2, None, False),  # BTC free; ETH needs key (graceful)
@@ -289,6 +289,36 @@ def is_mail_host(value: str) -> bool:
     not the subject's), where infrastructure fan-out is non-discriminating."""
     v = (value or "").strip().lower().rstrip(".")
     return any(v.endswith(suf) for suf in _MAIL_HOST_SUFFIXES)
+
+
+# Company-name canonicalisation for dedup. Two company nodes that normalise to
+# the same key are the same legal entity under different strings — e.g. the
+# free-text seed 'Danone' vs the resolved 'DANONE SA', or the HTML-entity
+# variants 'ERNST & YOUNG' vs 'ERNST &amp; YOUNG' GLEIF returns. (2026-06-19
+# DD retro: LEI-only dedup missed both.)
+import html as _html
+
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+_WS_RE = re.compile(r"\s+")
+
+_COMPANY_SUFFIXES: frozenset[str] = frozenset({
+    "sa", "sas", "sasu", "sarl", "se", "plc", "ltd", "limited", "llc", "llp",
+    "inc", "incorporated", "corp", "corporation", "co", "company", "gmbh", "ag",
+    "bv", "nv", "spa", "srl", "ab", "as", "oy", "oyj", "pte", "pty", "kg", "kk",
+    "holding", "holdings", "group", "groupe", "international",
+})
+
+
+def company_canonical_key(value: str) -> str:
+    """Normalise a company name for dedup: HTML-unescape, lowercase, strip
+    punctuation, drop trailing corporate-form suffixes. '' if it reduces to
+    nothing (don't dedup on an empty key)."""
+    s = _html.unescape(value or "")
+    s = _PUNCT_RE.sub(" ", s.lower())
+    toks = [t for t in _WS_RE.sub(" ", s).split() if t]
+    while toks and toks[-1] in _COMPANY_SUFFIXES:
+        toks.pop()
+    return " ".join(toks)
 
 
 # Role / functional mailboxes: never a registrant, so reverse-WHOIS / EmailRep /
@@ -481,8 +511,25 @@ OSINT_SUPPRESSED_OPS: frozenset[str] = frozenset({
     "phishtank_check", "pulsedive_indicator", "threatfox_search",
     "urlhaus_host", "tor_exit_check", "abuseipdb_check", "criminalip_ip",
     "project_honeypot_check", "alienvault_reputation", "dnstwist_permutations",
-    "dom_fingerprints",
+})  # NB: dom_fingerprints kept — favicon/title/tracking-id IS identity signal
+   # in OSINT (2026-06-19 retro), not just abuse signal.
+
+
+# Privacy / disposable mail providers: reverse-WHOIS never indexes a mailbox-only
+# registrant on these, so whoxy_reverse on such an email is a guaranteed dead end
+# (2026-06-19 OSINT retro: a protonmail registrant fanned out 14 doomed pivots).
+_PRIVACY_MAIL_DOMAINS: frozenset[str] = frozenset({
+    "protonmail.com", "protonmail.ch", "proton.me", "pm.me", "tutanota.com",
+    "tutanota.de", "tuta.io", "tutamail.com", "keemail.me", "mailfence.com",
+    "cock.li", "ctemplar.com", "disroot.org", "riseup.net", "posteo.de",
 })
+
+
+def is_privacy_mail(value: str) -> bool:
+    """True if the email is on a privacy/disposable provider where reverse-WHOIS
+    is structurally hopeless (mailbox-only registrant, never indexed)."""
+    v = (value or "").strip().lower()
+    return "@" in v and v.rsplit("@", 1)[-1] in _PRIVACY_MAIL_DOMAINS
 
 
 # Pivot-rule tuple shape, shared by _PIVOT_RULES and register_pivots:
