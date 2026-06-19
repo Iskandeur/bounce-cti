@@ -1061,6 +1061,27 @@ def export_osint_dossier(inv_id: str, user_id: int = Depends(current_user)):
             "filename": f"bounce-osint-{inv_id}.dossier.md"}
 
 
+@app.get("/api/investigations/{inv_id}/kyb_dossier")
+def export_kyb_dossier(inv_id: str, user_id: int = Depends(current_user)):
+    """Render a KYB / Due-Diligence dossier (Markdown) for the investigation.
+
+    Entity-centric deliverable for the `dd` vertical: sanctions exposure (the
+    headline), subject identity, corporate hierarchy, officers / PSC, provenance,
+    with the estimated-ownership + candidate-match disclaimers baked in."""
+    _require_owner(inv_id, user_id)
+    try:
+        from . import dd_export
+        g = gs.get_graph(inv_id)
+        with gs.conn() as c:
+            row = c.execute("SELECT * FROM investigations WHERE id=?", (inv_id,)).fetchone()
+        inv = dict(row) if row else {"id": inv_id}
+        content = dd_export.render_kyb_dossier(g, inv)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"KYB dossier render failed: {e}")
+    return {"format": "markdown", "content": content,
+            "filename": f"bounce-kyb-{inv_id}.dossier.md"}
+
+
 @app.get("/api/investigations/{inv_id}/nodes/{node_id}/evidence")
 def node_evidence(inv_id: str, node_id: str, user_id: int = Depends(current_user)):
     """Return raw cached CTI source data relevant to a node.

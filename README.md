@@ -45,7 +45,8 @@ DOM fingerprints) building a live infrastructure graph in your browser.
   (server-side IOC extraction + refanging) and export the finished
   investigation as a PDF report or a STIX 2.1 bundle. OSINT investigations can
   also be exported as a Markdown **identity dossier** (accounts, identifiers,
-  connections, provenance).
+  connections, provenance), and Due-Diligence investigations as a **KYB dossier**
+  (sanctions exposure, company identity, corporate hierarchy, officers/PSC).
 - **Mobile-friendly**: drawer layout, touch-sized targets, single-finger pan.
 - **Light / dark theme**: toggle in the sidebar header (☀ / ☾); the choice is
   persisted per browser and applied before first paint.
