@@ -373,6 +373,23 @@ def find_node_across_investigations(type_: str, value: str,
     return out
 
 
+def find_company_by_lei(inv_id: str, lei: str) -> Optional[dict]:
+    """Return the first `company` node in this investigation carrying ``lei`` in
+    its metadata, or None. Used to dedupe a free-text company seed against its
+    resolved legal entity (the 'Danone' vs 'DANONE SA' duplicate-hub problem)."""
+    lei = (lei or "").strip()
+    if not lei:
+        return None
+    with conn() as c:
+        row = c.execute(
+            "SELECT id, type, value, metadata FROM nodes WHERE investigation_id=? "
+            "AND type='company' AND json_extract(metadata,'$.lei')=? "
+            "ORDER BY created_at LIMIT 1",
+            (inv_id, lei),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
              confidence: float = 0.8, source: str = "agent", tags: list[str] | None = None) -> dict:
     type_ = canonical_node_type(type_, value, metadata)

@@ -34,7 +34,7 @@ DOM fingerprints) building a live infrastructure graph in your browser.
   dirigeants from Recherche d'entreprises, and screens the company and its
   directors against the OFAC / EU / UK sanctions lists; ownership is shown as
   *estimated*, never as authoritative beneficial ownership). OSINT adds people/identity seeds — a free
-  no-key **username** sweep across ~54 public platforms, **email**→public
+  no-key **username** sweep across ~49 public platforms, **email**→public
   profile (Gravatar) and GitHub-profile enrichment, a **phone** lookup (offline
   carrier / line-type / country), and **wallet** on-chain activity (BTC free,
   ETH with a key). The selector appears in the new-investigation form; bare

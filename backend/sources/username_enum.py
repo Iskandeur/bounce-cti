@@ -69,7 +69,6 @@ _SITES: list[dict] = [
     {"app": "GitHub", "cat": "dev", "url": "https://github.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "GitLab", "cat": "dev", "url": "https://gitlab.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "Bitbucket", "cat": "dev", "url": "https://bitbucket.org/{u}/", "e_code": 200, "e_string": None, "m_string": None},
-    {"app": "Replit", "cat": "dev", "url": "https://replit.com/@{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "PyPI", "cat": "dev", "url": "https://pypi.org/user/{u}/", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "npm", "cat": "dev", "url": "https://www.npmjs.com/~{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "DockerHub", "cat": "dev", "url": "https://hub.docker.com/u/{u}", "e_code": 200, "e_string": None, "m_string": None},
@@ -81,7 +80,6 @@ _SITES: list[dict] = [
     # — blogging / writing —
     {"app": "Medium", "cat": "blog", "url": "https://medium.com/@{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "DevTo", "cat": "blog", "url": "https://dev.to/{u}", "e_code": 200, "e_string": None, "m_string": None},
-    {"app": "WordPress", "cat": "blog", "url": "https://{u}.wordpress.com", "e_code": 200, "e_string": None, "m_string": None},
     # — creator / portfolio —
     {"app": "Patreon", "cat": "creator", "url": "https://www.patreon.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "AboutMe", "cat": "creator", "url": "https://about.me/{u}", "e_code": 200, "e_string": None, "m_string": None},
@@ -110,7 +108,6 @@ _SITES: list[dict] = [
     {"app": "SourceForge", "cat": "dev", "url": "https://sourceforge.net/u/{u}/profile", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "Launchpad", "cat": "dev", "url": "https://launchpad.net/~{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "CodePen", "cat": "dev", "url": "https://codepen.io/{u}", "e_code": 200, "e_string": None, "m_string": None},
-    {"app": "Hashnode", "cat": "dev", "url": "https://hashnode.com/@{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "Hackaday", "cat": "dev", "url": "https://hackaday.io/{u}", "e_code": 200, "e_string": None, "m_string": None},
     # forum / social
     {"app": "Disqus", "cat": "forum", "url": "https://disqus.com/by/{u}/", "e_code": 200, "e_string": None, "m_string": None},
@@ -120,9 +117,7 @@ _SITES: list[dict] = [
     # creator
     {"app": "KoFi", "cat": "creator", "url": "https://ko-fi.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "BuyMeACoffee", "cat": "creator", "url": "https://www.buymeacoffee.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
-    {"app": "SlideShare", "cat": "creator", "url": "https://www.slideshare.net/{u}", "e_code": 200, "e_string": None, "m_string": None},
     # music
-    {"app": "Bandcamp", "cat": "misc", "url": "https://{u}.bandcamp.com", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "Mixcloud", "cat": "misc", "url": "https://www.mixcloud.com/{u}/", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "SoundCloud", "cat": "misc", "url": "https://soundcloud.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
     # blog / writing

@@ -271,6 +271,26 @@ def cloud_platform_domain(value: str) -> bool:
     return any(v.endswith(suf) or ("." + v).endswith(suf) for suf in _CLOUD_PLATFORM_SUFFIXES)
 
 
+# Shared mail-provider hostnames (MX targets). An MX like mx3.mail.ovh.net or
+# aspmx.l.google.com is provider infra, not the subject's — enumerating its
+# subdomains / whois / passive-DNS is pure noise (2026-06-19 OSINT retro: 18
+# doomed pivots on mx*.mail.ovh.net). Suppressed the same way as cloud platforms.
+_MAIL_HOST_SUFFIXES: tuple[str, ...] = (
+    ".mail.ovh.net", ".protection.outlook.com", ".l.google.com",
+    ".googlemail.com", ".pphosted.com", ".mailgun.org", ".zoho.com",
+    ".zohomail.com", ".mimecast.com", ".messagingengine.com", ".mailgun.net",
+    ".secureserver.net", ".mailcontrol.com", ".antispamcloud.com",
+    ".registrar-servers.com", ".improvmx.com",
+)
+
+
+def is_mail_host(value: str) -> bool:
+    """True if the host is a shared mail-provider MX target (provider infra,
+    not the subject's), where infrastructure fan-out is non-discriminating."""
+    v = (value or "").strip().lower().rstrip(".")
+    return any(v.endswith(suf) for suf in _MAIL_HOST_SUFFIXES)
+
+
 # Role / functional mailboxes: never a registrant, so reverse-WHOIS / EmailRep /
 # OpenCTI on them burns paid quota for nothing (e.g. abuse@qatar.net.qa is a
 # carrier abuse desk, not an operator identity).
