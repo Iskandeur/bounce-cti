@@ -541,6 +541,14 @@ domain + the product's monetisation boundary). Tools:
   dep yet). Returns scored candidate hits + `sanctioned: bool`. ⚠️ Hits are
   **candidates for human review**, never an automated determination. (UN SC and
   World Bank are excluded — their terms forbid commercial redistribution.)
+- `companies_house_lookup` — UK Companies House (`backend/sources/
+  companies_house.py`; free key, HTTP Basic; **OGL v3.0**). Resolve a company by
+  name or number → profile + **officers** (directors/secretaries) + **PSC**
+  (persons with significant control). Officers/PSC become `person` nodes the
+  agent sanctions-screens (company → directors → sanctions). DOB is exposed as
+  month/year only (GDPR). Degrades gracefully (`available: False`) without
+  `COMPANIES_HOUSE_API_KEY`. PSC is registry-declared control — still labelled
+  ESTIMATED ownership, not authoritative UBO.
 
 ### `backend/key_pool.py`
 In-process API key pool with round-robin rotation, cooldown on 429
