@@ -345,13 +345,25 @@ A red gate must be fixed before merge. Pair this with branch protection on
   are inserted as `skipped` with `skip_reason='defused'` for later visibility in
   `gaps_report`. Per-node fan-out cap: 8 high-priority + 4 low-priority pivots.
   The agent drains the queue via `next_pivot()` / `mark_pivot_done()`.
+  **Vertical scoping** (`pivots_for(..., vertical=)`, 2026-06-19): DD-pool ops
+  (`gleif_lookup`/`sanctions_screen`/`companies_house_lookup`/`edgar_lookup`/
+  `recherche_entreprises_lookup`) only enqueue in the `dd` vertical, and
+  threat-CTI noise ops (`threatfox`/`pulsedive`/`phishtank`/`urlhaus`/`tor_exit`/
+  `abuseipdb`/`criminalip`/`dom_fingerprints`/…) are suppressed in the `osint`
+  lens — both surfaced as `skipped` (`skip_reason='vertical_scope'`). This stops
+  a benign OSINT identity run from auto-enqueuing abuse-feed fan-out, and keeps
+  `sanctions_screen` (a criminal/legal-data axis) from firing outside DD. CTI is
+  unchanged (EVAL invariant). `graph_mcp` reads the investigation's vertical
+  (`gs.get_vertical`) and passes it to `pivots_for`.
   **Queue reconciliation** (`graph_store.reconcile_pivots_from_events`, called
   on every `queue_status`/`coverage_matrix`/`gaps_report`/`next_pivot`): agents
-  drive most enrichment with direct `mcp__cti__*` calls and rarely call
+  drive most enrichment with direct `mcp__<pool>__*` calls and rarely call
   `mark_pivot_done`, which left the queue stuck at hundreds-pending / 0-done on
   every eval case. Reconciliation mechanically marks a pending/running/deferred
   task `done` when the event log shows its tool was invoked with the matching
-  node value — so `queue_status`/`gaps_report` reflect reality. **Queue governor**:
+  node value — matching across the `cti` / `dd` / `osint` pool prefixes (DD ops
+  were previously invisible, leaving the DD queue stuck at 0-done) — so
+  `queue_status`/`gaps_report` reflect reality. **Queue governor**:
   a global ceiling `BOUNCE_PIVOT_QUEUE_MAX` (default 300) parks new auto-enqueues
   as `deferred` (`skip_reason='queue_ceiling'`) once the pending backlog is large,
   so drain budget goes to queued work rather than an exploding backlog;

@@ -46,7 +46,12 @@ def _auto_enqueue_pivots(type_: str, value: str) -> dict:
         except Exception:
             pass
 
-    rules = pivots_for(type_, value, has_key=key_pool.has_any_key, defused=defused)
+    try:
+        vertical = gs.get_vertical(INV_ID)
+    except Exception:
+        vertical = "cti"
+    rules = pivots_for(type_, value, has_key=key_pool.has_any_key,
+                       defused=defused, vertical=vertical)
     if not rules:
         return {"enqueued": 0, "skipped": 0, "deferred": 0}
 

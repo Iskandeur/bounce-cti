@@ -26,6 +26,48 @@ def test_cti_domain_pivots_present():
     assert "rdap_domain" in ops and "crtsh_subdomains" in ops
 
 
+def _reasons(node, value, vertical):
+    return {op: reason for op, _, reason in
+            pm.pivots_for(node, value, has_key=_has_key, vertical=vertical)}
+
+
+def test_dd_ops_scoped_out_of_non_dd_verticals():
+    # sanctions_screen (a person pivot) must NOT enqueue as pending in OSINT —
+    # wrong domain + criminal-data legal risk (2026-06-19 OSINT retro).
+    assert _reasons("person", "Jane", "osint")["sanctions_screen"] == "vertical_scope"
+    assert _reasons("person", "Jane", "cti")["sanctions_screen"] == "vertical_scope"
+    # ...but it's live in DD.
+    assert _reasons("person", "Jane", "dd")["sanctions_screen"] is None
+
+
+def test_company_dd_ops_only_in_dd():
+    cti = _reasons("company", "Acme", "cti")
+    assert cti.get("gleif_lookup") == "vertical_scope"
+    dd = _reasons("company", "Acme", "dd")
+    assert dd.get("gleif_lookup") is None and dd.get("sanctions_screen") is None
+
+
+def test_osint_suppresses_threat_noise_keeps_identity_ops():
+    r = _reasons("url", "https://github.com/jane", "osint")
+    # threat-feed noise suppressed on a benign profile URL
+    assert r.get("pulsedive_indicator") == "vertical_scope"
+    assert r.get("dom_fingerprints") == "vertical_scope"
+    # identity-useful ops kept live
+    assert r.get("website_extract") is None
+    assert r.get("wayback") is None
+    # threatfox IS suppressed where it appears (domain node)
+    rd = _reasons("domain", "janedoe.dev", "osint")
+    assert rd.get("threatfox_search") == "vertical_scope"
+    assert rd.get("rdap_domain") is None and rd.get("crtsh_subdomains") is None
+
+
+def test_cti_unchanged_for_normal_nodes():
+    # CTI url pivots keep their threat ops (no suppression) — EVAL invariant.
+    r = _reasons("url", "http://evil.com", "cti")
+    assert r.get("threatfox_search") is None or "threatfox_search" not in r
+    assert r.get("website_extract") is None
+
+
 def test_register_new_osint_type():
     pm.register_pivots("osint_handle_test", [
         ("some_osint_tool", 3, None, False),

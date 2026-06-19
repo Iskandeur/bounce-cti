@@ -545,6 +545,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   }, [allowedModels])
   const [invs, setInvs] = useState([])
   const [activeInv, setActiveInv] = useState(null)
+  // Active investigation's vertical (cti / osint / dd) — drives vertical-aware UI
+  // (Actions tab is CTI-only; the report's indicator section is relabelled).
+  const activeVertical = invs.find(i => i.id === activeInv)?.vertical || 'cti'
   const [selected, setSelected] = useState(null)
   const [events, setEvents] = useState([])
   const [report, setReport] = useState(null)
@@ -2002,7 +2005,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       r.pivot_suggestions.forEach(p => lines.push(`- ${iocString(p)}`))
     }
     if (r.ioc_list?.length) {
-      lines.push(''); lines.push('## IOC list')
+      lines.push(''); lines.push('## ' + (activeVertical === 'dd' ? 'Entities & identifiers'
+        : activeVertical === 'osint' ? 'Identifiers' : 'IOC list'))
       r.ioc_list.forEach(i => lines.push(`- \`${iocString(i)}\``))
     }
     if (r.sources_used?.length) {
@@ -2752,13 +2756,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           >
             Timeline
           </button>
-          <button
-            className={`panel-tab${rightTab === 'actions' ? ' active' : ''}`}
-            onClick={() => setRightTab('actions')}
-            title="Operational deliverables — blocklists, takedown templates, detection rules"
-          >
-            Actions
-          </button>
+          {activeVertical === 'cti' && (
+            <button
+              className={`panel-tab${rightTab === 'actions' ? ' active' : ''}`}
+              onClick={() => setRightTab('actions')}
+              title="Operational deliverables — blocklists, takedown templates, detection rules"
+            >
+              Actions
+            </button>
+          )}
           <button
             className={`panel-tab${rightTab === 'chat' ? ' active' : ''}`}
             onClick={() => setRightTab('chat')}
@@ -3218,7 +3224,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
 
                   {report.ioc_list?.length > 0 && (
                     <div>
-                      <div className="section-label" style={{ margin: '8px 0 6px' }}>IOC list</div>
+                      <div className="section-label" style={{ margin: '8px 0 6px' }}>
+                        {activeVertical === 'dd' ? 'Entities & identifiers'
+                          : activeVertical === 'osint' ? 'Identifiers'
+                          : 'IOC list'}
+                      </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {report.ioc_list.map((ioc, i) => {
                           const label = iocString(ioc)
@@ -3831,8 +3841,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               })()}
             </>
           )}
-          {/* ── Actions tab — operational deliverables ── */}
-          {rightTab === 'actions' && (
+          {/* ── Actions tab — operational deliverables (CTI only) ── */}
+          {rightTab === 'actions' && activeVertical === 'cti' && (
             <ActionsPanel
               activeInv={activeInv}
               graphReady={!!cyRef.current && cyRef.current.nodes().length > 0}

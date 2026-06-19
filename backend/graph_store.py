@@ -911,9 +911,16 @@ def reconcile_pivots_from_events(inv_id: str) -> int:
             if block.get("type") != "tool_use":
                 continue
             name = block.get("name", "")
-            if not name.startswith("mcp__cti__"):
+            # Map any source-pool tool to its bare pivot_op. Was cti-only, which
+            # left the DD queue stuck at 0-done even when gleif/sanctions/etc.
+            # ran (2026-06-19 DD retro). Graph ops (mcp__graph__*) are not pivots.
+            op = None
+            for _pref in ("mcp__cti__", "mcp__dd__", "mcp__osint__"):
+                if name.startswith(_pref):
+                    op = name[len(_pref):]
+                    break
+            if op is None:
                 continue
-            op = name[len("mcp__cti__"):]
             inp = block.get("input") or {}
             blob = " ".join(
                 str(v).lower() for v in inp.values()
