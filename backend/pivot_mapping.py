@@ -410,9 +410,15 @@ def canonical_type(node_type: str) -> str:
 
 def pivots_for(node_type: str, node_value: str, *,
                has_key: Callable[[str], bool],
-               defused: bool = False) -> list[tuple[str, int, Optional[str]]]:
+               defused: bool = False,
+               vertical: str = "cti") -> list[tuple[str, int, Optional[str]]]:
     """Return ``[(pivot_op, priority, skip_reason_or_None)]`` for a node.
 
+    - If a pivot is **out of the active vertical's scope**, returned with
+      ``skip_reason='vertical_scope'`` (DD-pool ops outside the ``dd`` vertical;
+      threat-CTI noise ops inside the ``osint`` lens). This keeps a benign OSINT
+      identity run from auto-enqueuing abuse-feed fan-out, and stops DD ops (incl.
+      ``sanctions_screen`` — a legal/criminal-data axis) firing outside DD.
     - If ``defused``, non-doc pivots are returned with ``skip_reason='defused'``.
     - If a pivot's source lacks any key (``has_key(src)`` False), returned
       with ``skip_reason='no_api_key'``.
@@ -421,6 +427,12 @@ def pivots_for(node_type: str, node_value: str, *,
     rules = _PIVOT_RULES.get(canonical_type(node_type), [])
     out: list[tuple[str, int, Optional[str]]] = []
     for op, prio, key_required, doc_only in rules:
+        if op in DD_ONLY_OPS and vertical != "dd":
+            out.append((op, prio, "vertical_scope"))
+            continue
+        if vertical == "osint" and op in OSINT_SUPPRESSED_OPS:
+            out.append((op, prio, "vertical_scope"))
+            continue
         if defused and not doc_only:
             out.append((op, prio, "defused"))
             continue
@@ -429,6 +441,27 @@ def pivots_for(node_type: str, node_value: str, *,
             continue
         out.append((op, prio, None))
     return out
+
+
+# ── Vertical scoping of pivots (2026-06-19 OSINT/DD retro) ──────────────────
+# DD-pool source ops: only meaningful in the `dd` vertical. Crucially this keeps
+# sanctions_screen (a criminal/legal-data axis) from auto-enqueuing on a `person`
+# node in an OSINT run (wrong domain + GDPR/defamation risk).
+DD_ONLY_OPS: frozenset[str] = frozenset({
+    "gleif_lookup", "sanctions_screen", "companies_house_lookup",
+    "edgar_lookup", "recherche_entreprises_lookup",
+})
+# Threat-CTI / abuse-feed ops suppressed in the OSINT lens: a benign identity
+# footprint shouldn't trigger malware/abuse fan-out (the 2026-06-19 OSINT run
+# auto-enqueued 178 pivots dominated by these on benign profile URLs). Identity-
+# useful ops (rdap/dns/crtsh/wayback/website_extract/gravatar/github_profile/
+# username_enumerate/mnemonic_pdns) are kept.
+OSINT_SUPPRESSED_OPS: frozenset[str] = frozenset({
+    "phishtank_check", "pulsedive_indicator", "threatfox_search",
+    "urlhaus_host", "tor_exit_check", "abuseipdb_check", "criminalip_ip",
+    "project_honeypot_check", "alienvault_reputation", "dnstwist_permutations",
+    "dom_fingerprints",
+})
 
 
 # Pivot-rule tuple shape, shared by _PIVOT_RULES and register_pivots:
