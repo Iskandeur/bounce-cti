@@ -21,6 +21,14 @@ def test_unknown_type_returns_no_pivots():
     assert pm.pivots_for("totally_unknown_type", "x", has_key=_has_key) == []
 
 
+def test_is_mail_host():
+    assert pm.is_mail_host("mx3.mail.ovh.net")
+    assert pm.is_mail_host("aspmx.l.google.com")
+    assert pm.is_mail_host("acme-com.mail.protection.outlook.com")
+    assert not pm.is_mail_host("evil.com")
+    assert not pm.is_mail_host("")
+
+
 def test_cti_domain_pivots_present():
     ops = [op for op, _, _ in pm.pivots_for("domain", "evil.com", has_key=_has_key)]
     assert "rdap_domain" in ops and "crtsh_subdomains" in ops

@@ -11,7 +11,7 @@ from .. import source_health
 from ..defuse_lists import defuse_check
 from ..pivot_mapping import (
     pivots_for, MAX_HIGH_PRIO_PER_NODE, MAX_LOW_PRIO_PER_NODE, MAX_PENDING_QUEUE,
-    canonical_type, cloud_platform_domain, _CLOUD_PLATFORM_SUPPRESSED_OPS,
+    canonical_type, cloud_platform_domain, is_mail_host, _CLOUD_PLATFORM_SUPPRESSED_OPS,
     is_role_mailbox, _EMAIL_PIVOT_OPS, is_hex_serial, _SERIAL_OPS,
     known_bad_marker, actor_handle_for_tag, kit_handle_for_tag, key_source_for_op,
 )
@@ -20,20 +20,37 @@ INV_ID = os.environ.get("BOUNCE_INV_ID", "default")
 mcp = FastMCP("bounce-graph")
 
 
-def _suppressed_ops(type_: str, value: str) -> set:
+def _suppressed_ops(type_: str, value: str, metadata: dict | None = None) -> set:
     """Ops to skip at enqueue time because they are structurally doomed /
     pure noise for this specific node (not a defuse — a target-shape filter)."""
     ctype = canonical_type(type_)
-    if type_ == "domain" and cloud_platform_domain(value):
+    if type_ in ("domain", "ns") and cloud_platform_domain(value):
+        return set(_CLOUD_PLATFORM_SUPPRESSED_OPS)
+    if type_ in ("domain", "ns") and is_mail_host(value):
+        # shared MX provider infra — same fan-out suppression as cloud platforms
         return set(_CLOUD_PLATFORM_SUPPRESSED_OPS)
     if type_ == "email" and is_role_mailbox(value):
         return set(_EMAIL_PIVOT_OPS)
     if ctype == "cert_serial" and not is_hex_serial(value):
         return set(_SERIAL_OPS)
+    # DD: route a company to the registry matching its jurisdiction, so a FR/DE/
+    # NL/... company doesn't auto-enqueue Companies House (GB-only) etc. Only
+    # suppresses when the jurisdiction is KNOWN and mismatched (unknown → try).
+    if ctype == "company":
+        jur = str((metadata or {}).get("jurisdiction") or "").upper()
+        if jur:
+            sup = set()
+            if jur != "GB":
+                sup.add("companies_house_lookup")
+            if not jur.startswith("US"):
+                sup.add("edgar_lookup")
+            if jur != "FR":
+                sup.add("recherche_entreprises_lookup")
+            return sup
     return set()
 
 
-def _auto_enqueue_pivots(type_: str, value: str) -> dict:
+def _auto_enqueue_pivots(type_: str, value: str, metadata: dict | None = None) -> dict:
     """Idempotent: enqueue all applicable pivots for a node, respecting
     defuse status, available API keys, per-node fan-out caps, target-shape
     noise filters (shared-SaaS domains / role mailboxes / non-hex serials),
@@ -55,7 +72,7 @@ def _auto_enqueue_pivots(type_: str, value: str) -> dict:
     if not rules:
         return {"enqueued": 0, "skipped": 0, "deferred": 0}
 
-    suppress = _suppressed_ops(type_, value)
+    suppress = _suppressed_ops(type_, value, metadata)
 
     # Source-health gate: if a pivot needs a source currently marked dead (e.g.
     # OpenCTI token expired this run), skip it at enqueue time so we don't
@@ -170,9 +187,27 @@ def add_node(type: str, value: str, metadata: dict | None = None,
         metadata = dict(metadata or {})
         metadata.setdefault("known_bad_marker", note)
 
+    # DD: dedupe a company on its LEI. A free-text seed ('Danone') and its
+    # resolved legal entity ('DANONE SA') share an LEI but are distinct strings,
+    # which produced a duplicate hub. If a company with this LEI already exists
+    # under a different value, fold the incoming name in as an alias on the
+    # first-seen (canonical) node instead of creating a second node.
+    if type == "company" and (metadata or {}).get("lei"):
+        canon = gs.find_company_by_lei(INV_ID, metadata["lei"])
+        if canon and canon["value"] != value:
+            import json as _json
+            cmd = _json.loads(canon.get("metadata") or "{}")
+            aliases = sorted(set(cmd.get("aliases") or []) | {value})
+            gs.add_node(INV_ID, "company", canon["value"],
+                        metadata={"lei": metadata["lei"], "aliases": aliases},
+                        confidence=confidence, source=source, tags=tags or [])
+            return {"id": canon["id"], "type": "company", "value": canon["value"],
+                    "merged_into": canon["value"],
+                    "note": f"deduped on LEI {metadata['lei']} → canonical '{canon['value']}' (alias '{value}')"}
+
     result = gs.add_node(INV_ID, type, value, metadata=metadata,
                          confidence=confidence, source=source, tags=tags)
-    enq = _auto_enqueue_pivots(type, value)
+    enq = _auto_enqueue_pivots(type, value, metadata)
     if enq["enqueued"] or enq["skipped"] or enq.get("deferred"):
         result["pivots_queued"] = enq["enqueued"]
         result["pivots_skipped"] = enq["skipped"]

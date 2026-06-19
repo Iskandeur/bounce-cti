@@ -165,7 +165,7 @@ backend/
                         #     dnstwist (local typosquat enumeration),
                         #     takeover (subdomain-takeover heuristic)
                         #   OSINT (Phase 2): username_enum (free, no-key
-                        #     Sherlock-style profile sweep across ~54 public
+                        #     Sherlock-style profile sweep across ~49 public
                         #     platforms; e_code/e_string/m_string detection
                         #     manifest adapted COPY-DATA from blackbird +
                         #     Sherlock, MIT — see THIRD_PARTY_LICENSES; anti-bot
@@ -371,9 +371,16 @@ A red gate must be fixed before merge. Pair this with branch protection on
   so drain budget goes to queued work rather than an exploding backlog;
   `requeue_missing()` promotes deferred→pending. **Noise pre-filters** suppress
   structurally-doomed pivots at enqueue (subdomain/whois on shared-SaaS parents
-  like `*.azurewebsites.net`; reverse-WHOIS on role mailboxes like `abuse@`;
-  serial lookups on non-hex cert serials) — surfaced as `skipped`
-  (`skip_reason='noise_filter'`), not silently dropped. **Source-health
+  like `*.azurewebsites.net`; **shared mail-provider MX hosts** like
+  `mx*.mail.ovh.net` / `*.protection.outlook.com` via `is_mail_host`;
+  reverse-WHOIS on role mailboxes like `abuse@`; serial lookups on non-hex cert
+  serials; and **DD jurisdiction routing** — a `company` node carrying
+  `metadata.jurisdiction` only enqueues the matching registry, so a FR/DE/…
+  company doesn't auto-enqueue Companies House `no_api_key` noise) — surfaced as
+  `skipped` (`skip_reason='noise_filter'`), not silently dropped. **LEI dedup**:
+  `graph_mcp.add_node` folds a `company` whose `metadata.lei` matches an existing
+  company into that first-seen canonical node (incoming name → `aliases`), fixing
+  the free-text-seed-vs-resolved-entity duplicate (`Danone` vs `DANONE SA`). **Source-health
   cache** (`backend/source_health.py`, backed by the `cache` table so both MCP
   processes see it): when a source returns a systemic failure (e.g. OpenCTI
   GraphQL `AUTH_REQUIRED`, indicating the token is expired/invalid), it gets
