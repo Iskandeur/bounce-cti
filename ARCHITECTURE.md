@@ -456,7 +456,7 @@ Phase 4 (added 2026-05-21): broad source-coverage expansion.
 
 OSINT (Phase 2):
 - `username_enum` — free, no-key Sherlock-style username sweep
-  (`username_enumerate` tool). Probes a curated manifest of ~30 public
+  (`username_enumerate` tool). Probes a curated manifest of ~54 public
   platforms (dev/social/forum/blog/gaming/creator) for a public profile at
   `/{username}`, using an `e_code`/`e_string`/`m_string` detection model
   (status-only for clean 404 sites; body markers for soft-404 sites). Pure

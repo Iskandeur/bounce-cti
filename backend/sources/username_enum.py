@@ -104,6 +104,38 @@ _SITES: list[dict] = [
     {"app": "Kaggle", "cat": "dev", "url": "https://www.kaggle.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "HackerOne", "cat": "dev", "url": "https://hackerone.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
     {"app": "GitHubGist", "cat": "dev", "url": "https://gist.github.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    # — extended manifest (Sherlock / Maigret COPY-DATA, 2026-06; 404-clean) —
+    # dev / code
+    {"app": "Codeberg", "cat": "dev", "url": "https://codeberg.org/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "SourceForge", "cat": "dev", "url": "https://sourceforge.net/u/{u}/profile", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Launchpad", "cat": "dev", "url": "https://launchpad.net/~{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "CodePen", "cat": "dev", "url": "https://codepen.io/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Hashnode", "cat": "dev", "url": "https://hashnode.com/@{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Hackaday", "cat": "dev", "url": "https://hackaday.io/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    # forum / social
+    {"app": "Disqus", "cat": "forum", "url": "https://disqus.com/by/{u}/", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Imgur", "cat": "social", "url": "https://imgur.com/user/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Flickr", "cat": "social", "url": "https://www.flickr.com/people/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Trello", "cat": "social", "url": "https://trello.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    # creator
+    {"app": "KoFi", "cat": "creator", "url": "https://ko-fi.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "BuyMeACoffee", "cat": "creator", "url": "https://www.buymeacoffee.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "SlideShare", "cat": "creator", "url": "https://www.slideshare.net/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    # music
+    {"app": "Bandcamp", "cat": "misc", "url": "https://{u}.bandcamp.com", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Mixcloud", "cat": "misc", "url": "https://www.mixcloud.com/{u}/", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "SoundCloud", "cat": "misc", "url": "https://soundcloud.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    # blog / writing
+    {"app": "Blogger", "cat": "blog", "url": "https://{u}.blogspot.com", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Substack", "cat": "blog", "url": "https://{u}.substack.com", "e_code": 200, "e_string": None, "m_string": None},
+    # art / photo
+    {"app": "DeviantArt", "cat": "creator", "url": "https://www.deviantart.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "ArtStation", "cat": "creator", "url": "https://www.artstation.com/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Unsplash", "cat": "creator", "url": "https://unsplash.com/@{u}", "e_code": 200, "e_string": None, "m_string": None},
+    # gaming / media
+    {"app": "Lichess", "cat": "gaming", "url": "https://lichess.org/@/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "MyAnimeList", "cat": "gaming", "url": "https://myanimelist.net/profile/{u}", "e_code": 200, "e_string": None, "m_string": None},
+    {"app": "Letterboxd", "cat": "misc", "url": "https://letterboxd.com/{u}/", "e_code": 200, "e_string": None, "m_string": None},
 ]
 
 
