@@ -131,7 +131,8 @@ backend/
                         #   (mcp__dd__*), mounted for the `dd` vertical. Tools:
                         #   gleif_lookup (company identity + Level-2 hierarchy),
                         #   sanctions_screen (OFAC + EU FSF + UK UKSL name screen),
-                        #   companies_house_lookup (UK profile + officers + PSC).
+                        #   companies_house_lookup (UK profile + officers + PSC),
+                        #   edgar_lookup (SEC EDGAR US-listed issuer identity).
                         #   Separate pool from cti (different domain + the
                         #   monetisation boundary). Legal guardrails: ownership =
                         #   ESTIMATED (not UBO/RBE), no adverse-media here.
@@ -206,6 +207,9 @@ backend/
                         #     companies_house (UK company profile + officers + PSC;
                         #     free key, OGL v3.0; officers/PSC → person nodes →
                         #     sanctions-screened. Graceful w/o key. dd pool).
+                        #     edgar (SEC EDGAR US-listed issuer identity: CIK,
+                        #     tickers/exchanges, SIC, state of incorp, former
+                        #     names; free, no key, public domain. dd pool).
                         #   Shared: http_client
   tests/                # pytest suite (golden / regression tests, e.g.
                         #   test_seeds.py locks the seed-registry output).

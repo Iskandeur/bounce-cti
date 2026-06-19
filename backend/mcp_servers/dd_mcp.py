@@ -71,3 +71,15 @@ async def companies_house_lookup(query: str) -> dict:
     control (a public OGL register), still label ownership ESTIMATED, not an
     authoritative UBO/RBE determination. Returns `available: False` if no key."""
     return await _src("companies_house").lookup(query)
+
+
+@mcp.tool()
+async def edgar_lookup(query: str) -> dict:
+    """Resolve a **US-listed company** by name, ticker, or CIK via SEC EDGAR
+    (free, no key; public domain). Returns official name, CIK, tickers +
+    exchanges, SIC industry, state of incorporation, business address, former
+    names (aliases), and recent filing types. Use for US issuers (complements
+    GLEIF/Companies House). Graph the issuer as a `company` node (metadata.cik /
+    tickers / sic), add former names as aliases, and sanctions_screen it. US
+    issuers only — returns found=false for private/non-US entities."""
+    return await _src("edgar").lookup(query)

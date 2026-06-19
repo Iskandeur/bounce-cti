@@ -553,6 +553,13 @@ domain + the product's monetisation boundary). Tools:
   month/year only (GDPR). Degrades gracefully (`available: False`) without
   `COMPANIES_HOUSE_API_KEY`. PSC is registry-declared control — still labelled
   ESTIMATED ownership, not authoritative UBO.
+- `edgar_lookup` — SEC EDGAR (`backend/sources/edgar.py`; free, no key, US
+  government public domain — a descriptive `User-Agent` is required). Resolve a
+  **US-listed** company by name / ticker / CIK → official name, CIK, tickers +
+  exchanges, SIC industry, state of incorporation, business address, former
+  names (aliases), recent filing types. Complements GLEIF / Companies House for
+  US issuers; returns `found: False` for private/non-US entities. (Officer /
+  insider extraction from Forms 3/4/5 is a later slice.)
 
 ### `backend/key_pool.py`
 In-process API key pool with round-robin rotation, cooldown on 429
