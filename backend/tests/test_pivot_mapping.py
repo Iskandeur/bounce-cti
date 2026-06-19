@@ -21,6 +21,24 @@ def test_unknown_type_returns_no_pivots():
     assert pm.pivots_for("totally_unknown_type", "x", has_key=_has_key) == []
 
 
+def test_company_canonical_key_folds_variants():
+    k = pm.company_canonical_key
+    # free-text seed vs resolved entity → same key
+    assert k("Danone") == k("DANONE SA") == "danone"
+    # HTML-entity variants fold after unescape
+    assert k("ERNST & YOUNG AUDIT") == k("ERNST &amp; YOUNG AUDIT")
+    # distinct entities do NOT collide
+    assert k("Danone Asia Pte Ltd") != k("Danone")
+    assert k("") == ""
+
+
+def test_is_privacy_mail():
+    assert pm.is_privacy_mail("alexandre.pinoteau@protonmail.com")
+    assert pm.is_privacy_mail("x@proton.me")
+    assert not pm.is_privacy_mail("ceo@danone.com")
+    assert not pm.is_privacy_mail("notanemail")
+
+
 def test_is_mail_host():
     assert pm.is_mail_host("mx3.mail.ovh.net")
     assert pm.is_mail_host("aspmx.l.google.com")
@@ -40,12 +58,11 @@ def _reasons(node, value, vertical):
 
 
 def test_dd_ops_scoped_out_of_non_dd_verticals():
-    # sanctions_screen (a person pivot) must NOT enqueue as pending in OSINT —
-    # wrong domain + criminal-data legal risk (2026-06-19 OSINT retro).
-    assert _reasons("person", "Jane", "osint")["sanctions_screen"] == "vertical_scope"
-    assert _reasons("person", "Jane", "cti")["sanctions_screen"] == "vertical_scope"
-    # ...but it's live in DD.
-    assert _reasons("person", "Jane", "dd")["sanctions_screen"] is None
+    # DD-pool ops (gleif_lookup on a company) must NOT enqueue outside DD.
+    assert _reasons("company", "Acme", "osint")["gleif_lookup"] == "vertical_scope"
+    assert _reasons("company", "Acme", "cti")["gleif_lookup"] == "vertical_scope"
+    # ...but live in DD.
+    assert _reasons("company", "Acme", "dd")["gleif_lookup"] is None
 
 
 def test_company_dd_ops_only_in_dd():
@@ -59,8 +76,9 @@ def test_osint_suppresses_threat_noise_keeps_identity_ops():
     r = _reasons("url", "https://github.com/jane", "osint")
     # threat-feed noise suppressed on a benign profile URL
     assert r.get("pulsedive_indicator") == "vertical_scope"
-    assert r.get("dom_fingerprints") == "vertical_scope"
-    # identity-useful ops kept live
+    # identity-useful ops kept live (incl. dom_fingerprints — favicon/title/
+    # tracking-id is identity signal in OSINT, 2026-06-19 retro)
+    assert r.get("dom_fingerprints") is None
     assert r.get("website_extract") is None
     assert r.get("wayback") is None
     # threatfox IS suppressed where it appears (domain node)

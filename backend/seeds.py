@@ -145,11 +145,11 @@ def _mandatory_phone(v: str) -> list[tuple[str, str]]:
 
 
 def _mandatory_company(v: str) -> list[tuple[str, str]]:
-    # DD pool (mcp__dd__*). GLEIF = identity + hierarchy; sanctions screening
-    # is the core KYB check.
+    # DD pool (mcp__dd__*). GLEIF = identity + hierarchy; sanctions screening is
+    # the core KYB check, run once over the whole graph via the batch tool.
     return [
         ("gleif_lookup", f'gleif_lookup("{v}")'),
-        ("sanctions_screen", f'sanctions_screen("{v}")'),
+        ("sanctions_screen_batch", 'sanctions_screen_batch([... all company+person names ...])'),
     ]
 
 

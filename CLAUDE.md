@@ -373,14 +373,20 @@ A red gate must be fixed before merge. Pair this with branch protection on
   structurally-doomed pivots at enqueue (subdomain/whois on shared-SaaS parents
   like `*.azurewebsites.net`; **shared mail-provider MX hosts** like
   `mx*.mail.ovh.net` / `*.protection.outlook.com` via `is_mail_host`;
-  reverse-WHOIS on role mailboxes like `abuse@`; serial lookups on non-hex cert
-  serials; and **DD jurisdiction routing** — a `company` node carrying
-  `metadata.jurisdiction` only enqueues the matching registry, so a FR/DE/…
-  company doesn't auto-enqueue Companies House `no_api_key` noise) — surfaced as
-  `skipped` (`skip_reason='noise_filter'`), not silently dropped. **LEI dedup**:
-  `graph_mcp.add_node` folds a `company` whose `metadata.lei` matches an existing
-  company into that first-seen canonical node (incoming name → `aliases`), fixing
-  the free-text-seed-vs-resolved-entity duplicate (`Danone` vs `DANONE SA`). **Source-health
+  reverse-WHOIS on role mailboxes like `abuse@`; **reverse-WHOIS on privacy-mail
+  registrants** (protonmail/tuta/… via `is_privacy_mail` — never resolves);
+  serial lookups on non-hex cert serials; and **DD jurisdiction routing** — a
+  `company` node carrying `metadata.jurisdiction` only enqueues the matching
+  registry, so a FR/DE/… company doesn't auto-enqueue Companies House
+  `no_api_key` noise) — surfaced as `skipped` (`skip_reason='noise_filter'`),
+  not silently dropped. **Company dedup**: `graph_mcp.add_node` folds a `company`
+  that matches an existing one by **LEI or canonical name**
+  (`company_canonical_key`: HTML-unescape + lowercase + drop corp suffixes) into
+  the first-seen canonical node (incoming name → `aliases`), fixing both the
+  free-text-seed-vs-resolved-entity duplicate (`Danone` vs `DANONE SA`) and
+  HTML-entity variants (`ERNST & YOUNG` vs `ERNST &amp; YOUNG`). **Sanctions in
+  DD are screened once per drain round via `sanctions_screen_batch`** (mandated
+  in the prompt), NOT auto-enqueued per node (per-node exploded the queue to ~48). **Source-health
   cache** (`backend/source_health.py`, backed by the `cache` table so both MCP
   processes see it): when a source returns a systemic failure (e.g. OpenCTI
   GraphQL `AUTH_REQUIRED`, indicating the token is expired/invalid), it gets
