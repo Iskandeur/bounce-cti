@@ -560,6 +560,15 @@ domain + the product's monetisation boundary). Tools:
   names (aliases), recent filing types. Complements GLEIF / Companies House for
   US issuers; returns `found: False` for private/non-US entities. (Officer /
   insider extraction from Forms 3/4/5 is a later slice.)
+- `recherche_entreprises_lookup` — French registry (`backend/sources/
+  recherche_entreprises.py`; the gov "Recherche d'entreprises" API; free, no
+  key, **Licence Ouverte 2.0**; aggregates INSEE Sirene + INPI RNE). Resolve a
+  FR company by name or SIREN → identity (SIREN, legal name, status, legal form,
+  activity, creation date, address) + **dirigeants** (officers). Natural-person
+  dirigeants → `person` nodes (sanctions-screened); corporate dirigeants →
+  `company` nodes. Closes the KYB loop for France like Companies House does for
+  the UK. Officer data is GDPR-regulated (factual use only); ownership stays
+  ESTIMATED.
 
 ### `backend/key_pool.py`
 In-process API key pool with round-robin rotation, cooldown on 429

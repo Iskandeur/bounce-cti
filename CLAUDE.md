@@ -132,7 +132,8 @@ backend/
                         #   gleif_lookup (company identity + Level-2 hierarchy),
                         #   sanctions_screen (OFAC + EU FSF + UK UKSL name screen),
                         #   companies_house_lookup (UK profile + officers + PSC),
-                        #   edgar_lookup (SEC EDGAR US-listed issuer identity).
+                        #   edgar_lookup (SEC EDGAR US-listed issuer identity),
+                        #   recherche_entreprises_lookup (FR company + dirigeants).
                         #   Separate pool from cti (different domain + the
                         #   monetisation boundary). Legal guardrails: ownership =
                         #   ESTIMATED (not UBO/RBE), no adverse-media here.
@@ -210,6 +211,9 @@ backend/
                         #     edgar (SEC EDGAR US-listed issuer identity: CIK,
                         #     tickers/exchanges, SIC, state of incorp, former
                         #     names; free, no key, public domain. dd pool).
+                        #     recherche_entreprises (FR company + dirigeants via
+                        #     gouv API; free, no key, Licence Ouverte 2.0;
+                        #     dirigeants → person nodes → sanctions. dd pool).
                         #   Shared: http_client
   tests/                # pytest suite (golden / regression tests, e.g.
                         #   test_seeds.py locks the seed-registry output).
