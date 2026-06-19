@@ -146,9 +146,10 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("opencti_lookup_indicator", 3, "opencti", False),
         ("urlscan_search", 4, None, False),
     ],
-    # DD vertical (dd pool). A company node expands its corporate hierarchy.
+    # DD vertical (dd pool). Expand corporate hierarchy + sanctions screen.
     "company": [
-        ("gleif_lookup", 2, None, False),  # GLEIF CC0, no key
+        ("gleif_lookup", 2, None, False),     # GLEIF CC0, no key
+        ("sanctions_screen", 2, None, False),  # OFAC/EU/UK, no key
     ],
     "wallet_address": [
         ("threatfox_search", 2, None, False),
