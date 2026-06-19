@@ -72,9 +72,12 @@ def _score(nq: str, qtok: set, cand: str):
     ctok = set(nc.split())
     if not ctok:
         return 0
-    # Token-subset (one name fully contained in the other) — strong signal,
-    # but require ≥2 query tokens so single common words don't over-match.
-    if len(qtok) >= 2 and (qtok <= ctok or ctok <= qtok):
+    # Screened name fully contained in the list entry (e.g. 'sberbank' ⊆
+    # 'sberbank cib uk') — strong signal. We deliberately do NOT match the
+    # reverse direction (list entry ⊆ screened name): a short generic list name
+    # sitting inside a longer real name is the main false-positive driver
+    # (2026-06-19 DD retro: 'Saint-Paul' / a VC fund flagged on common names).
+    if len(qtok) >= 2 and qtok <= ctok:
         return 95
     inter = len(qtok & ctok)
     if not inter:

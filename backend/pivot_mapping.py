@@ -321,6 +321,37 @@ def company_canonical_key(value: str) -> str:
     return " ".join(toks)
 
 
+# Legal-form suffix → ISO jurisdiction. GLEIF relationship stubs rarely carry a
+# jurisdiction, so a FR/DE/… subsidiary kept auto-enqueuing UK Companies House
+# (2026-06-19 DD retro: 39 no_api_key skips on Siemens). When the explicit
+# jurisdiction is missing we infer it from the name's legal-form suffix and route
+# to the matching registry. Only UNAMBIGUOUS suffixes are mapped (e.g. 'SA' and
+# 'Ltd' are multi-country and deliberately omitted).
+_JURISDICTION_SUFFIXES: tuple[tuple[str, str], ...] = (
+    ("gmbh", "DE"), ("ag", "DE"), ("ohg", "DE"), ("kgaa", "DE"),
+    ("sas", "FR"), ("sasu", "FR"), ("sarl", "FR"), ("eurl", "FR"),
+    ("llc", "US"), ("inc", "US"), ("incorporated", "US"), ("corp", "US"),
+    ("corporation", "US"),
+    ("plc", "GB"),
+    ("spa", "IT"), ("srl", "IT"),
+    ("bv", "NL"), ("nv", "NL"),
+    ("oy", "FI"), ("oyj", "FI"), ("ab", "SE"), ("as", "NO"),
+    ("pte", "SG"), ("sdn", "MY"), ("bhd", "MY"),
+    ("pty", "AU"), ("kk", "JP"),
+)
+
+
+def infer_jurisdiction(value: str) -> str | None:
+    """Best-effort ISO jurisdiction from a company name's legal-form suffix, or
+    None when ambiguous/unknown. Used only to route registry pivots."""
+    toks = _PUNCT_RE.sub(" ", _html.unescape(value or "").lower()).split()
+    for tok in reversed(toks[-3:]):  # suffix sits at the tail
+        for suf, jur in _JURISDICTION_SUFFIXES:
+            if tok == suf:
+                return jur
+    return None
+
+
 # Role / functional mailboxes: never a registrant, so reverse-WHOIS / EmailRep /
 # OpenCTI on them burns paid quota for nothing (e.g. abuse@qatar.net.qa is a
 # carrier abuse desk, not an operator identity).
