@@ -144,7 +144,7 @@ backend/
                         #     dnstwist (local typosquat enumeration),
                         #     takeover (subdomain-takeover heuristic)
                         #   OSINT (Phase 2): username_enum (free, no-key
-                        #     Sherlock-style profile sweep across ~30 public
+                        #     Sherlock-style profile sweep across ~54 public
                         #     platforms; e_code/e_string/m_string detection
                         #     manifest adapted COPY-DATA from blackbird +
                         #     Sherlock, MIT — see THIRD_PARTY_LICENSES; anti-bot
