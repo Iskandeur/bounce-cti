@@ -89,6 +89,10 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   dossier (Markdown): subject, footprint summary, discovered accounts /
   handles / emails / phones / wallets, connections, key findings, provenance.
   Identity-centric counterpart to the CTI exports (`backend/osint_export.py`).
+- `GET    /api/investigations/{id}/kyb_dossier` — render a KYB / Due-Diligence
+  dossier (Markdown): sanctions-exposure headline, subject identity, corporate
+  hierarchy, officers / PSC, provenance, with the estimated-ownership +
+  candidate-match disclaimers (`backend/dd_export.py`).
 - `POST   /api/investigations/{id}/stop` — kill the running agent
 - `DELETE /api/investigations/{id}`
 - `PATCH  /api/investigations/{id}` — rename (`{title}`); empty/omitted title clears it, falling back to the seed value in the UI
@@ -635,6 +639,16 @@ inv)` (pure, no DB) lays out the subject, footprint summary (from the
 infrastructure, connections, key findings, and provenance. Served at
 `GET /api/investigations/{id}/osint_dossier`; the report panel exposes a
 **Dossier** download button.
+
+### `backend/dd_export.py`
+Renders a `dd` investigation as a Markdown **KYB dossier** — the entity-centric
+counterpart to `osint_export.py`. `render_kyb_dossier(graph, inv)` (pure, no DB)
+leads with **sanctions exposure** (the headline KYB finding), then the subject
+identity, corporate hierarchy (parent/subsidiary edges), officers / PSC
+(`person` nodes), and provenance. Always emits the two disclaimers: ownership is
+ESTIMATED (not authoritative UBO/RBE), and sanctions hits are candidates for
+human review. Served at `GET /api/investigations/{id}/kyb_dossier`; the report
+panel exposes a **KYB** download button.
 
 ### `backend/pdf_report.py`
 Renders an investigation as a downloadable PDF (DejaVu Sans TTF for full

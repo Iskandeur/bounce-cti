@@ -2984,6 +2984,28 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                     )}
                     {activeInv && (
                       <button
+                        className="btn-sm secondary export-btn"
+                        onClick={async () => {
+                          try {
+                            const r = await fetch(`/api/investigations/${activeInv}/kyb_dossier`,
+                                                  { credentials: 'same-origin' })
+                            if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`)
+                            const j = await r.json()
+                            const blob = new Blob([j.content || ''], { type: 'text/markdown' })
+                            const a = document.createElement('a')
+                            a.href = URL.createObjectURL(blob)
+                            a.download = j.filename || `bounce-kyb-${activeInv}.dossier.md`
+                            a.click()
+                            URL.revokeObjectURL(a.href)
+                          } catch (e) { alert('KYB dossier export failed: ' + (e.message || e)) }
+                        }}
+                        title="Download a KYB / Due-Diligence dossier (Markdown): sanctions exposure, identity, corporate hierarchy, officers/PSC, provenance"
+                      >
+                        KYB
+                      </button>
+                    )}
+                    {activeInv && (
+                      <button
                         className="btn-sm export-btn share-btn"
                         onClick={() => setShareOpen(true)}
                         title="Generate a share link (graph-only, with optional report/timeline/evidence/chats)"

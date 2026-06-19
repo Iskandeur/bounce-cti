@@ -81,6 +81,12 @@ backend/
                         #   identity-centric counterpart to action_exports.
                         #   Pure render_dossier(graph, inv); served at
                         #   GET /api/investigations/{id}/osint_dossier
+  dd_export.py          # Render a DD investigation as a Markdown KYB dossier
+                        #   (sanctions exposure headline + company identity +
+                        #   corporate hierarchy + officers/PSC + provenance,
+                        #   with estimated-ownership + candidate-match
+                        #   disclaimers). Pure render_kyb_dossier(graph, inv);
+                        #   served at GET /api/investigations/{id}/kyb_dossier
   pdf_report.py         # Render an investigation as a downloadable PDF
   stix_export.py        # Render an investigation as a STIX 2.1 bundle
   key_pool.py           # API key rotation pool: round-robin, cooldown on 429,
