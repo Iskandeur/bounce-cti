@@ -2,7 +2,7 @@
 
 ## What this is
 
-Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submits a seed (domain / IP / hash / URL / JARM / ASN / command_line / executable_name / email / wallet_address / username / phone), the backend spawns a headless `claude -p` agent that queries ~50 public CTI source tools via MCP (commercial scanners + abuse feeds + the OpenCTI community knowledge graph), builds an infrastructure graph in SQLite, and streams it live to a React + Cytoscape frontend over WebSocket. Investigations are scoped to PIN-authenticated users, can be shared via signed links, and can be exported as PDF or STIX 2.1.
+Autonomous CTI (Cyber Threat Intelligence) investigation platform. A user submits a seed (domain / IP / hash / URL / JARM / ASN / command_line / executable_name / email / wallet_address / username / phone / company), the backend spawns a headless `claude -p` agent that queries ~50 public CTI source tools via MCP (commercial scanners + abuse feeds + the OpenCTI community knowledge graph), builds an infrastructure graph in SQLite, and streams it live to a React + Cytoscape frontend over WebSocket. Investigations are scoped to PIN-authenticated users, can be shared via signed links, and can be exported as PDF or STIX 2.1.
 
 The `executable_name` seed type lets the analyst paste just the basename of a malicious binary (e.g. `dropper.exe`) without uploading the file or knowing its hash — the agent pivots via MalwareBazaar's `get_filename` query to recover sample hashes and then runs the standard hash workflow on the top hits for family attribution.
 
@@ -27,12 +27,15 @@ backend/
   verticals.py          # Vertical registry: the CTI/OSINT/DD abstraction.
                         #   Vertical{name,label,agent_name,seed_types,
                         #   source_pool,prompt_block} + VERTICALS (cti + osint
-                        #   lens; osint reuses the cti pool for v1, differs by
-                        #   agent_name + prompt_block) + get_vertical/normalise
-                        #   (unknown → cti fallback) + source pool selection
-                        #   (SOURCE_POOL_MODULES, consumed by
-                        #   agent_runner._write_mcp_config). {core}+{vertical}
-                        #   system-prompt builder (agent_runner.build_system_prompt)
+                        #   lens [reuses cti pool] + dd [Due Diligence/KYB, own
+                        #   dedicated pool mcp__dd__*, company seed, GLEIF v1;
+                        #   legal guardrails baked in the prompt: ownership =
+                        #   ESTIMATED not authoritative UBO/RBE, no adverse-media])
+                        #   + get_vertical/normalise (unknown → cti fallback) +
+                        #   source pool selection (SOURCE_POOL_MODULES: cti→cti_mcp,
+                        #   dd→dd_mcp, consumed by agent_runner._write_mcp_config).
+                        #   {core}+{vertical} system-prompt builder
+                        #   (agent_runner.build_system_prompt)
                         #   swaps agent_name + appends prompt_block — iso-
                         #   functional for CTI. Multi-vertical foundation (Phase 1).
   auth.py               # PIN-based auth, sessions, admin bootstrap + impersonation
@@ -118,6 +121,12 @@ backend/
                         #   wallet_enrich — crypto wallet on-chain activity,
                         #   phone_lookup — offline phone metadata,
                         #   website_extract — page links/emails/social profiles)
+    dd_mcp.py           # MCP server: Due-Diligence (KYB) source pool
+                        #   (mcp__dd__*), mounted for the `dd` vertical. v1 tool:
+                        #   gleif_lookup (company identity + Level-2 hierarchy).
+                        #   Separate pool from cti (different domain + the
+                        #   monetisation boundary). Legal guardrails: ownership =
+                        #   ESTIMATED (not UBO/RBE), no adverse-media here.
   sources/              # One file per CTI source (all async, all cached):
                         #   Existing: crtsh, rdap, whois (RFC 3912 / port-43),
                         #     dns_tools, virustotal,
@@ -176,6 +185,11 @@ backend/
                         #     emails + social-profile handles via stdlib regex;
                         #     concept ported from flowsint to_text/to_links
                         #     Apache-2.0; url pivot, shared into the cti pool).
+                        #   DD (Phase 3): gleif (GLEIF/LEI company identity +
+                        #     Level-2 "who owns whom" hierarchy; free, no-key,
+                        #     CC0; powers the `company` seed via the dd pool. NB:
+                        #     Level-2 = ESTIMATED corporate ownership, NOT
+                        #     authoritative UBO/RBE).
                         #   Shared: http_client
   tests/                # pytest suite (golden / regression tests, e.g.
                         #   test_seeds.py locks the seed-registry output).

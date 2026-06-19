@@ -144,6 +144,13 @@ def _mandatory_phone(v: str) -> list[tuple[str, str]]:
     ]
 
 
+def _mandatory_company(v: str) -> list[tuple[str, str]]:
+    # DD pool (mcp__dd__*). GLEIF is the v1 company-identity + hierarchy source.
+    return [
+        ("gleif_lookup", f'gleif_lookup("{v}")'),
+    ]
+
+
 # Registry of mandatory-tool builders. Seed types absent here (command_line and
 # any unknown type) have no IOC-level mandatory tools — their prompt drives the
 # per-IOC pivots once embedded indicators are graphed.
@@ -159,6 +166,7 @@ _MANDATORY: dict[str, Callable[[str], list[tuple[str, str]]]] = {
     "wallet_address": _mandatory_wallet_address,
     "username": _mandatory_username,
     "phone": _mandatory_phone,
+    "company": _mandatory_company,
 }
 
 
@@ -174,7 +182,7 @@ def mandatory_tools(seed_type: str, seed_value: str) -> list[tuple[str, str]]:
 # no mandatory IOC tools, so it is registered but absent from ``_MANDATORY``.
 KNOWN_SEED_TYPES: tuple[str, ...] = (
     "ip", "domain", "url", "jarm", "asn", "hash", "executable_name",
-    "email", "wallet_address", "username", "phone", "command_line",
+    "email", "wallet_address", "username", "phone", "company", "command_line",
 )
 
 
@@ -441,6 +449,31 @@ def investigation_prompt(seed_type: str, seed_value: str) -> str:
             "        metadata.attribution_status=\"no_public_record\" and keep the\n"
             "        report minimal — the line metadata alone is the deliverable."
         )
+    elif seed_type == "company":
+        return (
+            f"Seed indicator: type=company value={seed_value}\n"
+            "This is a COMPANY / legal entity (Due-Diligence / KYB). Your job is\n"
+            "factual identity verification + corporate hierarchy from authoritative\n"
+            "registry data — NOT threat attribution, NOT adverse media.\n\n"
+            f"STEP 1: add_node(company, {seed_value}, tags=[\"seed\"])\n"
+            f"STEP 2: gleif_lookup(\"{seed_value}\") — resolve identity (legal name,\n"
+            "        LEI, jurisdiction, status, address). If a name search returns\n"
+            "        several matches, pick the best and note the alternatives. Set\n"
+            "        metadata.lei / jurisdiction / status on the company node.\n"
+            "STEP 3: If an LEI is found, gleif_lookup(\"<LEI>\") to pull Level-2\n"
+            "        relationships. For each direct/ultimate parent and each direct\n"
+            "        child: add_node(company, <name>, metadata={\"lei\": <lei>}) and\n"
+            "        add_edge with relation `subsidiary_of` (child→parent) or\n"
+            "        `parent_of` (parent→child), source=\"gleif\".\n"
+            "STEP 4: Final report — value=\"investigation_summary\". State the\n"
+            "        verified identity, the group structure (ultimate parent +\n"
+            "        subsidiaries), and the confidence/limits. MANDATORY caveat in\n"
+            "        `limitations`: ownership shown is ESTIMATED/INFERRED corporate\n"
+            "        hierarchy (GLEIF Level-2), NOT authoritative beneficial\n"
+            "        ownership (UBO/RBE), and not a substitute for a registry\n"
+            "        consultation by an obligated entity. Do NOT include adverse\n"
+            "        media or any criminal/wrongdoing claim about a natural person."
+        )
     elif seed_type == "command_line":
         return (
             f"Seed indicator: type=command_line value={seed_value}\n"
@@ -633,6 +666,15 @@ def add_seed_block(seed_type: str, seed_value: str) -> str:
             "Every domain / email / username co-mentioned becomes a node with a\n"
             "uses_contact edge to the phone.\n"
         )
+    elif seed_type == "company":
+        return (
+            "This is a company add-seed (Due-Diligence). Required tools:\n"
+            f"  - gleif_lookup(\"{seed_value}\")  — identity + Level-2 hierarchy\n"
+            "Graph each parent/subsidiary as a company node with a\n"
+            "subsidiary_of / parent_of edge. Set metadata.lei/jurisdiction/status.\n"
+            "Ownership is ESTIMATED corporate hierarchy, NOT beneficial ownership.\n"
+            "No adverse-media / criminal claims about natural persons.\n"
+        )
     return ""
 
 
@@ -750,6 +792,13 @@ def pivot_block(seed_type: str, seed_value: str) -> str:
             f"  - threatfox_search({seed_value})\n"
             f"  - opencti_lookup_indicator({seed_value})\n"
             f"  - urlscan_search(\"{seed_value}\")\n"
+        )
+    elif seed_type == "company":
+        return (
+            "This is a company pivot (Due-Diligence). Call (skip already-graphed):\n"
+            f"  - gleif_lookup(\"{seed_value}\")\n"
+            "Graph parents/subsidiaries as company nodes (subsidiary_of/parent_of).\n"
+            "Ownership = ESTIMATED hierarchy, not beneficial ownership.\n"
         )
     return ""
 

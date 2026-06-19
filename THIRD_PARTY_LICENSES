@@ -31,6 +31,18 @@ clean-room reimplementation.
   Notes     : Same as above — Sherlock's public site manifest informed the
               curated platform list / detection markers. Metadata only, no code.
 
+  Project   : GLEIF — Global Legal Entity Identifier Foundation
+              https://www.gleif.org/en/lei-data/gleif-api
+  License   : CC0 1.0 (LEI data; public domain)
+  Used in   : backend/sources/gleif.py (DD vertical)
+  Mode      : data via public API (no code copied)
+  Notes     : The Global LEI Index is published under CC0 — commercial use and
+              redistribution are unrestricted, no key/registration. GLEIF's data
+              terms require not implying GLEIF endorsement and accessing via the
+              official API; attribution is recommended though not required.
+              ⚠️ GLEIF Level-2 ("who owns whom") is corporate ownership, NOT
+              authoritative beneficial ownership (UBO/RBE).
+
   Project   : flowsint — https://github.com/reconurge/flowsint
   License   : Apache-2.0
   Used in   : backend/sources/wallet_enrich.py, backend/sources/phone_enrich.py,
