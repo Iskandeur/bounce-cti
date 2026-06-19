@@ -38,7 +38,9 @@ DOM fingerprints) building a live infrastructure graph in your browser.
   (graph / report / timeline / evidence / chats), expiry, and import-into-account flow.
 - **PDF in / PDF out**: bootstrap an investigation from a vendor write-up
   (server-side IOC extraction + refanging) and export the finished
-  investigation as a PDF report or a STIX 2.1 bundle.
+  investigation as a PDF report or a STIX 2.1 bundle. OSINT investigations can
+  also be exported as a Markdown **identity dossier** (accounts, identifiers,
+  connections, provenance).
 - **Mobile-friendly**: drawer layout, touch-sized targets, single-finger pan.
 - **Light / dark theme**: toggle in the sidebar header (☀ / ☾); the choice is
   persisted per browser and applied before first paint.

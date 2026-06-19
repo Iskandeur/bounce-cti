@@ -85,6 +85,10 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   known `abuse_email` in its metadata. Each item carries To/Subject/Body
   + mailto link so the Actions UI can offer one-click open in the
   analyst's mail client; bounce-cti never sends anything itself.
+- `GET    /api/investigations/{id}/osint_dossier` — render an OSINT identity
+  dossier (Markdown): subject, footprint summary, discovered accounts /
+  handles / emails / phones / wallets, connections, key findings, provenance.
+  Identity-centric counterpart to the CTI exports (`backend/osint_export.py`).
 - `POST   /api/investigations/{id}/stop` — kill the running agent
 - `DELETE /api/investigations/{id}`
 - `PATCH  /api/investigations/{id}` — rename (`{title}`); empty/omitted title clears it, falling back to the seed value in the UI
@@ -590,6 +594,16 @@ Handles the malware-sample / command-line ingestion path
 
 Neither helper persists the binary on disk — only hashes, metadata, and up
 to ``SCRIPT_TEXT_MAX`` of decoded text are retained.
+
+### `backend/osint_export.py`
+Renders an OSINT investigation as a Markdown **identity dossier** — the
+identity-centric counterpart to `action_exports.py`. `render_dossier(graph,
+inv)` (pure, no DB) lays out the subject, footprint summary (from the
+`investigation_summary` report node), discovered accounts / handles, identifiers
+(emails, phones with carrier/line-type, wallets with chain/balance), domains,
+infrastructure, connections, key findings, and provenance. Served at
+`GET /api/investigations/{id}/osint_dossier`; the report panel exposes a
+**Dossier** download button.
 
 ### `backend/pdf_report.py`
 Renders an investigation as a downloadable PDF (DejaVu Sans TTF for full
