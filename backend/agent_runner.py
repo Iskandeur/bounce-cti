@@ -230,6 +230,34 @@ _QUOTA_FALLBACK_COOLDOWN_S = float(
     os.environ.get("BOUNCE_QUOTA_FALLBACK_COOLDOWN_S", "3600")
 )
 
+
+# ── Auth-failure detection (distinct from quota) ───────────────────────────
+# When the `claude` CLI on the host has an expired / invalid credential, every
+# spawn returns HTTP 401 and emits an error reasoning line ("Failed to
+# authenticate. API Error: 401 Invalid authentication credentials") but the
+# process still exits 0, so the run produced ZERO nodes yet was marked `done`
+# (observed 2026-06-19: 3 empty 'done' investigations). This is an OPS problem
+# (re-auth the CLI), not a tool bug — but it must fail LOUD: detect it, abort the
+# run fast, and mark the investigation `error` with an actionable message instead
+# of a silent empty success.
+_AUTH_FAIL_MARKERS = (
+    "invalid authentication credentials",
+    "failed to authenticate",
+    "api error: 401",
+    "401 invalid",
+    "oauth token has expired",
+    "please run /login",
+)
+# inv_id → human-readable auth-failure message (set during a phase, read by
+# run_investigation to override the terminal status).
+_auth_failed: dict[str, str] = {}
+
+
+def _detect_auth_error(text: str) -> bool:
+    low = (text or "").lower()
+    return any(m in low for m in _AUTH_FAIL_MARKERS)
+
+
 # A spawned `claude -p` should emit its first stream-json event (the `system`
 # init) within a few seconds. If it emits *nothing* for this long it is wedged —
 # a misconfigured binary, a broken MCP launch, or a hung handshake — not slow
@@ -294,6 +322,29 @@ def _finalise_quota_halt(inv_id: str, quota: dict) -> None:
             )
     except Exception:
         pass
+
+
+def _finalise_auth_halt(inv_id: str, message: str) -> None:
+    """Mark an investigation as failed by a CLI auth error (expired/invalid
+    credential on the host). Flips status to `error` with an actionable message
+    and emits a status_change event. Unlike quota, this does NOT set a global
+    cooldown — it's an ops fix (re-authenticate the `claude` CLI), not a wait."""
+    _auth_failed.pop(inv_id, None)
+    msg = ("Claude CLI authentication failed (401) on the host — re-authenticate "
+           "the claude CLI / refresh its credential, then rerun. Detail: "
+           + (message or "")[:200])
+    gs.set_status(inv_id, "error: auth")
+    try:
+        with gs.conn() as c:
+            payload = {"kind": "status_change", "status": "error: auth",
+                       "error_message": msg}
+            c.execute(
+                "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                (inv_id, "status_change", json.dumps(payload), time.time()),
+            )
+    except Exception:
+        pass
+    _log(inv_id, "investigation_auth_failed", {"message": msg})
 
 
 def quota_block_active() -> tuple[bool, Optional[float], Optional[str]]:
@@ -2582,6 +2633,19 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
         except Exception:
             pass
 
+    def _note_auth(msg: str, source: str):
+        if inv_id in _auth_failed:
+            return
+        _auth_failed[inv_id] = (msg or "auth failure")[:300]
+        _log(inv_id, "agent_auth_error", {
+            "phase": phase, "source": source, "message": (msg or "")[:300],
+            "hint": "claude CLI credential invalid/expired on the host — re-authenticate",
+        })
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
     async def pump_stderr():
         assert proc.stderr is not None
         async for line in proc.stderr:
@@ -2590,6 +2654,8 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
             hit, reset_at, marker = _detect_quota_error(decoded)
             if hit:
                 _note_quota(True, reset_at, marker or decoded, "stderr")
+            elif _detect_auth_error(decoded):
+                _note_auth(decoded, "stderr")
 
     saw_result = {"v": False}
     first_event = {"seen": False}
@@ -2609,11 +2675,15 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                 hit, reset_at, marker = _scan_event_for_quota(evt)
                 if hit:
                     _note_quota(True, reset_at, marker, "stream")
+                elif _detect_auth_error(text):
+                    _note_auth(text[:300], "stream")
             except Exception:
                 _log(inv_id, "agent_stdout", text[:2000])
                 hit, reset_at, marker = _detect_quota_error(text)
                 if hit:
                     _note_quota(True, reset_at, marker or text[:200], "stdout")
+                elif _detect_auth_error(text):
+                    _note_auth(text[:300], "stdout")
 
     async def watchdog():
         """Guard against subprocesses that don't close stdout after finishing.
@@ -2803,6 +2873,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
     ground truth for relationships / attribution and to encode them as
     edges and tags rather than inventing them.
     """
+    _auth_failed.pop(inv_id, None)  # clear any stale auth flag from a prior run
     user_prompt = seeds.investigation_prompt(seed_type, seed_value)
 
     # If we got a CTI report PDF, prepend its text as ground truth context.
@@ -2858,6 +2929,12 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
 
     if quota["hit"]:
         _finalise_quota_halt(inv_id, quota)
+        return
+
+    # Auth failure (expired/invalid CLI credential): every phase will 401, so
+    # abort now and fail LOUD instead of grinding empty phases to a silent `done`.
+    if _auth_failed.get(inv_id):
+        _finalise_auth_halt(inv_id, _auth_failed[inv_id])
         return
 
     phase1_ok = saw_result or has_report or rc == 0
@@ -3505,6 +3582,12 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             _log(inv_id, "phase_lessons_learned_error", {"error": str(e)[:300]})
 
     # ── Final status ──
+    # Auth failure can surface in a later phase too — never report a 401-riddled
+    # run as `done`.
+    if _auth_failed.get(inv_id):
+        _finalise_auth_halt(inv_id, _auth_failed[inv_id])
+        return
+
     try:
         g = gs.get_graph(inv_id)
         has_report = any(n.get("type") == "report" for n in g.get("nodes", []))

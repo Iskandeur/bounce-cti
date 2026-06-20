@@ -429,6 +429,16 @@ A red gate must be fixed before merge. Pair this with branch protection on
   instead of hanging to the 20-min ceiling. This is the guardrail for the kind
   of silent-spawn failure behind the 2026-06-17 outage (the `claude` binary was
   off the systemd service PATH → `FileNotFoundError` → zero output).
+- **Auth-failure detection** (`_detect_auth_error`, distinct from quota): when
+  the host's `claude` CLI credential is expired/invalid, every phase emits
+  `Failed to authenticate. API Error: 401 …` yet the process exits 0, so the run
+  produced zero nodes but was marked `done` (observed 2026-06-19). The stdout/
+  stderr pumps scan for 401/"invalid authentication credentials"/"oauth token
+  has expired"; on a hit `_note_auth` kills the spawn, `run_investigation` aborts
+  after the first phase and `_finalise_auth_halt` flips the status to
+  `error: auth` with an actionable message + `status_change` event. This is an
+  **ops failure** (re-authenticate the CLI), surfaced loud instead of a silent
+  empty `done`; unlike quota it sets **no** global cooldown.
 - **Key rotation**: `backend/key_pool.py` lets each source accept either
   `<SRC>_API_KEY=k1` (single) or `<SRC>_API_KEYS=k1,k2,k3` (multi, takes precedence).
   Cooldown on 429 (60s default), full-day cooldown on quota exhausted. Sources call
