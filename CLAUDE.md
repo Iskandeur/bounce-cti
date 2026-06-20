@@ -513,6 +513,17 @@ later), prefix the commit subject with `docs:` so the intent is obvious in `git 
   and restart. (A PATH gap here was the 2026-06-17 production outage: the bare-name
   lookup returned None, the spawn raised `FileNotFoundError`, and every investigation
   produced zero nodes.)
+- **CLI auth under systemd ≠ interactive auth.** `claude auth status` in an
+  interactive shell can read OK while the service-spawned `claude -p` still gets
+  `401 Invalid authentication credentials` — because the systemd service runs
+  with a different `HOME` (so it reads a different `~/.claude`) or because creds
+  live in a keyring the headless service can't reach (observed 2026-06-19). The
+  robust fix for a service is a **headless token**: run `claude setup-token` as
+  the service user, then set `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`)
+  in the service env. `agent_runner._build_env` passes these (+ `CLAUDE_CONFIG_DIR`
+  / XDG vars) through to the spawn — the minimal env used to drop them, so a
+  token set in `.env` was silently ignored. Failures now surface as
+  `error: auth` (see Auth-failure detection) instead of an empty `done`.
 - VirusTotal free tier: 4 req/min. Investigations may be slow.
 - The `data/` directory is gitignored but must survive deploys (SQLite DB, auth key).
 - WebSocket endpoint is `/ws/{investigation_id}` — reverse proxy must support upgrade headers.

@@ -2510,6 +2510,20 @@ def _build_env(inv_id: str) -> dict:
     env["BOUNCE_INV_ID"] = inv_id
     env["MCP_TIMEOUT"] = "30000"
     env["MCP_TIMEOUT_MS"] = "30000"
+    # Pass through Claude-auth + config env vars so the headless `claude -p`
+    # spawn can authenticate the same way the host does. The minimal env above
+    # previously relied SOLELY on HOME-based credential discovery — which 401s
+    # when the systemd service runs with a different HOME, or stores creds in a
+    # keyring the service can't reach (observed 2026-06-19: interactive
+    # `claude auth status` OK, service spawns 401). With these passed through, the
+    # standard headless fix works: `claude setup-token` → set
+    # CLAUDE_CODE_OAUTH_TOKEN in the service env (or ANTHROPIC_API_KEY).
+    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+              "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "CLAUDE_CONFIG_DIR",
+              "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR",
+              "XDG_CACHE_HOME", "DBUS_SESSION_BUS_ADDRESS"):
+        if parent.get(k):
+            env[k] = parent[k]
     env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     env["BOUNCE_PYTHON"] = sys.executable
     # Per-investigation extended-thinking budget. The chosen level is stored on
