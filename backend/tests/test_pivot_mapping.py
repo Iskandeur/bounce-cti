@@ -21,6 +21,18 @@ def test_unknown_type_returns_no_pivots():
     assert pm.pivots_for("totally_unknown_type", "x", has_key=_has_key) == []
 
 
+def test_osint_keeps_threat_probes_on_wallets():
+    # On a wallet_address node, threatfox/pulsedive are tagging probes — kept
+    # live in OSINT even though they're suppressed elsewhere.
+    w = _reasons("wallet_address", "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "osint")
+    assert w.get("threatfox_search") is None
+    assert w.get("pulsedive_indicator") is None
+    assert w.get("wallet_enrich") is None
+    # ...but a benign profile URL still suppresses them
+    u = _reasons("url", "https://github.com/jane", "osint")
+    assert u.get("pulsedive_indicator") == "vertical_scope"
+
+
 def test_company_canonical_key_folds_variants():
     k = pm.company_canonical_key
     # free-text seed vs resolved entity → same key
