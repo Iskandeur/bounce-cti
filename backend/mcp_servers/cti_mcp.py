@@ -693,6 +693,18 @@ async def phone_lookup(number: str) -> dict:
 
 
 @mcp.tool()
+async def wikidata_lookup(query: str) -> dict:
+    """Resolve a name/handle to its Wikidata identity card (free, no key, CC0) —
+    QID + description + official website + self-declared social handles (Twitter/X,
+    GitHub, Mastodon, Facebook, Instagram, YouTube). A high-precision, *citable*
+    identity anchor for a public subject (notable dev / org / person); gate a
+    username or person investigation on it. `found=False` means no notable entity
+    by that name (most private individuals aren't in Wikidata — itself a signal).
+    Graph the QID URL as provenance and each linked handle/site as its own node."""
+    return await _src("wikidata").lookup(query)
+
+
+@mcp.tool()
 async def wallet_enrich(address: str) -> dict:
     """Enrich a cryptocurrency wallet with on-chain activity. BTC (bech32 /
     legacy) via blockstream.info (free, no key): balance, total received/sent,

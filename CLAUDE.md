@@ -119,7 +119,7 @@ backend/
                         #   threat_actor nodes (+ kit-handle tags to phishing_kit
                         #   nodes). add_edge auto-stubs missing
                         #   endpoints (phantom_autostub).
-    cti_mcp.py          # MCP server: ~85 async CTI source tools
+    cti_mcp.py          # MCP server: ~86 async CTI source tools
                         #   (incl. malwarebazaar_imphash — PE imphash cluster,
                         #   username_enumerate — Sherlock-style profile sweep,
                         #   gravatar_email — email→public profile / accounts,
@@ -180,6 +180,10 @@ backend/
                         #     github_profile (free, no-key GitHub user→identity
                         #     enrichment: name/company/blog/twitter handle;
                         #     username pivot, shared into the cti pool).
+                        #     wikidata (free, no-key, CC0 identity anchor:
+                        #     name→QID + description + official site + social
+                        #     handles [twitter/github/mastodon/…] with a citable
+                        #     QID URL; username pivot, shared into the cti pool).
                         #     phone_enrich (offline, no-key phone metadata via
                         #     libphonenumber/phonenumbers Apache-2.0: validity,
                         #     country/region, carrier, line type, timezones;
