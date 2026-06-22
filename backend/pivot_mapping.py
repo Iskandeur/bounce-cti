@@ -169,6 +169,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("username_enumerate", 2, None, False),
         ("github_profile", 3, None, False),  # free, no key — identity enrichment
         ("github_commit_emails", 3, None, False),  # handle → real author email
+        ("wikidata_lookup", 3, None, False),  # citable identity anchor (public subjects)
         ("threatfox_search", 2, None, False),
         ("pulsedive_indicator", 3, "pulsedive", False),
         ("opencti_lookup_indicator", 3, "opencti", False),

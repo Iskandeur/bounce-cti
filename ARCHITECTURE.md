@@ -520,7 +520,7 @@ OSINT (Phase 2):
 A `github_commit_emails` tool harvests author emails from a GitHub user's
 public push events (the strongest dev-handle→identity pivot).
 
-These add 28 MCP tools, taking the total to ~85. The `circl_hash_lookup`,
+These add 29 MCP tools, taking the total to ~86. The `circl_hash_lookup`,
 `tor_exit_check`, `dnstwist_permutations`, `leakix_host`, and
 `pulsedive_indicator` wrappers attach `_pivot_hints` (see `backend/hints.py`)
 that steer the agent into NSRL defusion, tor-exit defusion, typosquat
