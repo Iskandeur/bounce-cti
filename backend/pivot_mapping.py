@@ -512,7 +512,12 @@ def pivots_for(node_type: str, node_value: str, *,
         if op in DD_ONLY_OPS and vertical != "dd":
             out.append((op, prio, "vertical_scope"))
             continue
-        if vertical == "osint" and op in OSINT_SUPPRESSED_OPS:
+        # OSINT noise suppression — but NOT on wallet_address nodes: for a crypto
+        # wallet, threatfox/pulsedive are high-signal tagging probes (e.g.
+        # "address cited in a ransom note"), not malware-IOC fan-out (2026-06-19
+        # Satoshi OSINT retro: blanket suppression was too aggressive for wallets).
+        if (vertical == "osint" and op in OSINT_SUPPRESSED_OPS
+                and canonical_type(node_type) != "wallet_address"):
             out.append((op, prio, "vertical_scope"))
             continue
         if defused and not doc_only:
