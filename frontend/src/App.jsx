@@ -135,6 +135,22 @@ function refang(s) {
 // Auto-detect IOC type from a (refanged) value.
 // Keep in sync with backend/main.py:detect_seed_type.
 const EXEC_EXTENSIONS_RE = /\.(exe|dll|sys|scr|bat|cmd|ps1|vbs|vbe|hta|pif|wsh|wsf|jse|msi|ocx|drv|lnk|dylib|elf)$/i
+// D3 subdomain routing: the app is served on cti. / osint. / dd. deep-link
+// subdomains (Cloudflare), each pre-selecting its vertical. The first DNS label
+// (or a ?vertical= query param, handy for local dev / shareable links) wins over
+// the persisted choice. Returns a known vertical name or null (bare bounce. /
+// app. / localhost → fall back to localStorage/default).
+function verticalFromLocation() {
+  try {
+    const sub = (window.location.hostname || '').toLowerCase().split('.')[0]
+    if (['cti', 'osint', 'dd'].includes(sub)) return sub
+    const q = (new URLSearchParams(window.location.search).get('vertical') || '').toLowerCase()
+    if (['cti', 'osint', 'dd'].includes(q)) return q
+  } catch { /* ignore */ }
+  return null
+}
+
+
 function detectIOCType(raw, vertical = 'cti') {
   const v = refang(raw).trim()
   if (!v) return 'domain'
@@ -500,9 +516,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // or 'osint'. Persisted so the analyst's last choice survives reloads. The
   // selectable list is fetched from /api/verticals so the UI stays in sync
   // with the backend registry instead of hardcoding.
+  // Precedence: subdomain / ?vertical (D3 deep-link) > persisted choice > cti.
   const [vertical, setVertical] = useState(() => {
+    const loc = verticalFromLocation()
+    if (loc) return loc
     try { return localStorage.getItem('bounce-vertical') || 'cti' } catch { return 'cti' }
   })
+  // True when the vertical is pinned by the subdomain/param — the UI shows it as
+  // fixed context rather than a free choice (D3: you're on cti./osint./dd.).
+  const verticalPinned = verticalFromLocation() != null
   const [verticals, setVerticals] = useState([])
   useEffect(() => {
     try { localStorage.setItem('bounce-vertical', vertical) } catch { /* ignore */ }
@@ -2299,11 +2321,19 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             {sampleError && <div className="pdf-error">{sampleError}</div>}
           </div>
         )}
-        {verticals.length > 1 && (
+        {verticalPinned ? (
+          <>
+            <div className="section-label">Vertical</div>
+            <div className="vertical-pinned" title="Set by this subdomain (cti./osint./dd.)">
+              {(verticals.find(v => v.name === vertical) || {}).label || vertical.toUpperCase()}
+              <span className="vertical-pinned-hint"> · from subdomain</span>
+            </div>
+          </>
+        ) : verticals.length > 1 && (
           <>
             <div className="section-label">Vertical</div>
             <select value={vertical} onChange={e => setVertical(e.target.value)}
-                    title="Investigation lens. CTI = threat-infrastructure attribution. OSINT = identity / entity footprint correlation.">
+                    title="Investigation lens. CTI = threat-infrastructure attribution. OSINT = identity / entity footprint correlation. DD = company / KYB due diligence.">
               {verticals.map(v => <option key={v.name} value={v.name}>{v.label}</option>)}
             </select>
           </>
