@@ -389,8 +389,13 @@ A red gate must be fixed before merge. Pair this with branch protection on
   the first-seen canonical node (incoming name → `aliases`), fixing both the
   free-text-seed-vs-resolved-entity duplicate (`Danone` vs `DANONE SA`) and
   HTML-entity variants (`ERNST & YOUNG` vs `ERNST &amp; YOUNG`). **Sanctions in
-  DD are screened once per drain round via `sanctions_screen_batch`** (mandated
-  in the prompt), NOT auto-enqueued per node (per-node exploded the queue to ~48). **Source-health
+  DD are screened via `sanctions_screen_batch`** (mandated in the prompt), NOT
+  auto-enqueued per node (per-node exploded the queue to ~48); and as a guarantee
+  independent of agent compliance, `agent_runner._dd_sanctions_sweep` runs a
+  **mechanical OFAC/EU/UK screen of every company+person node at the end of a DD
+  run**, tagging hits `sanctioned` and always emitting a `sanctions_screen`
+  evidence report node (provenance even at zero hits — the agent skipped the
+  screen on SAP 2026-06-19). **Source-health
   cache** (`backend/source_health.py`, backed by the `cache` table so both MCP
   processes see it): when a source returns a systemic failure (e.g. OpenCTI
   GraphQL `AUTH_REQUIRED`, indicating the token is expired/invalid), it gets

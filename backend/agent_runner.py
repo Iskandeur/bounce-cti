@@ -347,6 +347,59 @@ def _finalise_auth_halt(inv_id: str, message: str) -> None:
     _log(inv_id, "investigation_auth_failed", {"message": msg})
 
 
+async def _dd_sanctions_sweep(inv_id: str) -> None:
+    """Mechanically screen every company+person node against OFAC/EU/UK and
+    record the result — a GUARANTEED KYB deliverable, independent of whether the
+    agent remembered to call sanctions_screen_batch (it sometimes doesn't, e.g.
+    SAP 2026-06-19: 0 sanctions tags despite the prompt mandate). Tags flagged
+    nodes `sanctioned` (+ match metadata) and always writes a `sanctions_screen`
+    evidence report node so the graph carries provenance even at zero hits."""
+    try:
+        from .sources import sanctions
+        g = gs.get_graph(inv_id)
+    except Exception:
+        return
+    targets = [(n.get("type"), n.get("value")) for n in g.get("nodes", [])
+               if n.get("type") in ("company", "person") and n.get("value")]
+    if not targets:
+        return
+    names = list(dict.fromkeys(v for _, v in targets))
+    try:
+        res = await sanctions.screen_batch(names)
+    except Exception as e:
+        _log(inv_id, "dd_sanctions_sweep_error", {"error": str(e)[:200]})
+        return
+    by_name = {r["name"]: r for r in res.get("results", [])}
+    flagged = 0
+    for t, v in targets:
+        r = by_name.get(v)
+        if not r or not r.get("hits"):
+            continue
+        top = r["hits"][0]
+        try:
+            gs.add_node(inv_id, t, v, tags=["sanctioned"], source="sanctions",
+                        metadata={"sanctions_match": r["hits"][:5],
+                                  "sanctions_list": top.get("list"),
+                                  "sanctions_programs": top.get("programs")})
+            flagged += 1
+        except Exception:
+            pass
+    try:
+        gs.add_node(inv_id, "report", "sanctions_screen", tags=["report"],
+                    source="sanctions",
+                    metadata={"screened_count": len(names),
+                              "flagged": res.get("flagged", []),
+                              "flagged_count": flagged,
+                              "lists": ["OFAC", "EU", "UK"],
+                              "results": res.get("results", [])[:200],
+                              "disclaimer": ("Mechanical OFAC/EU/UK name screen — "
+                                             "hits are candidate matches for human "
+                                             "review, not determinations.")})
+    except Exception:
+        pass
+    _log(inv_id, "dd_sanctions_sweep", {"screened": len(names), "flagged": flagged})
+
+
 def quota_block_active() -> tuple[bool, Optional[float], Optional[str]]:
     """Return (blocked, reset_at, message) — True when a prior agent run
     reported a Claude usage-limit error and the reset epoch hasn't passed.
@@ -3594,6 +3647,13 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             _append_lessons_ledger(inv_id, seed_type, seed_value, model)
         except Exception as e:
             _log(inv_id, "phase_lessons_learned_error", {"error": str(e)[:300]})
+
+    # ── DD: mechanical sanctions sweep (guaranteed KYB deliverable) ──
+    try:
+        if gs.get_vertical(inv_id) == "dd":
+            await _dd_sanctions_sweep(inv_id)
+    except Exception as e:
+        _log(inv_id, "dd_sanctions_sweep_error", {"error": str(e)[:200]})
 
     # ── Final status ──
     # Auth failure can surface in a later phase too — never report a 401-riddled
