@@ -56,6 +56,15 @@ def _check_effort(effort: Optional[str]) -> Optional[str]:
 @app.on_event("startup")
 def _bootstrap():
     auth.bootstrap_admin(os.getenv("ADMIN_PIN"))
+    # A restart (deploy) / OOM / disk-full kills in-flight agent subprocesses but
+    # leaves their investigation rows at `running` forever. Flip those orphans to
+    # a terminal status so they're not permanent zombies (observed 2026-06-19).
+    try:
+        n = gs.reconcile_orphaned_running()
+        if n:
+            print(f"[startup] reconciled {n} orphaned 'running' investigation(s)")
+    except Exception as e:
+        print(f"[startup] orphan reconciliation failed: {e}")
 
 
 # ── Live WebSocket registry (for shutdown broadcast) ───────────────────────

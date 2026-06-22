@@ -373,6 +373,29 @@ def find_node_across_investigations(type_: str, value: str,
     return out
 
 
+def reconcile_orphaned_running() -> int:
+    """Flip every investigation still `running` to a terminal `error: interrupted`.
+
+    Called at startup. A service restart (deploy) or an OOM/disk-full kill ends
+    the agent subprocess, but the investigation row stays `running` forever — a
+    zombie the UI shows as in-progress and no `/stop` can clear (the proc isn't
+    in this process's `_running_procs`). Since a restart means every prior
+    `running` row has lost its worker, mark them all terminal so the user can
+    rerun. Returns the number reconciled."""
+    now = time.time()
+    with conn() as c:
+        ids = [r["id"] for r in c.execute(
+            "SELECT id FROM investigations WHERE status='running'").fetchall()]
+        for iid in ids:
+            c.execute("UPDATE investigations SET status=? WHERE id=?",
+                      ("error: interrupted", iid))
+            payload = {"kind": "status_change", "status": "error: interrupted",
+                       "reason": "service restarted while the investigation was running"}
+            c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) "
+                      "VALUES (?,?,?,?)", (iid, "status_change", json.dumps(payload), now))
+    return len(ids)
+
+
 def find_company_by_lei(inv_id: str, lei: str) -> Optional[dict]:
     """Return the first `company` node in this investigation carrying ``lei`` in
     its metadata, or None. Used to dedupe a free-text company seed against its
