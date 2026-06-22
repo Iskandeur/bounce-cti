@@ -20,6 +20,19 @@ from ..pivot_mapping import (
 INV_ID = os.environ.get("BOUNCE_INV_ID", "default")
 mcp = FastMCP("bounce-graph")
 
+# CTI-only edge relations that must not appear in a DD (KYB) graph — the agent
+# occasionally emits these from a company/person node, corrupting the corporate
+# hierarchy and leaking phantom-stub endpoints (2026-06-19 DD retro). DD edges
+# are corporate: parent_of / subsidiary_of / owns / officer_of /
+# significant_control_of / sanctioned_by, etc.
+_DD_FORBIDDEN_RELATIONS = frozenset({
+    "known_ioc", "attributed_to", "uses_kit", "communicates_with", "contacts",
+    "same_jarm", "same_favicon", "shares_cert", "same_cert", "resolves_to",
+    "has_subdomain", "same_registrant", "same_ns", "hosted_on_asn",
+    "historical_resolution", "same_ja3", "same_ja3s", "drops", "c2_channel",
+    "delivery_chain", "uses_handle", "embedded_in",
+})
+
 
 def _suppressed_ops(type_: str, value: str, metadata: dict | None = None) -> set:
     """Ops to skip at enqueue time because they are structurally doomed /
@@ -284,6 +297,16 @@ def add_edge(src_type: str, src_value: str, dst_type: str, dst_value: str,
     same_ns, same_favicon, same_jarm, hosted_on_asn, communicates_with,
     historical_resolution
     """
+    # DD vertical guard: a KYB graph is corporate, not threat-infra. Reject
+    # CTI-style relations the agent sometimes emits from a company/person node
+    # (e.g. a phantom `known_ioc` edge off the seed observed 2026-06-19) so they
+    # don't pollute the hierarchy / leak phantom-stub endpoints.
+    try:
+        if gs.get_vertical(INV_ID) == "dd" and relation in _DD_FORBIDDEN_RELATIONS:
+            return {"ok": False, "skipped": "vertical_scope",
+                    "note": f"relation '{relation}' is CTI-only; not added in the dd vertical"}
+    except Exception:
+        pass
     return gs.add_edge(INV_ID, src_type, src_value, dst_type, dst_value,
                        relation, evidence=evidence, source=source, confidence=confidence)
 

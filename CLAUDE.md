@@ -356,7 +356,10 @@ A red gate must be fixed before merge. Pair this with branch protection on
   a benign OSINT identity run from auto-enqueuing abuse-feed fan-out, and keeps
   `sanctions_screen` (a criminal/legal-data axis) from firing outside DD. CTI is
   unchanged (EVAL invariant). `graph_mcp` reads the investigation's vertical
-  (`gs.get_vertical`) and passes it to `pivots_for`.
+  (`gs.get_vertical`) and passes it to `pivots_for`. **`add_edge` is also
+  vertical-guarded**: in `dd`, CTI-only relations (`known_ioc`/`attributed_to`/
+  `communicates_with`/`resolves_to`/… in `_DD_FORBIDDEN_RELATIONS`) are rejected
+  so a KYB graph stays corporate instead of leaking phantom threat-infra edges.
   **Queue reconciliation** (`graph_store.reconcile_pivots_from_events`, called
   on every `queue_status`/`coverage_matrix`/`gaps_report`/`next_pivot`): agents
   drive most enrichment with direct `mcp__<pool>__*` calls and rarely call
