@@ -88,7 +88,18 @@ backend/
                         #   disclaimers). Pure render_kyb_dossier(graph, inv);
                         #   served at GET /api/investigations/{id}/kyb_dossier
   pdf_report.py         # Render an investigation as a downloadable PDF
-  stix_export.py        # Render an investigation as a STIX 2.1 bundle
+  stix_export.py        # Render an investigation as a STIX 2.1 bundle.
+                        #   Pure build_stix_bundle(nodes,edges,inv,id,tlp=) +
+                        #   DB wrapper generate_stix_bundle. Conformance-hardened:
+                        #   no SDO-only common props on SCOs (confidence/labels/
+                        #   created/created_by_ref), RFC-valid email-addr only
+                        #   (invalid WHOIS hashes → report.x_bounce_unmodelled_
+                        #   observables), TLP marking on every object (default
+                        #   AMBER), spec-validated relationship pairs (reversed
+                        #   resolves-to flipped, out-of-spec → related-to keeping
+                        #   x_bounce_relation), malicious observables promoted to
+                        #   indicator SDOs w/ STIX patterns, report_types set.
+                        #   Locked by tests/test_stix_export.py
   key_pool.py           # API key rotation pool: round-robin, cooldown on 429,
                         #   per-day quota tracking, graceful degradation
   source_health.py      # Short-TTL dead-source cache (auth_required /
