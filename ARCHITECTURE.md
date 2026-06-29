@@ -680,6 +680,30 @@ Renders an investigation as a STIX 2.1 bundle (JSON) via `generate_stix_bundle`,
 or as a STIX-flavoured CSV of observables via `generate_csv` (one row per
 observable, columns map onto OpenCTI's CSV mapper for direct workbench import).
 
+The bundle builder is split into a DB-backed entrypoint (`generate_stix_bundle`)
+and a pure, unit-testable `build_stix_bundle(nodes, edges, inv, inv_id, tlp=)`.
+Conformance contract enforced by the pure builder (locked by
+`backend/tests/test_stix_export.py`):
+- **SCO hygiene** — cyber-observables (domain-name / ipv4 / ipv6 / url / file /
+  email-addr / autonomous-system / x509-certificate) carry NO `confidence`,
+  `labels`, `created`, `modified` or `created_by_ref` (those are SDO/SRO-only
+  common properties; a strict validator rejects them on SCOs).
+- **Valid emails only** — `email-addr` is emitted only for RFC-valid addresses;
+  privacy-hashed WHOIS tokens (e.g. `f651612a2f356ad3s@`) are dropped and kept
+  on the report as `x_bounce_unmodelled_observables` instead of a malformed SCO.
+- **TLP marking** — a canonical TLP marking-definition (default `TLP:AMBER`,
+  selectable via the `tlp` arg) is added and referenced by every object's
+  `object_marking_refs`.
+- **Spec-valid relationships** — each SRO is checked against the spec's allowed
+  source/target type pairs (`_REL_RULES`); a reversed `resolves-to`
+  (ipv4 → domain) is flipped, and any out-of-spec pair degrades to `related-to`
+  with the original Bounce relation preserved in `x_bounce_relation`.
+- **Indicators** — observables tagged malicious/suspicious are promoted to
+  `indicator` SDOs with a real STIX `pattern` (e.g. `[domain-name:value = '…']`)
+  so the bundle ships deployable detection logic, not just a flat IOC list.
+- **Report** — carries `report_types: ["threat-report"]` (SHOULD) alongside the
+  legacy `threat-assessment:*` label.
+
 ### `run_mcp.py`
 Standalone MCP launcher (at project root). Used as `command` in generated
 `data/mcp-{id}.json` configs. Adds the project root to `sys.path` and runs the

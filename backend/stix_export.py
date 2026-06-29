@@ -50,6 +50,141 @@ def _stix_relationship_type(relation: str) -> str:
     return mapping.get(relation, "related-to")
 
 
+# ── STIX 2.1 conformance helpers ─────────────────────────────────────────────
+
+# Cyber-observable (SCO) types we emit. `confidence`, `created`, `modified`,
+# `created_by_ref` and `labels` are SDO/SRO-only common properties and MUST NOT
+# appear on these (stix2-validator rejects them).
+_SCO_TYPES = {
+    "domain-name", "ipv4-addr", "ipv6-addr", "url", "file", "email-addr",
+    "autonomous-system", "x509-certificate",
+}
+# STIX Domain Objects we emit, which DO accept the common properties above.
+_SDO_TYPES = {
+    "identity", "location", "malware", "campaign", "threat-actor",
+    "intrusion-set", "indicator", "report",
+}
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _is_valid_email(value: str) -> bool:
+    return bool(_EMAIL_RE.match((value or "").strip()))
+
+
+# Standard STIX 2.1 TLP marking-definition objects (the canonical fixed
+# representations from the spec — well-known IDs + the canonical
+# created timestamp, so a strict validator / the stix2 lib accepts them
+# verbatim). Default to TLP:AMBER for shareable-but-limited CTI.
+_TLP_CREATED = "2017-01-20T00:00:00.000Z"
+_TLP_MARKINGS = {
+    "white": {
+        "type": "marking-definition", "spec_version": "2.1",
+        "id": "marking-definition--613f2e26-407d-48c7-9eca-b8e91df99dc9",
+        "created": _TLP_CREATED, "definition_type": "tlp",
+        "name": "TLP:WHITE", "definition": {"tlp": "white"},
+    },
+    "green": {
+        "type": "marking-definition", "spec_version": "2.1",
+        "id": "marking-definition--34098fce-860f-48ae-8e50-ebd3cc5e41da",
+        "created": _TLP_CREATED, "definition_type": "tlp",
+        "name": "TLP:GREEN", "definition": {"tlp": "green"},
+    },
+    "amber": {
+        "type": "marking-definition", "spec_version": "2.1",
+        "id": "marking-definition--f88d31f6-486f-44da-b317-01333bde0b82",
+        "created": _TLP_CREATED, "definition_type": "tlp",
+        "name": "TLP:AMBER", "definition": {"tlp": "amber"},
+    },
+    "red": {
+        "type": "marking-definition", "spec_version": "2.1",
+        "id": "marking-definition--5e57c739-391a-4eb3-b6be-7d15ca92d5ed",
+        "created": _TLP_CREATED, "definition_type": "tlp",
+        "name": "TLP:RED", "definition": {"tlp": "red"},
+    },
+}
+
+
+# STIX 2.1 relationship pair rules: relationship_type → (allowed source types,
+# allowed target types). `related-to` is the universal fallback (any → any) and
+# is intentionally absent. When a mapped relationship's endpoints don't fit the
+# spec, we downgrade to related-to (preserving the intent in x_bounce_relation)
+# rather than emit an illegal pairing. resolves-to additionally supports a
+# direction flip (an ipv4-addr → domain-name edge becomes domain-name → ipv4).
+_REL_RULES = {
+    "resolves-to": ({"domain-name"},
+                    {"ipv4-addr", "ipv6-addr", "domain-name"}),
+    "communicates-with": ({"malware", "infrastructure"},
+                          {"ipv4-addr", "ipv6-addr", "domain-name", "url"}),
+    "attributed-to": ({"campaign", "intrusion-set", "threat-actor"},
+                      {"threat-actor", "identity", "intrusion-set"}),
+    "located-at": ({"threat-actor", "intrusion-set", "campaign", "malware",
+                    "identity", "infrastructure"},
+                   {"location"}),
+    "indicates": ({"indicator"},
+                  {"attack-pattern", "campaign", "infrastructure",
+                   "intrusion-set", "malware", "threat-actor", "tool"}),
+    "uses": ({"threat-actor", "intrusion-set", "campaign", "malware",
+              "identity", "infrastructure", "tool"},
+             {"malware", "tool", "infrastructure", "attack-pattern"}),
+}
+
+
+def _normalise_relationship(rel_type: str, src_type: str, dst_type: str):
+    """Return (final_relationship_type, flip) so the emitted SRO is spec-valid.
+
+    `flip` True means swap source/target. Out-of-spec pairings degrade to
+    related-to instead of producing a relationship the spec forbids.
+    """
+    if rel_type == "related-to":
+        return "related-to", False
+    rule = _REL_RULES.get(rel_type)
+    if not rule:
+        return "related-to", False
+    src_ok, dst_ok = rule
+    if src_type in src_ok and dst_type in dst_ok:
+        return rel_type, False
+    # Reversed but otherwise valid (chiefly resolves-to ipv4 → domain).
+    if src_type in dst_ok and dst_type in src_ok:
+        return rel_type, True
+    return "related-to", False
+
+
+# Node tags that promote an observable to a deployable detection indicator.
+_MALICIOUS_TAGS = {
+    "malicious", "suspicious", "c2", "command_and_control", "phishing",
+    "malware_hosting", "known_ioc", "known_bad", "ioc", "botnet_c2",
+}
+
+# observable STIX type → STIX pattern expression for its value.
+_PATTERN_LHS = {
+    "domain-name": "domain-name:value",
+    "ipv4-addr": "ipv4-addr:value",
+    "ipv6-addr": "ipv6-addr:value",
+    "url": "url:value",
+    "email-addr": "email-addr:value",
+}
+
+
+def _pattern_escape(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _indicator_pattern(stix_type: str, node: dict) -> str | None:
+    """Build a valid STIX 2.1 pattern for an observable node, or None."""
+    value = node.get("value", "")
+    if stix_type == "file":
+        h_len = len(str(value))
+        algo = {32: "MD5", 40: "SHA-1", 64: "SHA-256", 128: "SHA-512"}.get(h_len)
+        if not algo:
+            return None
+        return f"[file:hashes.'{algo}' = '{_pattern_escape(value)}']"
+    lhs = _PATTERN_LHS.get(stix_type)
+    if not lhs:
+        return None
+    return f"[{lhs} = '{_pattern_escape(value)}']"
+
+
 # ── Node type → STIX object builder ──────────────────────────────────────────
 
 def _make_domain(stix_id: str, node: dict, created: str) -> dict:
@@ -58,7 +193,6 @@ def _make_domain(stix_id: str, node: dict, created: str) -> dict:
         "spec_version": "2.1",
         "id": stix_id,
         "value": node["value"],
-        "object_marking_refs": [],
     }
 
 
@@ -104,7 +238,14 @@ def _make_hash(stix_id: str, node: dict, created: str) -> dict:
     }
 
 
-def _make_email(stix_id: str, node: dict, created: str) -> dict:
+def _make_email(stix_id: str, node: dict, created: str) -> dict | None:
+    # STIX 2.1 requires email-addr.value to be a valid RFC 5322 address.
+    # Bounce sometimes carries a privacy-hashed WHOIS token (e.g.
+    # "f651612a2f356ad3s@") which is NOT a valid address — emitting it as an
+    # email-addr SCO produces a non-conformant bundle. Skip the SCO in that
+    # case (caller records the raw value as an unmodelled observable instead).
+    if not _is_valid_email(node.get("value", "")):
+        return None
     return {
         "type": "email-addr",
         "spec_version": "2.1",
@@ -240,18 +381,37 @@ _BUILDERS = {
 _SKIP_TYPES = {"report", "jarm", "ja3", "ja3s", "favicon", "js_hash"}
 
 
-def generate_stix_bundle(inv_id: str) -> dict:
-    """Generate a STIX 2.1 bundle from the investigation graph."""
+def generate_stix_bundle(inv_id: str, tlp: str = "amber") -> dict:
+    """Generate a STIX 2.1 bundle from the investigation graph (DB-backed)."""
     graph = gs.get_graph(inv_id)
-    nodes = graph.get("nodes", [])
-    edges = graph.get("edges", [])
-
-    # Investigation metadata for the Bounce-CTI identity
     with gs.conn() as c:
         inv_row = c.execute("SELECT * FROM investigations WHERE id=?", (inv_id,)).fetchone()
     inv = dict(inv_row) if inv_row else {}
+    return build_stix_bundle(
+        graph.get("nodes", []), graph.get("edges", []), inv, inv_id, tlp=tlp,
+    )
 
+
+def build_stix_bundle(nodes, edges, inv, inv_id, tlp: str = "amber") -> dict:
+    """Pure STIX 2.1 bundle builder (no DB access — unit-testable).
+
+    Conformance contract enforced here:
+      * Cyber-observables (SCOs) carry NO confidence/labels/created/
+        created_by_ref (those are SDO/SRO-only common properties).
+      * email-addr is only emitted for RFC-valid addresses; privacy-hashed
+        WHOIS tokens are recorded as unmodelled observables on the report.
+      * Every object is stamped with a TLP marking-definition (default AMBER).
+      * Relationships are validated against the spec's source/target pairs;
+        out-of-spec pairs degrade to related-to (resolves-to is flipped when
+        reversed). The original Bounce relation is kept in x_bounce_relation.
+      * The report carries report_types (SHOULD) alongside the legacy label.
+    """
     created = _ts(inv.get("created_at"))
+
+    # TLP marking applied to every object (SCOs MAY carry object_marking_refs
+    # in 2.1, so this is uniform and spec-clean).
+    marking = _TLP_MARKINGS.get((tlp or "amber").lower(), _TLP_MARKINGS["amber"])
+    marking_id = marking["id"]
 
     # Bounce-CTI as the creator identity
     identity_id = f"identity--{uuid.uuid5(_NAMESPACE, 'bounce-cti')}"
@@ -263,10 +423,14 @@ def generate_stix_bundle(inv_id: str) -> dict:
         "identity_class": "system",
         "created": created,
         "modified": created,
+        "object_marking_refs": [marking_id],
     }
 
     objects = [identity_obj]
-    node_id_map = {}  # bounce node id → stix id
+    node_id_map = {}        # bounce node id → stix id
+    stix_type_by_id = {}    # stix id → stix type (for relationship validation)
+    indicator_seeds = []    # (node, stix_type) eligible for an indicator SDO
+    unmodelled = []         # raw values we couldn't represent as a valid SCO
     skipped = set()
 
     # Convert nodes
@@ -285,39 +449,76 @@ def generate_stix_bundle(inv_id: str) -> dict:
 
         stix_prefix, builder_fn = builder_entry
         # For IP nodes, adjust the prefix for the actual type
-        if ntype == "ip" and ":" in nvalue:
+        if ntype == "ip" and ":" in str(nvalue):
             stix_prefix = "ipv6-addr"
         stix_id = _stix_id(stix_prefix, inv_id, ntype, nvalue)
-        node_id_map[n.get("id")] = stix_id
 
         ts_created = _ts(n.get("created_at"))
         obj = builder_fn(stix_id, n, ts_created)
+        if obj is None:
+            # Builder rejected the value (e.g. invalid email) — keep the raw
+            # signal on the report instead of emitting a malformed SCO.
+            skipped.add(n.get("id"))
+            if nvalue:
+                unmodelled.append(f"{ntype}:{nvalue}")
+            continue
 
-        # Add created_by_ref for SDOs (they support it)
-        if obj["type"] in ("malware", "campaign", "threat-actor", "identity",
-                           "location", "report"):
+        node_id_map[n.get("id")] = stix_id
+        stix_type_by_id[stix_id] = obj["type"]
+        is_sdo = obj["type"] in _SDO_TYPES
+
+        # created_by_ref / confidence / labels are SDO/SRO-only common props.
+        if is_sdo:
             obj["created_by_ref"] = identity_id
+            conf = n.get("confidence")
+            if conf is not None:
+                obj["confidence"] = max(0, min(100, int(conf * 100)))
+            tags = n.get("tags", [])
+            if tags:
+                obj["labels"] = [str(t) for t in tags]
 
-        # Add confidence from bounce node (STIX 2.1 supports 0-100 integer)
-        conf = n.get("confidence")
-        if conf is not None and obj["type"] not in ("domain-name", "ipv4-addr",
-                                                     "ipv6-addr", "url", "file",
-                                                     "email-addr"):
-            obj["confidence"] = max(0, min(100, int(conf * 100)))
-
-        # Add tags as labels (STIX supports labels on SDOs)
-        tags = n.get("tags", [])
-        if tags and obj["type"] in ("malware", "campaign", "threat-actor",
-                                     "identity", "location"):
-            obj["labels"] = [str(t) for t in tags]
-
-        # Add external references from metadata.sources_seen
-        md = n.get("metadata", {})
+        # external references — custom prop, allowed on any object.
+        md = n.get("metadata", {}) or {}
         sources_seen = md.get("sources_seen", [])
         if sources_seen:
             obj["x_bounce_sources"] = [str(s) for s in sources_seen]
 
+        obj["object_marking_refs"] = [marking_id]
         objects.append(obj)
+
+        # Track malicious observables for indicator promotion.
+        if obj["type"] in _SCO_TYPES and _MALICIOUS_TAGS.intersection(
+            str(t).lower() for t in (n.get("tags") or [])
+        ):
+            indicator_seeds.append((n, obj["type"]))
+
+    # Promote malicious observables to deployable detection indicators (SDOs
+    # with a real STIX pattern), addressing the "no indicators" gap.
+    for n, stix_type in indicator_seeds:
+        pattern = _indicator_pattern(stix_type, n)
+        if not pattern:
+            continue
+        ind_id = _stix_id("indicator", inv_id, "indicator", n.get("value", ""))
+        tags_l = {str(t).lower() for t in (n.get("tags") or [])}
+        ind_types = (["malicious-activity"] if "malicious" in tags_l
+                     else ["anomalous-activity"])
+        ind = {
+            "type": "indicator",
+            "spec_version": "2.1",
+            "id": ind_id,
+            "name": f"{n.get('type', 'ioc')}: {n.get('value', '')}",
+            "indicator_types": ind_types,
+            "pattern": pattern,
+            "pattern_type": "stix",
+            "valid_from": _ts(n.get("created_at")),
+            "created": _ts(n.get("created_at")),
+            "modified": _ts(n.get("created_at")),
+            "created_by_ref": identity_id,
+            "labels": [str(t) for t in (n.get("tags") or [])],
+            "object_marking_refs": [marking_id],
+        }
+        objects.append(ind)
+        stix_type_by_id[ind_id] = "indicator"
 
     # Convert edges to STIX relationships
     for e in edges:
@@ -326,7 +527,12 @@ def generate_stix_bundle(inv_id: str) -> dict:
         if not src_stix or not dst_stix:
             continue  # one end was skipped
 
-        rel_type = _stix_relationship_type(e.get("relation", "related-to"))
+        mapped = _stix_relationship_type(e.get("relation", "related-to"))
+        rel_type, flip = _normalise_relationship(
+            mapped, stix_type_by_id[src_stix], stix_type_by_id[dst_stix],
+        )
+        s_ref, t_ref = (dst_stix, src_stix) if flip else (src_stix, dst_stix)
+
         rel_seed = f"{inv_id}|{e.get('src')}|{e.get('dst')}|{e.get('relation')}"
         rel_id = f"relationship--{uuid.uuid5(_NAMESPACE, rel_seed)}"
 
@@ -335,14 +541,16 @@ def generate_stix_bundle(inv_id: str) -> dict:
             "spec_version": "2.1",
             "id": rel_id,
             "relationship_type": rel_type,
-            "source_ref": src_stix,
-            "target_ref": dst_stix,
+            "source_ref": s_ref,
+            "target_ref": t_ref,
             "created": _ts(e.get("created_at")),
             "modified": _ts(e.get("created_at")),
             "created_by_ref": identity_id,
+            "object_marking_refs": [marking_id],
         }
 
-        # Preserve the original Bounce-CTI relation as a custom property
+        # Preserve the original Bounce-CTI relation when it carries more
+        # nuance than the emitted STIX type (incl. spec-downgraded pairs).
         orig_rel = e.get("relation", "")
         if orig_rel and orig_rel != rel_type:
             rel_obj["x_bounce_relation"] = orig_rel
@@ -378,20 +586,27 @@ def generate_stix_bundle(inv_id: str) -> dict:
             "name": f"Bounce-CTI Investigation: {inv.get('seed_value', inv_id)}",
             "description": summary or f"Investigation of {inv.get('seed_type', 'unknown')} "
                            f"seed: {inv.get('seed_value', inv_id)}",
+            "report_types": ["threat-report"],
             "published": created,
             "created": created,
             "modified": created,
             "created_by_ref": identity_id,
             "object_refs": all_obj_ids,
             "labels": [f"threat-assessment:{threat_assessment}"],
+            "object_marking_refs": [marking_id],
         }
 
-        # IOC list as custom extension
+        # IOC list + observables we couldn't model as valid SCOs (custom props).
         iocs = report_md.get("ioc_list", [])
         if iocs:
             report_obj["x_bounce_ioc_list"] = [str(i) for i in iocs]
+        if unmodelled:
+            report_obj["x_bounce_unmodelled_observables"] = unmodelled
 
         objects.append(report_obj)
+
+    # The TLP marking-definition must be present for its refs to resolve.
+    objects.insert(1, dict(marking))
 
     bundle = {
         "type": "bundle",
