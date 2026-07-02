@@ -3487,3 +3487,15 @@ button.secondary:hover {
   line-height: 1.5;
   font-style: italic;
 }
+
+/* D3 subdomain routing: vertical fixed by the cti./osint./dd. subdomain. */
+.vertical-pinned {
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+.vertical-pinned-hint { font-weight: 400; font-size: 11px; color: var(--on-dim); }

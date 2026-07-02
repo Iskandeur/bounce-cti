@@ -40,6 +40,11 @@ DEFAULT_MODEL = "opus"
 ALLOWED_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 
 SESSION_COOKIE = "session"
+# D3 subdomain routing: when the app is served on cti./osint./dd. deep-link
+# subdomains, set this to the registrable parent (e.g. ".alexandre-pinoteau.fr")
+# so the session cookie is shared across them — one login, all verticals. Unset
+# (default) keeps the cookie host-only (single-host deploys, dev).
+COOKIE_DOMAIN = os.getenv("BOUNCE_COOKIE_DOMAIN") or None
 
 
 def _check_effort(effort: Optional[str]) -> Optional[str]:
@@ -165,6 +170,7 @@ def _set_session_cookie(response: Response, token: str):
         secure=True,
         samesite="lax",
         path="/",
+        domain=COOKIE_DOMAIN,
     )
 
 
@@ -189,7 +195,7 @@ def auth_login(req: LoginReq, request: Request, response: Response):
 @app.post("/api/auth/logout")
 def auth_logout(response: Response, session: Optional[str] = Cookie(default=None)):
     auth.destroy_session(session)
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(SESSION_COOKIE, path="/", domain=COOKIE_DOMAIN)
     return {"ok": True}
 
 

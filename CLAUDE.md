@@ -467,6 +467,16 @@ A red gate must be fixed before merge. Pair this with branch protection on
 - **Auth is PIN + session cookie**: Set `ADMIN_PIN=<6-digit>` in the env before the first start
   so the bootstrap promotes that PIN to admin (idempotent; no auto-generation if unset).
   Each investigation is owned by a user; the WebSocket and every `/api/*` route check ownership.
+  The session cookie is host-only by default; set `BOUNCE_COOKIE_DOMAIN=.<parent>` (e.g.
+  `.alexandre-pinoteau.fr`) so it's shared across the D3 deep-link subdomains
+  (`cti./osint./dd.`) — one login covers all verticals.
+- **D3 subdomain routing** (Phase 4): the SPA reads its hostname's first label
+  (`cti./osint./dd.`, or a `?vertical=` param for dev/shareable links) via
+  `verticalFromLocation()` in `App.jsx` and pre-selects that vertical (shown as a
+  fixed "from subdomain" badge instead of the selector). Topology: `bounce.` =
+  showcase, `cti./osint./dd.` = the app with the vertical pinned. Cloudflare DNS
+  + the reverse proxy route every app subdomain to the same backend; pair with
+  `BOUNCE_COOKIE_DOMAIN` for cross-subdomain SSO.
 - **Per-user model whitelist**: Admins can restrict which Claude models a user can spawn
   (`sonnet`, `opus`, `opus-4.7`, `opus-4.8`, `haiku` — `ALLOWED_MODELS` in `main.py`;
   the `opus-4.7`/`opus-4.8` aliases map to `claude-opus-4-7`/`claude-opus-4-8` in
