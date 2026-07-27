@@ -36,6 +36,9 @@ def _mandatory_ip(v: str) -> list[tuple[str, str]]:
         ("threatfox_search", f'threatfox_search("{v}")'),
         ("virustotal_resolutions_ip", f'virustotal_resolutions_ip("{v}")'),
         ("shodan_host", f'shodan_host("{v}")'),
+        # Free and keyless — guarantees exposure data (ports/CPEs/CVEs) even when
+        # no Shodan key is configured, and costs nothing when one is.
+        ("internetdb_ip", f'internetdb_ip("{v}")'),
         ("onyphe_ip", f'onyphe_ip("{v}")'),
         ("urlscan_search", f'urlscan_search("ip:{v}")'),
         ("otx_ip", f'otx_ip("{v}")'),
@@ -81,16 +84,23 @@ def _mandatory_url(v: str) -> list[tuple[str, str]]:
 
 
 def _mandatory_jarm(v: str) -> list[tuple[str, str]]:
+    # shodan_host_count, not shodan_search: the count endpoint answers the same
+    # question (how big is this JARM cluster, and what is in it) for 0 query
+    # credits. shodan_search bills 1 credit per 100 results and is gated off by
+    # default, so mandating it would nag the agent for a call it cannot make.
     return [
-        ("shodan_search", f'shodan_search("ssl.jarm:{v}")'),
+        ("shodan_host_count",
+         f'shodan_host_count("ssl.jarm:{v}", facets="asn,org,country,port")'),
         ("urlscan_search", f'urlscan_search("hash:{v}")'),
     ]
 
 
 def _mandatory_asn(v: str) -> list[tuple[str, str]]:
     # Accept seed_value like "AS13335" — pass the stripped form to shodan.
+    # Free count+facets rather than the credit-metered search (see _mandatory_jarm).
     return [
-        ("shodan_search", f'shodan_search("asn:AS{_asn_num(v)}")'),
+        ("shodan_host_count",
+         f'shodan_host_count("asn:AS{_asn_num(v)}", facets="org,country,port,product")'),
     ]
 
 
@@ -240,7 +250,7 @@ def investigation_prompt(seed_type: str, seed_value: str) -> str:
             f"  - onyphe_threatlist({seed_value})\n"
             f"  - onyphe_resolver_reverse({seed_value})\n"
             "JARM PIVOT (MANDATORY if a non-CDN JARM was extracted):\n"
-            f"  - shodan_search(\"ssl.jarm:<jarm>\")        (paid, may be tier_restricted)\n"
+            f"  - shodan_host_count(\"ssl.jarm:<jarm>\", facets=\"asn,org,country\")  (FREE — cluster size + shape)\n"
             f"  - onyphe_datascan(\"jarm:<jarm>\")          (paid, may be tier_restricted)\n"
             f"  - urlscan_search(\"hash:<jarm>\")           (FREE, ALWAYS call this)\n"
             "  CLUSTER GRAPHING RULE: for EACH distinct IP in the union of shodan/onyphe/urlscan\n"
@@ -262,7 +272,9 @@ def investigation_prompt(seed_type: str, seed_value: str) -> str:
             "This is a TLS JARM fingerprint. Follow the JARM workflow from the system prompt.\n"
             "You MUST call ALL of these tools before writing the report:\n"
             f"1. add_node(jarm, {seed_value}, tags=[\"seed\"])\n"
-            f"2. shodan_search(\"ssl.jarm:{seed_value}\")\n"
+            f"2. shodan_host_count(\"ssl.jarm:{seed_value}\", facets=\"asn,org,country,port\")  — FREE cluster size + facets.\n"
+            f"   Then graph the member hosts with the FREE scanners: netlas_jarm({seed_value}),\n"
+            f"   zoomeye_jarm({seed_value}), urlscan_search(\"hash:{seed_value}\").\n"
             f"3. urlscan_search(\"hash:{seed_value}\")\n"
             f"4. For top 3 diverse IPs (different ASN/org): defuse + rdap_ip + virustotal_ip + threatfox_search\n"
             f"5. threatfox_search({seed_value})\n"
@@ -277,7 +289,8 @@ def investigation_prompt(seed_type: str, seed_value: str) -> str:
             "This is an Autonomous System Number. Follow the ASN workflow from the system prompt.\n"
             "You MUST call ALL of these tools before writing the report:\n"
             f"1. add_node(asn, {seed_value}, tags=[\"seed\"])  (use the canonical AS<digits> form)\n"
-            f"2. shodan_search(\"asn:AS{asn_num} port:443\")  — narrows to the web-facing slice\n"
+            f"2. shodan_host_count(\"asn:AS{asn_num} port:443\", facets=\"org,country,product\")  — FREE.\n"
+            f"   Then enumerate member hosts with netlas_search(\"asn:AS{asn_num}\") (free).\n"
             f"3. For top 5 most interesting IPs (unusual JARM / non-generic title / unusual ports):\n"
             f"   defuse + virustotal_ip + threatfox_search + otx_ip\n"
             f"4. rdap_ip on ONE representative IP from the ASN to capture netname/country/abuse_email\n"
@@ -550,8 +563,8 @@ def investigation_prompt(seed_type: str, seed_value: str) -> str:
             f"  - onyphe_ctl({seed_value})  — CT log SANs (each new → add_node(domain)+same_cert edge)\n"
             f"  - onyphe_resolver_forward({seed_value})  — alt-pDNS\n"
             "JARM / FAVICON pivots (if extracted and not a CDN value):\n"
-            "  - shodan_search(\"ssl.jarm:<jarm>\") and onyphe_datascan(\"jarm:<jarm>\")\n"
-            "  - shodan_search(\"http.favicon.hash:<hash>\") and onyphe_datascan(\"favicon:<hash>\")\n"
+            "  - shodan_host_count(\"ssl.jarm:<jarm>\", facets=\"asn,org,country\") (FREE) + netlas_jarm/zoomeye_jarm and onyphe_datascan(\"jarm:<jarm>\")\n"
+            "  - shodan_host_count(\"http.favicon.hash:<hash>\", facets=\"asn,org\") (FREE) + netlas_favicon/zoomeye_favicon and onyphe_datascan(\"favicon:<hash>\")\n"
             "  Graph every cluster IP with a same_jarm/same_favicon edge. If BOTH sources return\n"
             "  tier_restricted=true, note it in pivot_suggestions and keep going.\n"
             "EXCEPTION: If step 1 shows the domain is clearly parked (parking NS + broker registrant), "
@@ -583,7 +596,7 @@ def add_seed_block(seed_type: str, seed_value: str) -> str:
             f"  - virustotal_communicating_files(\"ip\", {seed_value})\n"
             f"  - threatfox_search({seed_value})\n"
             f"  - otx_ip({seed_value})\n"
-            "  - If a non-CDN JARM is found: shodan_search(\"ssl.jarm:<jarm>\")\n"
+            "  - If a non-CDN JARM is found: shodan_host_count(\"ssl.jarm:<jarm>\") (FREE) + netlas_jarm/zoomeye_jarm\n"
         )
     elif seed_type == "domain":
         return (
@@ -628,7 +641,8 @@ def add_seed_block(seed_type: str, seed_value: str) -> str:
     elif seed_type == "jarm":
         return (
             "This is a JARM fingerprint add-seed. Required tools:\n"
-            f"  - shodan_search(\"ssl.jarm:{seed_value}\")  — enumerate cluster\n"
+            f"  - shodan_host_count(\"ssl.jarm:{seed_value}\", facets=\"asn,org,country\")  — FREE cluster size\n"
+            f"  - netlas_jarm({seed_value}) / zoomeye_jarm({seed_value})  — FREE, graph the member hosts\n"
             f"  - urlscan_search(\"hash:{seed_value}\")  — cross-source confirmation\n"
             f"  - threatfox_search({seed_value})\n"
             "  - For top 3 diverse IPs: defuse + rdap_ip + virustotal_ip + threatfox_search\n"
@@ -640,7 +654,7 @@ def add_seed_block(seed_type: str, seed_value: str) -> str:
         asn_num = _asn_num(seed_value)
         return (
             "This is an ASN add-seed. Required tools:\n"
-            f"  - shodan_search(\"asn:AS{asn_num} port:443\")\n"
+            f"  - shodan_host_count(\"asn:AS{asn_num} port:443\", facets=\"org,product\")  — FREE\n"
             f"  - For top 5 interesting IPs: defuse + virustotal_ip + threatfox_search + otx_ip\n"
             f"  - rdap_ip on ONE representative IP (netname/country/abuse_email)\n"
             f"  - threatfox_search(\"AS{asn_num}\")\n"
@@ -729,7 +743,7 @@ def pivot_block(seed_type: str, seed_value: str) -> str:
             f"  - threatfox_search({seed_value})\n"
             f"  - otx_ip({seed_value})\n"
             "If a JARM is extracted and it is not a well-known CDN JARM, also call\n"
-            f"  - shodan_search(\"ssl.jarm:<jarm>\") and add new IPs with same_jarm edges.\n"
+            f"  - shodan_host_count(\"ssl.jarm:<jarm>\") (FREE) then netlas_jarm/zoomeye_jarm; add new IPs with same_jarm edges.\n"
         )
     elif seed_type == "domain":
         return (
@@ -774,7 +788,8 @@ def pivot_block(seed_type: str, seed_value: str) -> str:
     elif seed_type == "jarm":
         return (
             "This is a JARM pivot. Call these tools (skip any already in graph):\n"
-            f"  - shodan_search(\"ssl.jarm:{seed_value}\")  — find cluster hosts\n"
+            f"  - shodan_host_count(\"ssl.jarm:{seed_value}\")  — FREE cluster size\n"
+            f"  - netlas_jarm({seed_value}) / zoomeye_jarm({seed_value})  — FREE, find cluster hosts\n"
             f"  - urlscan_search(\"hash:{seed_value}\")\n"
             f"  - threatfox_search({seed_value})\n"
             "For each new IP with this JARM: add_node(ip) + add_edge(ip→jarm, has_jarm).\n"
@@ -784,7 +799,7 @@ def pivot_block(seed_type: str, seed_value: str) -> str:
         asn_num = _asn_num(seed_value)
         return (
             "This is an ASN pivot. Call these tools (skip any already in graph):\n"
-            f"  - shodan_search(\"asn:AS{asn_num} port:443\")\n"
+            f"  - shodan_host_count(\"asn:AS{asn_num} port:443\", facets=\"org,product\")  — FREE\n"
             f"  - rdap_ip on one representative IP for netname/country/abuse_email\n"
             f"  - threatfox_search(\"AS{asn_num}\")\n"
             "For top 5 interesting IPs in the AS: defuse + virustotal_ip + threatfox_search.\n"
@@ -850,7 +865,8 @@ def followup_extra_steps(seed_type: str) -> list[str]:
     if seed_type == "ip":
         return [
             "After the above: read the graph — if a JARM node exists for this IP, "
-            "call shodan_search(\"ssl.jarm:<jarm_value>\") to find other IPs with the same fingerprint. "
+            "call shodan_host_count(\"ssl.jarm:<jarm_value>\") (FREE) plus netlas_jarm/zoomeye_jarm "
+            "to find other IPs with the same fingerprint. "
             "Add any new IPs as nodes with same_jarm edges to the seed IP.",
             "If virustotal_communicating_files returned an empty data[] AND threatfox/otx "
             "identified a specific malware family tag, "

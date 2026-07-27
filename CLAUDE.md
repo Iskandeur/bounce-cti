@@ -130,8 +130,12 @@ backend/
                         #   threat_actor nodes (+ kit-handle tags to phishing_kit
                         #   nodes). add_edge auto-stubs missing
                         #   endpoints (phantom_autostub).
-    cti_mcp.py          # MCP server: ~86 async CTI source tools
-                        #   (incl. malwarebazaar_imphash — PE imphash cluster,
+    cti_mcp.py          # MCP server: ~90 async CTI source tools
+                        #   (incl. internetdb_ip — keyless/creditless IP exposure,
+                        #   shodan_host_count — free cluster size + facets (the
+                        #     credit-free replacement for shodan_search),
+                        #   shodan_api_info — plan + remaining credits + policy,
+                        #   malwarebazaar_imphash — PE imphash cluster,
                         #   username_enumerate — Sherlock-style profile sweep,
                         #   gravatar_email — email→public profile / accounts,
                         #   github_profile — GitHub user identity enrichment,
@@ -153,7 +157,11 @@ backend/
   sources/              # One file per CTI source (all async, all cached):
                         #   Existing: crtsh, rdap, whois (RFC 3912 / port-43),
                         #     dns_tools, virustotal,
-                        #     urlscan, onyphe, shodan, otx, threatfox, wayback,
+                        #     urlscan, onyphe, shodan (free-first + credit guard;
+                        #     see "Shodan is free-first" in Key conventions),
+                        #     internetdb (Shodan InternetDB — NO key, NO credits;
+                        #     ports/CPEs/CVEs/hostnames, ~weekly, no banners),
+                        #     otx, threatfox, wayback,
                         #     ip_api, mnemonic, abusech (URLhaus+MalwareBazaar)
                         #   Phase 2: fingerprints (favicon mmh3 hash, title
                         #     SHA1, tracking IDs, form actions, wallets, JS hashes)
@@ -462,6 +470,22 @@ A red gate must be fixed before merge. Pair this with branch protection on
   `error: auth` with an actionable message + `status_change` event. This is an
   **ops failure** (re-authenticate the CLI), surfaced loud instead of a silent
   empty `done`; unlike quota it sets **no** global cooldown.
+- **Shodan is free-first, credits are guarded**: a Membership grants only 100 query
+  credits/month for the whole instance, but nearly the entire API is free — `internetdb_ip`
+  (no key at all), `shodan_host`, `shodan_host_count` (count + facets for *any* query,
+  filters included), `shodan_api_info`, and the DNS endpoints all cost 0 credits. Only
+  `shodan_search` bills (1 credit per 100 results, whenever the query carries a filter or
+  pages past page 1 — i.e. every useful CTI pivot), so it is **disabled by default**: it
+  returns a structured refusal *without making any HTTP request* and names the free
+  alternatives. Opt in with `BOUNCE_SHODAN_ALLOW_CREDITS=1`, cap with
+  `BOUNCE_SHODAN_CREDIT_BUDGET=N` (policy in `config.shodan_credits_allowed()`).
+  Consequently the cluster pivots (`jarm`/`favicon_hash`/`asn`) enqueue
+  `shodan_host_count` for sizing + facets and graph member hosts via the free scanners
+  (netlas/zoomeye/urlscan/crt.sh); `shodan_search` is parked as
+  `skipped(skip_reason='credit_metered')`. **No seed type may mandate a credit-metered
+  tool** — a mandatory call the guard refuses can never be satisfied, so the follow-up
+  phase would nag forever (locked by a test). `/shodan/scan` and Network Alerts are
+  deliberately not implemented (active probing + account-state mutation).
 - **Key rotation**: `backend/key_pool.py` lets each source accept either
   `<SRC>_API_KEY=k1` (single) or `<SRC>_API_KEYS=k1,k2,k3` (multi, takes precedence).
   Cooldown on 429 (60s default), full-day cooldown on quota exhausted. Sources call
