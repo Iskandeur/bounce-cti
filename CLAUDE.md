@@ -489,9 +489,14 @@ A red gate must be fixed before merge. Pair this with branch protection on
   + the reverse proxy route every app subdomain to the same backend; pair with
   `BOUNCE_COOKIE_DOMAIN` for cross-subdomain SSO.
 - **Per-user model whitelist**: Admins can restrict which Claude models a user can spawn
-  (`sonnet`, `opus`, `opus-4.7`, `opus-4.8`, `haiku` — `ALLOWED_MODELS` in `main.py`;
-  the `opus-4.7`/`opus-4.8` aliases map to `claude-opus-4-7`/`claude-opus-4-8` in
-  `agent_runner._MODEL_ALIASES`). Admin accounts are unrestricted.
+  (`ALLOWED_MODELS` in `main.py`). Bare tier aliases (`sonnet`/`opus`/`haiku`) resolve to
+  the latest model of that tier via the Claude CLI's own aliasing; pinned aliases map to
+  exact model ids in `agent_runner._MODEL_ALIASES`: the Claude 5 family
+  (`sonnet-5`→`claude-sonnet-5`, `opus-5`→`claude-opus-5`, `fable-5`→`claude-fable-5`)
+  and previous Opus generations (`opus-4.8`→`claude-opus-4-8`, `opus-4.7`→`claude-opus-4-7`).
+  NB: Fable 5's safety classifiers target offensive-cyber content, so malware-heavy
+  investigations may hit refusals on it — prefer `opus-5` when that matters. Admin
+  accounts are unrestricted.
 - **Per-investigation thinking effort**: the analyst can pick an extended-thinking
   effort level (`low`/`medium`/`high`/`xhigh`/`max`, or unset = model default). It's
   stored in the `investigations.effort` column at create time and applied to every

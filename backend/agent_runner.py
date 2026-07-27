@@ -24,6 +24,9 @@ _VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 # through untouched (e.g. "sonnet"/"opus"/"haiku" resolve via the CLI's own
 # latest-version aliasing).
 _MODEL_ALIASES = {
+    "sonnet-5": "claude-sonnet-5",
+    "opus-5": "claude-opus-5",
+    "fable-5": "claude-fable-5",
     "opus-4.7": "claude-opus-4-7",
     "opus-4.8": "claude-opus-4-8",
 }

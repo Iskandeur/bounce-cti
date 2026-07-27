@@ -154,9 +154,12 @@ Spawns `claude -p` (Claude Code headless) with:
 - `--allowedTools` restricted to MCP tools only (graph + cti)
 - `--disallowedTools` blocking `Bash,Edit,Write,MultiEdit,Read,Glob,Grep,NotebookEdit,WebSearch,WebFetch,Task,TodoWrite`
 - `--permission-mode bypassPermissions`
-- Configurable `--model` (`sonnet` / `opus` / `opus-4.7` / `opus-4.8` /
-  `haiku`); the `opus-4.7` / `opus-4.8` aliases map to `claude-opus-4-7` /
-  `claude-opus-4-8`
+- Configurable `--model`: bare tier aliases (`sonnet` / `opus` / `haiku`)
+  resolve to the latest model of that tier via the Claude CLI's own aliasing;
+  pinned aliases map to exact model ids in `agent_runner._MODEL_ALIASES` —
+  `sonnet-5` / `opus-5` / `fable-5` (Claude 5 family → `claude-sonnet-5` /
+  `claude-opus-5` / `claude-fable-5`) and `opus-4.8` / `opus-4.7`
+  (→ `claude-opus-4-8` / `claude-opus-4-7`)
 - Configurable extended-thinking effort: the per-investigation `effort` level
   (`low` / `medium` / `high` / `xhigh` / `max`, or unset = model default) is
   stored on the `investigations` row and applied to every phase spawn via the

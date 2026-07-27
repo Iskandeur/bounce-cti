@@ -2340,11 +2340,14 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         )}
         <div className="section-label">Model</div>
         <select value={model} onChange={e => setModel(e.target.value)}>
-          {(!allowedModels || allowedModels.includes('sonnet')) && <option value="sonnet">Sonnet 4.6 (recommended)</option>}
-          {(!allowedModels || allowedModels.includes('opus')) && <option value="opus">Opus 4.6 (smarter, slower)</option>}
+          {(!allowedModels || allowedModels.includes('sonnet')) && <option value="sonnet">Sonnet (latest — recommended)</option>}
+          {(!allowedModels || allowedModels.includes('opus')) && <option value="opus">Opus (latest — smarter, slower)</option>}
+          {(!allowedModels || allowedModels.includes('haiku')) && <option value="haiku">Haiku (latest — faster, lighter)</option>}
+          {(!allowedModels || allowedModels.includes('sonnet-5')) && <option value="sonnet-5">Sonnet 5</option>}
+          {(!allowedModels || allowedModels.includes('opus-5')) && <option value="opus-5">Opus 5 (smartest)</option>}
+          {(!allowedModels || allowedModels.includes('fable-5')) && <option value="fable-5">Fable 5 (top tier — may refuse malware-heavy work)</option>}
+          {(!allowedModels || allowedModels.includes('opus-4.8')) && <option value="opus-4.8">Opus 4.8</option>}
           {(!allowedModels || allowedModels.includes('opus-4.7')) && <option value="opus-4.7">Opus 4.7</option>}
-          {(!allowedModels || allowedModels.includes('opus-4.8')) && <option value="opus-4.8">Opus 4.8 (latest, smartest)</option>}
-          {(!allowedModels || allowedModels.includes('haiku')) && <option value="haiku">Haiku 4.5 (faster, lighter)</option>}
         </select>
         <div className="section-label">Thinking effort</div>
         <select value={effort} onChange={e => setEffort(e.target.value)}
