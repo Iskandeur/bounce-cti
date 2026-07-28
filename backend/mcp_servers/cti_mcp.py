@@ -279,15 +279,72 @@ async def ip_api_edns(ip: str) -> dict:
 
 
 @mcp.tool()
-async def shodan_host(ip: str) -> dict:
-    """Shodan host info (open ports, banners, vulns)."""
-    return await _src("shodan").shodan_host(ip)
+async def internetdb_ip(ip: str) -> dict:
+    """Shodan InternetDB — open ports, CPEs, CVEs, hostnames and tags for an IP.
+
+    FREE and KEYLESS: no API key, no query credits, no account. Run this on
+    EVERY ip node before reaching for any metered scanner — it answers "what is
+    exposed here" at zero cost. Caveats: refreshes ~weekly (last-seen exposure,
+    not live state) and carries NO banners — use shodan_host for banner detail.
+    """
+    return with_hints("internetdb_ip", await _src("internetdb").internetdb_ip(ip), ip)
 
 
 @mcp.tool()
-async def shodan_search(query: str) -> dict:
-    """Shodan search query (e.g. http.favicon.hash:-12345, ssl.cert.serial:..., http.title:...)."""
-    return await _src("shodan").shodan_search(query)
+async def shodan_host(ip: str) -> dict:
+    """Shodan host record: open ports, service banners, products, vulns, org.
+
+    Costs 0 query credits — host lookups are not billed, so use this freely on
+    every IP. Needs a Shodan key; internetdb_ip is the keyless fallback.
+    """
+    return with_hints("shodan_host", await _src("shodan").shodan_host(ip), ip)
+
+
+@mcp.tool()
+async def shodan_host_count(query: str, facets: str = "") -> dict:
+    """Result COUNT + FACET breakdown for a Shodan query. Costs 0 query credits.
+
+    This is the credit-free way to run cluster pivots. Pass exactly the query
+    you would give shodan_search — e.g. 'ssl.jarm:<jarm>',
+    'http.favicon.hash:<hash>', 'ssl.cert.subject.CN:"<domain>"', 'asn:AS<n>' —
+    and get back how many hosts match plus aggregated facets, instead of the
+    matching records.
+
+    `facets` is comma-separated, e.g. "asn,org,country,port,product". Facets are
+    the analytic payload: they tell you the cluster's size, which ASNs/orgs it
+    concentrates in, and which ports/products it runs — usually enough to
+    characterise the cluster and decide whether the individual hosts are worth
+    a query credit (shodan_search, operator-gated).
+    """
+    return with_hints("shodan_host_count",
+                      await _src("shodan").shodan_host_count(query, facets), query)
+
+
+@mcp.tool()
+async def shodan_api_info() -> dict:
+    """Shodan plan + remaining query/scan credits, and this instance's credit
+    policy (whether credit spending is enabled and any per-run budget).
+
+    Costs 0 query credits. Call it before considering a metered search.
+    """
+    return await _src("shodan").shodan_api_info()
+
+
+@mcp.tool()
+async def shodan_search(query: str, page: int = 1) -> dict:
+    """Shodan search returning full host records. CONSUMES QUERY CREDITS.
+
+    Billed 1 query credit per 100 results whenever the query carries a filter
+    (every high-signal pivot does) or you page past page 1. The account has only
+    100 credits per MONTH shared across all investigations, so this is DISABLED
+    BY DEFAULT: it returns a structured refusal — without making any request —
+    naming the free alternatives.
+
+    Use shodan_host_count(query, facets=...) instead: same query, same cluster
+    insight, zero credits. Only an operator can enable spending
+    (BOUNCE_SHODAN_ALLOW_CREDITS=1).
+    """
+    return await _src("shodan").shodan_search(query, page)
 
 
 @mcp.tool()

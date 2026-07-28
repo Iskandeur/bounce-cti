@@ -32,6 +32,8 @@ import os
 import re
 from typing import Callable, Optional
 
+from .config import shodan_credits_allowed
+
 # (pivot_op, priority, key_source_required_or_None, doc_only)
 _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     "domain": [
@@ -67,6 +69,7 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("virustotal_ip", 2, "vt", False),
         ("virustotal_resolutions_ip", 3, "vt", False),
         ("virustotal_communicating_files", 3, "vt", False),
+        ("internetdb_ip", 1, None, True),  # doc-only: free, keyless, always safe
         ("shodan_host", 2, "shodan", False),
         ("onyphe_ip", 3, "onyphe", False),
         ("otx_ip", 3, "otx", False),
@@ -115,14 +118,16 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
     ],
     "jarm": [
         ("onyphe_datascan", 2, "onyphe", False),
-        ("shodan_search", 2, "shodan", False),
+        ("shodan_host_count", 2, "shodan", False),  # free: cluster size + facets
+        ("shodan_search", 3, "shodan", False),      # credit-metered (gated)
         ("netlas_jarm", 2, "netlas", False),
         ("zoomeye_jarm", 3, "zoomeye", False),
     ],
     "asn": [
         ("whois_ip", 1, None, True),
         ("onyphe_datascan", 4, "onyphe", False),
-        ("shodan_search", 4, "shodan", False),
+        ("shodan_host_count", 4, "shodan", False),  # free: ASN composition facets
+        ("shodan_search", 5, "shodan", False),      # credit-metered (gated)
         ("netlas_search", 5, "netlas", False),
     ],
     "cert_serial": [
@@ -176,7 +181,8 @@ _PIVOT_RULES: dict[str, list[tuple[str, int, Optional[str], bool]]] = {
         ("urlscan_search", 4, None, False),
     ],
     "favicon_hash": [
-        ("shodan_search", 2, "shodan", False),
+        ("shodan_host_count", 2, "shodan", False),  # free: cluster size + facets
+        ("shodan_search", 3, "shodan", False),      # credit-metered (gated)
         ("netlas_favicon", 2, "netlas", False),
         ("zoomeye_favicon", 3, "zoomeye", False),
     ],
@@ -509,9 +515,17 @@ def pivots_for(node_type: str, node_value: str, *,
     """
     rules = _PIVOT_RULES.get(canonical_type(node_type), [])
     out: list[tuple[str, int, Optional[str]]] = []
+    credits_off = not shodan_credits_allowed()
     for op, prio, key_required, doc_only in rules:
         if op in DD_ONLY_OPS and vertical != "dd":
             out.append((op, prio, "vertical_scope"))
+            continue
+        # Credit-metered ops are parked (not queued) unless an operator opted in.
+        # Visible in gaps_report as a deliberate cost decision rather than a
+        # silent omission — the free equivalent (shodan_host_count) is queued
+        # alongside, so the cluster still gets characterised.
+        if credits_off and op in CREDIT_METERED_OPS:
+            out.append((op, prio, "credit_metered"))
             continue
         # OSINT noise suppression — but NOT on wallet_address nodes: for a crypto
         # wallet, threatfox/pulsedive are high-signal tagging probes (e.g.
@@ -529,6 +543,15 @@ def pivots_for(node_type: str, node_value: str, *,
             continue
         out.append((op, prio, None))
     return out
+
+
+# Ops that spend a metered credit rather than just an API call. Shodan's
+# Membership grants only 100 query credits per MONTH across the whole instance,
+# and every high-signal pivot query carries a filter (so it bills 1 credit per
+# 100 results). These are parked with skip_reason='credit_metered' unless
+# BOUNCE_SHODAN_ALLOW_CREDITS is set; the free counterpart (shodan_host_count,
+# 0 credits, returns cluster size + facets) is enqueued next to each one.
+CREDIT_METERED_OPS: frozenset[str] = frozenset({"shodan_search"})
 
 
 # ── Vertical scoping of pivots (2026-06-19 OSINT/DD retro) ──────────────────

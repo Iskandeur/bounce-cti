@@ -154,9 +154,12 @@ Spawns `claude -p` (Claude Code headless) with:
 - `--allowedTools` restricted to MCP tools only (graph + cti)
 - `--disallowedTools` blocking `Bash,Edit,Write,MultiEdit,Read,Glob,Grep,NotebookEdit,WebSearch,WebFetch,Task,TodoWrite`
 - `--permission-mode bypassPermissions`
-- Configurable `--model` (`sonnet` / `opus` / `opus-4.7` / `opus-4.8` /
-  `haiku`); the `opus-4.7` / `opus-4.8` aliases map to `claude-opus-4-7` /
-  `claude-opus-4-8`
+- Configurable `--model`: bare tier aliases (`sonnet` / `opus` / `haiku`)
+  resolve to the latest model of that tier via the Claude CLI's own aliasing;
+  pinned aliases map to exact model ids in `agent_runner._MODEL_ALIASES` —
+  `sonnet-5` / `opus-5` / `fable-5` (Claude 5 family → `claude-sonnet-5` /
+  `claude-opus-5` / `claude-fable-5`) and `opus-4.8` / `opus-4.7`
+  (→ `claude-opus-4-8` / `claude-opus-4-7`)
 - Configurable extended-thinking effort: the per-investigation `effort` level
   (`low` / `medium` / `high` / `xhigh` / `max`, or unset = model default) is
   stored on the `investigations` row and applied to every phase spawn via the
@@ -378,7 +381,10 @@ MCP server exposing ~50 async CTI source tools:
   `virustotal_subdomains`, `virustotal_communicating_files`
 - URLScan: `urlscan_search`, `urlscan_result`
 - Onyphe Griffin (datascan / threatlist / pastries / geoloc / domain / ip)
-- Shodan: `shodan_host`, `shodan_search`
+- Shodan (free-first — see "Shodan credit policy" below): `shodan_host` (0 credits),
+  `shodan_host_count` (0 credits, count + facets), `shodan_api_info` (0 credits),
+  `shodan_search` (**1 query credit per 100 results — disabled by default**)
+- Shodan InternetDB: `internetdb_ip` — ports/CPEs/CVEs/hostnames, **no key, no credits**
 - OTX: `otx_domain`, `otx_ip`, `otx_file`
 - ThreatFox: `threatfox_search`
 - abuse.ch: `urlhaus_host`, `malwarebazaar_hash`, `malwarebazaar_signature`, `malwarebazaar_filename` (filename-only pivot — returns sample hashes ever reported under that name, used as the primary pivot for `executable_name` seeds), `malwarebazaar_imphash` (PE imphash → sibling-sample cluster, one-call loader-family expansion)
@@ -585,12 +591,57 @@ names: `vt`, `urlscan`, `onyphe`, `shodan`, `otx`, `abusech`, `abuseipdb`,
 `certspotter`, `netlas`, `whoxy`, `zoomeye`, `criminalip`, `opencti`. Sources call
 `acquire(src)` and degrade gracefully when None is returned.
 
+### Shodan credit policy (`backend/sources/shodan.py`, `backend/config.py`)
+
+A Shodan **Membership** grants 100 query credits + 100 scan credits per month,
+shared by every investigation on the instance and reset monthly (rollover is not
+documented — don't count on it). The important asymmetry: **nearly the whole API
+is free**, so the platform is wired free-first.
+
+| Call                          | Credits | Notes                                    |
+|-------------------------------|---------|------------------------------------------|
+| `internetdb_ip`               | 0       | **no key at all**; ports/CPEs/CVEs/hostnames/tags; ~weekly refresh, no banners |
+| `shodan_host`                 | 0       | full record incl. banners, TLS, JARM     |
+| `shodan_host_count`           | 0       | result count + **facets** for any query, filters included |
+| `shodan_api_info`             | 0       | plan + remaining credits + local policy  |
+| `shodan_dns_resolve`/`_reverse` | 0     | bulk DNS, one call for many names        |
+| `shodan_search`               | **1 per 100 results** | only when the query has a filter or pages past page 1 — i.e. every useful CTI pivot |
+
+Because every high-signal pivot query is filtered, `shodan_search` is **disabled
+by default**. It returns a structured refusal *without issuing any HTTP request*
+(so a credit cannot be spent) naming the free equivalents. Operators opt in with
+`BOUNCE_SHODAN_ALLOW_CREDITS=1` and may cap per-process spend with
+`BOUNCE_SHODAN_CREDIT_BUDGET=N`. Policy lives in `config.shodan_credits_allowed()`
+/ `config.shodan_credit_budget()` (read live from env, not captured at import).
+
+Consequences elsewhere:
+- **Pivot queue** — `shodan_search` is in `pivot_mapping.CREDIT_METERED_OPS`, so
+  while credits are off it is enqueued as `skipped` with
+  `skip_reason='credit_metered'` (visible in `gaps_report` as a deliberate cost
+  decision, not a silent omission). The free `shodan_host_count` is queued in its
+  place on `jarm` / `favicon_hash` / `asn` nodes.
+- **Mandatory tools** — no seed type may mandate a credit-metered call (a
+  mandatory tool the guard refuses could never be satisfied, so the follow-up
+  phase would nag forever). `jarm` / `asn` seeds mandate `shodan_host_count`;
+  `ip` seeds mandate the keyless `internetdb_ip`. Locked by
+  `tests/test_seeds.py::test_mandatory_tools_never_require_credit_metered_ops`.
+- **On-demand scanning (`/shodan/scan`) and Network Alerts are deliberately not
+  implemented**: scanning spends scan credits *and actively touches the target*
+  (breaking the passive-only posture), and alerts mutate the account's persistent
+  monitoring state, which an autonomous agent should not do.
+- **Transport** — Shodan reports rate limiting as an `error` key with **HTTP
+  200**, so status code alone is not a success signal; `_unwrap` detects
+  error-in-200, never caches it, and maps systemic failures (auth / tier /
+  quota) onto `source_health`. Calls are spaced ≥1.5s (documented limit: 1/s).
+
 ### `backend/pivot_mapping.py`
 Per-node-type pivot rules. `pivots_for(type, value, has_key, defused)`
 returns `[(pivot_op, priority, skip_reason_or_None)]`. Defused nodes only
 receive doc-only pivots (rdap, dns_resolve); the rest are inserted as
 `skipped` with `skip_reason='defused'`. No-key sources are inserted as
 `skipped` with `skip_reason='no_api_key'` so they surface in `gaps_report`.
+Credit-metered ops (`CREDIT_METERED_OPS`) are inserted as `skipped` with
+`skip_reason='credit_metered'` unless credit spending is enabled.
 Unregistered node types return `[]`. The rule table is keyed by canonical type
 and shared across verticals; `register_pivots(type, rules, replace=False)` is
 the cross-vertical extension point (OSINT/DD source modules add their node-type

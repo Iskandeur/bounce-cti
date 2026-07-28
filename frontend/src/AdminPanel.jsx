@@ -1,10 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
 const MODEL_LABELS = {
-  sonnet: 'Sonnet 4.6',
-  opus: 'Opus 4.6',
+  sonnet: 'Sonnet (latest)',
+  opus: 'Opus (latest)',
+  haiku: 'Haiku (latest)',
+  'sonnet-5': 'Sonnet 5',
+  'opus-5': 'Opus 5',
+  'fable-5': 'Fable 5',
+  'opus-4.8': 'Opus 4.8',
   'opus-4.7': 'Opus 4.7',
-  haiku: 'Haiku 4.5',
 }
 
 function fmtDate(ts) {

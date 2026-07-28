@@ -74,7 +74,7 @@ def snapshot() -> dict:
     Used by next_pivot to expose state to the agent. Iterates known sources
     rather than scanning the cache table."""
     out: dict = {}
-    for src in ("opencti", "shodan", "whoxy", "criminalip", "emailrep",
+    for src in ("opencti", "shodan", "internetdb", "whoxy", "criminalip", "emailrep",
                 "censys", "netlas", "zoomeye", "abuseipdb", "certspotter",
                 "vt", "otx", "onyphe", "pulsedive", "leakix", "dnsdumpster",
                 "abusech"):

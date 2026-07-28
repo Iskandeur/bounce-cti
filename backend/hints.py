@@ -478,6 +478,131 @@ def hint_for_leakix_host(response: dict, value: str) -> list[str]:
     return hints
 
 
+def hint_for_internetdb_ip(response: dict, ip: str) -> list[str]:
+    """InternetDB is the free first look at an IP. Its value is that it is
+    zero-cost, so the hint pushes the agent to *use what it found* rather than
+    immediately reaching for a metered scanner."""
+    if not isinstance(response, dict) or not response.get("found"):
+        return []
+    hints: list[str] = []
+    vulns = response.get("vulns") or []
+    ports = response.get("ports") or []
+    hostnames = response.get("hostnames") or []
+
+    if vulns:
+        sample = ", ".join(str(v) for v in vulns[:6])
+        hints.append(
+            f"PIVOT_HINT: InternetDB reports {len(vulns)} CVE(s) on {ip} (e.g. {sample}). "
+            "These are INFERRED from version banners, not verified exploitation — record "
+            "them on the ip node's metadata as exposure context, and only call it a "
+            "compromise if a separate source shows abuse."
+        )
+    if ports:
+        listed = ", ".join(str(p) for p in ports[:10])
+        hints.append(
+            f"PIVOT_HINT: InternetDB shows {len(ports)} open port(s) on {ip}: {listed}. "
+            "For banner-level detail (product, version, TLS cert, JARM) call "
+            "shodan_host('" + ip + "') — also 0 query credits. Non-standard ports "
+            "(anything outside 80/443) are the discriminating ones for clustering."
+        )
+    if hostnames:
+        sample = ", ".join(str(h) for h in hostnames[:5])
+        hints.append(
+            f"PIVOT_HINT: InternetDB resolved {len(hostnames)} hostname(s) on {ip} "
+            f"(e.g. {sample}). add_node(domain, ...) for each non-CDN name and edge it "
+            "back to the IP — free co-residency signal."
+        )
+    return hints
+
+
+def hint_for_shodan_host(response: dict, ip: str) -> list[str]:
+    """shodan_host is free but its JARM / cert / favicon fields are exactly the
+    values that would tempt a credit-metered search. Point at the free pivots."""
+    if not isinstance(response, dict) or response.get("error"):
+        return []
+    hints: list[str] = []
+    data = response.get("data") if isinstance(response.get("data"), list) else []
+
+    jarm = ""
+    favicon = ""
+    for entry in data if isinstance(data, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        if not jarm and isinstance(entry.get("ssl"), dict):
+            jarm = entry["ssl"].get("jarm") or ""
+        http = entry.get("http")
+        if not favicon and isinstance(http, dict):
+            fav = http.get("favicon")
+            if isinstance(fav, dict) and fav.get("hash") is not None:
+                favicon = str(fav["hash"])
+
+    if jarm:
+        hints.append(
+            f"PIVOT_HINT: JARM '{jarm}' on {ip}. Size the cluster for FREE first: "
+            f"shodan_host_count('ssl.jarm:{jarm}', facets='asn,org,country,port'). "
+            f"Then graph members via netlas_jarm('{jarm}') / zoomeye_jarm('{jarm}') / "
+            f"urlscan_search('hash:{jarm}') — all free. shodan_search would cost a "
+            "query credit and is gated."
+        )
+    if favicon:
+        hints.append(
+            f"PIVOT_HINT: favicon mmh3 hash {favicon} on {ip}. Free cluster sizing: "
+            f"shodan_host_count('http.favicon.hash:{favicon}', facets='asn,org,country'). "
+            f"Free members: netlas_favicon({favicon}) / zoomeye_favicon({favicon})."
+        )
+    return hints
+
+
+def hint_for_shodan_host_count(response: dict, query: str) -> list[str]:
+    """host/count returns totals + facets for 0 credits. Its facets are the
+    analytic payload — tell the agent how to read them, and how to graph actual
+    members without paying for shodan_search."""
+    if not isinstance(response, dict) or response.get("error"):
+        return []
+    total = response.get("total")
+    if not isinstance(total, int):
+        return []
+    if total == 0:
+        return [
+            f"PIVOT_HINT: shodan_host_count('{query}') returned 0 hosts — this "
+            "fingerprint is not a live cluster. Record the negative result and do "
+            "NOT spend a query credit re-running it through shodan_search."
+        ]
+
+    hints = []
+    facets = response.get("facets") if isinstance(response.get("facets"), dict) else {}
+    facet_bits = []
+    for name, entries in list(facets.items())[:4]:
+        if isinstance(entries, list) and entries:
+            top = ", ".join(
+                f"{e.get('value')}({e.get('count')})"
+                for e in entries[:3] if isinstance(e, dict)
+            )
+            if top:
+                facet_bits.append(f"{name}: {top}")
+    if facet_bits:
+        hints.append(
+            f"PIVOT_HINT: {total} host(s) match '{query}'. Facets — "
+            + " | ".join(facet_bits)
+            + ". A cluster concentrated in ONE small ASN/org is operator "
+              "infrastructure (high signal); one spread across many cloud ASNs is "
+              "shared/commodity tech (low signal). Record the count + top facets on "
+              "the fingerprint node's metadata as evidence — this cost 0 credits."
+        )
+    else:
+        hints.append(
+            f"PIVOT_HINT: {total} host(s) match '{query}' (0 credits). Re-run with "
+            "facets='asn,org,country,port' to characterise the cluster for free."
+        )
+    hints.append(
+        "PIVOT_HINT: to graph individual cluster MEMBERS without spending a query "
+        "credit, use the free scanners: netlas_jarm / netlas_favicon / netlas_search, "
+        "zoomeye_jarm / zoomeye_favicon, urlscan_search, crtsh_serial / crtsh_query. "
+        "shodan_search returns the records themselves but bills 1 credit per 100."
+    )
+    return hints
+
+
 def hint_for_pulsedive_indicator(response: dict, value: str) -> list[str]:
     if not isinstance(response, dict):
         return []
@@ -511,6 +636,9 @@ HINT_DISPATCH = {
     "dnstwist_permutations": hint_for_dnstwist_permutations,
     "leakix_host": hint_for_leakix_host,
     "pulsedive_indicator": hint_for_pulsedive_indicator,
+    "internetdb_ip": hint_for_internetdb_ip,
+    "shodan_host": hint_for_shodan_host,
+    "shodan_host_count": hint_for_shodan_host_count,
 }
 
 

@@ -37,6 +37,7 @@ GOLDEN = {
         ("threatfox_search", 'threatfox_search("1.2.3.4")'),
         ("virustotal_resolutions_ip", 'virustotal_resolutions_ip("1.2.3.4")'),
         ("shodan_host", 'shodan_host("1.2.3.4")'),
+        ("internetdb_ip", 'internetdb_ip("1.2.3.4")'),
         ("onyphe_ip", 'onyphe_ip("1.2.3.4")'),
         ("urlscan_search", 'urlscan_search("ip:1.2.3.4")'),
         ("otx_ip", 'otx_ip("1.2.3.4")'),
@@ -58,11 +59,13 @@ GOLDEN = {
         ("threatfox_search", 'threatfox_search("http://evil.com/x")'),
     ],
     "jarm": [
-        ("shodan_search", 'shodan_search("ssl.jarm:' + "a" * 62 + '")'),
+        ("shodan_host_count",
+         'shodan_host_count("ssl.jarm:' + "a" * 62 + '", facets="asn,org,country,port")'),
         ("urlscan_search", 'urlscan_search("hash:' + "a" * 62 + '")'),
     ],
     "asn": [
-        ("shodan_search", 'shodan_search("asn:AS13335")'),
+        ("shodan_host_count",
+         'shodan_host_count("asn:AS13335", facets="org,country,port,product")'),
     ],
     "hash": [
         ("virustotal_file", 'virustotal_file("d41d8cd98f00b204e9800998ecf8427e")'),
@@ -107,8 +110,22 @@ def test_unknown_seed_type_has_no_mandatory_tools():
 def test_asn_accepts_bare_number():
     # "13335" (no AS prefix) must produce the same canonical AS13335 query.
     assert seeds.mandatory_tools("asn", "13335") == [
-        ("shodan_search", 'shodan_search("asn:AS13335")'),
+        ("shodan_host_count",
+         'shodan_host_count("asn:AS13335", facets="org,country,port,product")'),
     ]
+
+
+def test_mandatory_tools_never_require_credit_metered_ops():
+    """No seed type may mandate a credit-metered call.
+
+    A mandatory tool that the credit guard refuses can never be satisfied, so
+    the follow-up phase would nag the agent for it on every round. The free
+    shodan_host_count stands in for shodan_search everywhere.
+    """
+    from backend import pivot_mapping as pm
+    for seed_type in seeds.KNOWN_SEED_TYPES:
+        ops = {op for op, _ in seeds.mandatory_tools(seed_type, "x")}
+        assert not (ops & pm.CREDIT_METERED_OPS), seed_type
 
 
 def test_missing_mandatory_filters_called_tools():

@@ -24,6 +24,9 @@ _VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 # through untouched (e.g. "sonnet"/"opus"/"haiku" resolve via the CLI's own
 # latest-version aliasing).
 _MODEL_ALIASES = {
+    "sonnet-5": "claude-sonnet-5",
+    "opus-5": "claude-opus-5",
+    "fable-5": "claude-fable-5",
     "opus-4.7": "claude-opus-4-7",
     "opus-4.8": "claude-opus-4-8",
 }
@@ -853,22 +856,41 @@ def _adaptive_followup_targets(inv_id: str) -> list:
         #       never triggered).
         ip_branch_fires = bool(cdn_ips) or (not ip_nodes and cert_evidence)
         if ip_branch_fires:
-            shodan_called_with_cn = any(
+            # Free-first ordering. The unmask needs candidate origin *IPs*, and
+            # shodan_host_count returns counts/facets rather than hosts — so it
+            # is used as the free triage step (a count of 0 means there is no
+            # origin to unmask and nothing further is worth spending), while the
+            # host-returning work goes to sources that don't bill query credits:
+            # Onyphe datascan and Netlas. shodan_search would return the hosts
+            # directly but costs a query credit per 100 and is gated off by
+            # default, so it is deliberately NOT enforced here.
+            shodan_counted_cn = any(
                 "ssl.cert.subject.cn" in arg
-                for (tool, arg) in called if tool == "shodan_search"
+                for (tool, arg) in called
+                if tool in ("shodan_host_count", "shodan_search")
             )
             onyphe_called_with_cn = any(
                 "tls.cert.subject.commonname" in arg
                 for (tool, arg) in called if tool == "onyphe_datascan"
             )
+            netlas_called_with_cn = any(
+                "certificate.subject.common_name" in arg
+                for (tool, arg) in called if tool == "netlas_search"
+            )
             cn_unmask_calls = []
-            if not shodan_called_with_cn:
+            if not shodan_counted_cn:
                 cn_unmask_calls.append(
-                    f"shodan_search(\"ssl.cert.subject.CN:\\\"{seed_domain}\\\"\")"
+                    f"shodan_host_count(\"ssl.cert.subject.CN:\\\"{seed_domain}\\\"\", "
+                    f"facets=\"asn,org,country\")  [FREE — 0 query credits]"
                 )
             if not onyphe_called_with_cn:
                 cn_unmask_calls.append(
                     f"onyphe_datascan(\"tls.cert.subject.commonname:\\\"{seed_domain}\\\"\")"
+                )
+            if not netlas_called_with_cn:
+                cn_unmask_calls.append(
+                    f"netlas_search(\"certificate.subject.common_name:\\\"{seed_domain}\\\"\")"
+                    f"  [FREE tier — returns the candidate origin hosts]"
                 )
             key_unmask = ("domain", f"{seed_domain.lower()}::cn_unmask")
             if cn_unmask_calls and key_unmask not in seen_keys:
@@ -1393,7 +1415,7 @@ R4. Budget (yield-based, not flat cap) — STRICTLY ENFORCED:
 R5. ALWAYS set source= to the API name that produced the data (e.g. "virustotal", "crtsh", "rdap", "dns").
 R6. ALWAYS add edges between nodes. A node with no edges is useless to the analyst.
 R7. Steps marked MANDATORY must be executed. Do NOT skip threat intel (STEP 6), malware hash lookups (communicating_files), or the report node (STEP 8).
-R8. JARM pivot rule: if you extract a JARM fingerprint from ANY source (VT, Onyphe, Shodan), you MUST call shodan_search("ssl.jarm:<jarm>") to find related infrastructure. This is one of the highest-value pivots.
+R8. JARM pivot rule: if you extract a JARM fingerprint from ANY source (VT, Onyphe, Shodan), you MUST pivot on it — this is one of the highest-value pivots. Use the FREE path: shodan_host_count("ssl.jarm:<jarm>", facets="asn,org,country,port") for the cluster size/shape, plus netlas_jarm/zoomeye_jarm/urlscan_search("hash:<jarm>") to graph the member hosts. (shodan_search costs a query credit and is gated off by default.)
 R9. MANDATORY: virustotal_communicating_files MUST be called for EVERY investigation (domain or IP seed). This is the primary way to discover malware samples communicating with the indicator. Skipping it produces an incomplete investigation. Call it in STEP 3 a3 (domain) or STEP 4 a (IP).
 R10. Execute ALL workflow steps in order. Do not stop early because the graph "looks complete". The investigation is only complete when the report node (STEP 8/7) is written.
 R11. EVIDENCE-BASED CONCLUSIONS ONLY. The `threat_assessment` field MUST default to "benign".
@@ -1438,7 +1460,7 @@ R14. CLOUDFLARE-FRONTED DOMAIN — ORIGIN-UNMASK IS MANDATORY. If the seed's
     AND DO NOT STOP. You MUST:
       (a) crtsh_subdomains(<seed>) + crtsh_query(<seed>) — extract cert serial
           and cert subject CN
-      (b) shodan_search('ssl.cert.subject.CN:"<seed_fqdn>"') — the canonical
+      (b) shodan_host_count('ssl.cert.subject.CN:"<seed_fqdn>"') — the canonical
           origin-unmask query. Every returned IP is a candidate origin; add it
           as an ip node with source="shodan" and an edge cert→ip (same_cert).
       (c) onyphe_datascan('tls.cert.subject.commonname:"<seed_fqdn>"') as a
@@ -1559,7 +1581,7 @@ DOM FINGERPRINTS (dom_fingerprints):
   bech32, ETH, XMR — drainer kits).
   Call it on EVERY url node you graph for a phishing/scam seed (drainer kits,
   fake-update pages, smishing landings, fake-government). Each tracking_id and
-  favicon_hash becomes a NEW pivot via shodan_search/netlas/zoomeye.
+  favicon_hash becomes a NEW pivot via shodan_host_count (free)/netlas/zoomeye.
 
 WHOXY (whoxy_reverse): registrant email/name/keyword → list of registered domains.
   Call it whenever rdap_domain returned a NON-PRIVACY-PROTECTED registrant_email
@@ -1597,12 +1619,36 @@ OPENPHISH (openphish_check): community phishing feed corroboration.
 ══════════════════════════════════════════════
 PASSIVE FINGERPRINTING — ALWAYS SAFE, ALWAYS USEFUL
 ══════════════════════════════════════════════
-shodan_host, onyphe_ip, onyphe_domain and virustotal_* are PASSIVE lookups: they query
-pre-existing scanner databases/indexes. They do NOT touch the target server. Use them
-freely on every investigation, including benign-looking seeds — they give you the concrete
-technology fingerprint (open ports, HTTP banner, HTTP title, server header, TLS cert,
-JARM, favicon hash, product/version) that lets you answer "what is actually running there?"
-without any active probe.
+internetdb_ip, shodan_host, shodan_host_count, onyphe_ip, onyphe_domain and virustotal_*
+are PASSIVE lookups: they query pre-existing scanner databases/indexes. They do NOT touch
+the target server. Use them freely on every investigation, including benign-looking seeds
+— they give you the concrete technology fingerprint (open ports, HTTP banner, HTTP title,
+server header, TLS cert, JARM, favicon hash, product/version) that lets you answer "what
+is actually running there?" without any active probe.
+
+SHODAN COST MODEL — READ THIS BEFORE ANY SHODAN CALL:
+  Shodan bills QUERY CREDITS (100/month for the whole instance, shared across every
+  investigation), but almost everything is FREE:
+    • internetdb_ip(ip)              → 0 credits, NO KEY. ports/CPEs/CVEs/hostnames/tags.
+                                       Run it on EVERY ip node — it is the cheapest
+                                       exposure answer that exists. (~weekly refresh,
+                                       no banners.)
+    • shodan_host(ip)                → 0 credits. Full record incl. banners, TLS, JARM.
+    • shodan_host_count(query,facets)→ 0 credits. Result COUNT + FACET breakdown for any
+                                       query — including the filtered cluster queries
+                                       (ssl.jarm:, http.favicon.hash:, ssl.cert.subject.CN:,
+                                       asn:). This is your cluster pivot.
+    • shodan_api_info()              → 0 credits. Plan + remaining credits + local policy.
+  ONLY shodan_search COSTS A CREDIT (1 per 100 results, whenever the query has a filter or
+  pages past page 1), and it is DISABLED BY DEFAULT — it will refuse and tell you the free
+  alternative. Do NOT treat that refusal as a broken tool or retry it in a loop.
+
+  So the cluster-pivot order is: shodan_host_count(...) for size + facets (free) → then
+  graph the actual member hosts with the free scanners (netlas_jarm / netlas_favicon /
+  netlas_search, zoomeye_jarm / zoomeye_favicon, urlscan_search('hash:<jarm>'),
+  crtsh_serial / crtsh_query / certspotter_serial). A count of 0 is itself a finding:
+  record it and move on. Never write "I could not check the cluster because Shodan is
+  credit-limited" — you can always check it for free with shodan_host_count.
 
 For any IP node you encounter (seed or pivoted), you SHOULD capture into ip metadata:
   open_ports, http_title, http_server, http_banner (truncated), technologies[], jarm,
@@ -1699,7 +1745,7 @@ the country is an authoritative attribute of the source record, not an inferred 
 Source caveats you MUST be aware of:
   - virustotal_resolutions_*: capped at 40 results by the API (we already request the max). If you see exactly 40, assume there is more — note "truncated at 40" in metadata.
   - urlscan_search: returns up to 50 hits per query. Use multiple targeted queries (domain:, ip:, hash:, page.title:) rather than one broad one.
-  - shodan_search: free tier has tight monthly credit limits — use it ONLY for the high-signal pivots in STEP 7 (jarm/favicon/cert/asn).
+  - shodan_search: costs a query credit per 100 results and is DISABLED BY DEFAULT (the instance has 100 credits/month total). Use shodan_host_count(query, facets=...) instead — same query, cluster size + facets, 0 credits. shodan_host and internetdb_ip are also free; only *search* bills.
   - virustotal_*: free tier ≈ 4 req/min — if you see a rate-limit response, the harness will pause; you do not need to retry manually, but try to space VT calls.
   - crtsh_subdomains: very large for popular domains — pick 40 most recent and note total in metadata.
   - rdap on .ru/.cn/.ua TLDs is often partial — fall back to virustotal_domain whois.
@@ -1817,7 +1863,7 @@ The category drives which pivots are HIGHEST-leverage. Quick reference:
   commodity_malware      → virustotal_communicating_files,
                            malwarebazaar_signature, threatfox_search,
                            otx_file → enumerate sample family
-  fronted_c2             → R14: crtsh_query(subject CN), shodan_search
+  fronted_c2             → R14: crtsh_query(subject CN), shodan_host_count
                            ('ssl.cert.subject.CN:"<seed>"'), onyphe_datascan,
                            virustotal_resolutions_domain (non-CDN historical)
   traffer_or_tds         → virustotal_resolutions_ip on the FRONT IP (this
@@ -2015,26 +2061,28 @@ STEP 7 — SIMILAR ATTACK PATTERN HUNTING (do this aggressively — go as far as
   analyst sees the cluster, not just the seed.
 
   a. JARM fingerprint pivot — if you found a JARM that is NOT a well-known CDN JARM:
-     → shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") AND
+     → shodan_host_count("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") AND
        netlas_jarm(<jarm>) AND zoomeye_jarm(<jarm>) AND urlscan_search("hash:<jarm>")
-     → Multi-source is intentional: each scanner has different vantage. Onyphe may miss
-       what Netlas catches; Shodan free tier is credit-limited so Netlas+ZoomEye fill in.
+     → Division of labour: shodan_host_count gives the cluster SIZE + facets (asn/org/
+       country) for 0 credits but returns NO hosts; onyphe/netlas/zoomeye/urlscan return
+       the actual member hosts. Multi-source is intentional — each scanner has a different
+       vantage, and Onyphe may miss what Netlas catches.
      → For EACH hit in the merged results, you MUST add_node(ip, <ip>) AND
        add_edge(<seed>→<ip>, same_jarm, source=<shodan|onyphe|netlas|zoomeye|urlscan>).
        Graph the top 10 distinct IPs (across sources, by ASN diversity).
      → Do NOT summarize the cluster in free text — every member is a node.
   b. Favicon hash pivot — if VT/onyphe/dom_fingerprints exposed a favicon hash:
      → add_node(favicon_hash, <hash>, source=<from>) FIRST (so it auto-enqueues lookups)
-     → shodan_search("http.favicon.hash:<hash>") AND onyphe_datascan("favicon:<hash>") AND
+     → shodan_host_count("http.favicon.hash:<hash>") AND onyphe_datascan("favicon:<hash>") AND
        netlas_favicon(<hash>) AND zoomeye_favicon(<hash>)
      → For matches: add_node(ip), add_edge(<seed>→<ip>, same_favicon, source=<...>)
   c. Certificate pivot — if you found a cert serial/SHA1/SHA256:
-     → shodan_search("ssl.cert.serial:<serial>") AND crtsh_serial(<serial>) AND
+     → shodan_host_count("ssl.cert.serial:<serial>") AND crtsh_serial(<serial>) AND
        certspotter_serial(<serial>) — third source to catch what crt.sh missed
      → add_edge(<seed>→<other>, same_cert)
      → certspotter_issuances(<seed>) for a richer issuance history than crt.sh on edge cases
   d. NS-set pivot — if the domain uses an unusual NS set (not parking, not big providers):
-     → If shodan_search or urlscan_search reveal other domains using the EXACT same NS set:
+     → If netlas_search or urlscan_search reveal other domains using the EXACT same NS set:
          add_edge(<seed>→<domain>, same_ns_set)  ← this is one of the strongest pivots
   e. Registrant pivot — if RDAP exposed a registrant email/org that is NOT privacy-protected:
      → add_node(email, <email>) FIRST so the queue auto-enqueues whoxy_reverse
@@ -2054,7 +2102,7 @@ STEP 7 — SIMILAR ATTACK PATTERN HUNTING (do this aggressively — go as far as
      → urlscan_search("page.title:\"<title>\"") to find lookalike phishing pages
      → add_edge(<seed>→<url>, same_page_template)
   h. ASN/CIDR neighbourhood — if the IP is on a small/abused ASN (NOT a big cloud):
-     → shodan_search("asn:<ASN> port:443") AND netlas_search("asn:<ASN>")
+     → shodan_host_count("asn:<ASN> port:443") AND netlas_search("asn:<ASN>")
      → Look for hosts with same JARM/title. Tag the ASN node "abused_asn" if you find
        multiple suspicious neighbours.
   i. DOM fingerprint pivot — if the seed (or any url node) is a phishing/scam page:
@@ -2093,7 +2141,7 @@ STEP 8 — Final report (MANDATORY — always do this last)
     □ otx_domain(<seed>)
     □ onyphe_domain(<seed>)                           — second-source fingerprinting
     □ onyphe_ctl(<seed>)                              — CT-log SAN pivots
-    □ shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") — if JARM found, not CDN
+    □ shodan_host_count("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") — if JARM found, not CDN
     □ STEP 7.5 self-critique completed (requeue_missing + coverage_matrix + gaps_report)
   If any are unchecked, do NOT write the report yet. Go call them first.
 
@@ -2196,10 +2244,14 @@ STEP 2 — Core enrichment (call ALL tools a-j in this step — do not proceed t
      → For each co-resident domain (max 15): add_node(domain), add_edge(ip→domain, co_resolves)
   k. threatfox_search(<seed>) — MANDATORY
      → If hits: tag ip c2/botnet, add_node(report), add_edge(ip→report, known_ioc)
-  l. IF a JARM was found in step b/c: shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") — MANDATORY
-     → Merge hits from both sources. For EACH distinct IP in the union (top 10 by diversity
-       of ASN), you MUST add_node(ip, <ip>) and add_edge(seed_ip→new_ip, same_jarm, source=<shodan|onyphe>).
-       Silently summarizing "found N matches on Shodan" in prose without graphing is a failure.
+  l. IF a JARM was found in step b/c — MANDATORY:
+     → shodan_host_count("ssl.jarm:<jarm>", facets="asn,org,country") for the cluster SIZE
+       and shape (FREE, returns no hosts), AND onyphe_datascan("jarm:<jarm>") +
+       netlas_jarm(<jarm>) + urlscan_search("hash:<jarm>") for the member HOSTS.
+     → Merge hits from the host-returning sources. For EACH distinct IP in the union (top 10
+       by diversity of ASN), you MUST add_node(ip, <ip>) and add_edge(seed_ip→new_ip,
+       same_jarm, source=<onyphe|netlas|urlscan>).
+       Silently summarizing "found N matches" in prose without graphing is a failure.
 
 STEP 3 — Passive DNS / Co-resident domains
   a. virustotal_resolutions_ip(<seed>)
@@ -2235,7 +2287,7 @@ STEP 5 — Certificate SAN pivot (IMPORTANT — this is often the strongest IP�
 
 STEP 6 — SIMILAR ATTACK PATTERN HUNTING (go as far as budget allows)
   a. JARM fingerprint pivot — if you found a JARM that is NOT a well-known CDN JARM:
-     → shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") AND
+     → shodan_host_count("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") AND
        urlscan_search("hash:<jarm>")  ← urlscan is FREE-TIER, always attempt it
      → MANDATORY GRAPHING: for each distinct IP in the union of results (top 10 by ASN diversity),
        add_node(ip, <ip>) + add_edge(seed_ip→new_ip, same_jarm, source=<shodan|onyphe|urlscan>,
@@ -2244,7 +2296,7 @@ STEP 6 — SIMILAR ATTACK PATTERN HUNTING (go as far as budget allows)
        JARM path; take every hit there and graph it.
      → virustotal_ip on top 2 new IPs → extract their certs/domains for further clustering
   b. Certificate serial / issuer-CN pivot — essential free-tier fallback:
-     → shodan_search("ssl.cert.serial:<serial>") AND onyphe_datascan("tls.cert.serial:<serial>")
+     → shodan_host_count("ssl.cert.serial:<serial>") AND onyphe_datascan("tls.cert.serial:<serial>")
      → crtsh_serial(<serial>) — ALWAYS call this (free, no tier). For each host in digest.hosts
        not already in graph (max 10): add_node(domain, <host>) or add_node(ip, <host>) if the
        value parses as an IP; add_edge(seed→<host>, same_cert, source="crtsh",
@@ -2252,7 +2304,7 @@ STEP 6 — SIMILAR ATTACK PATTERN HUNTING (go as far as budget allows)
      → If the cert has a rare/actor-distinctive issuer organisation (e.g. O='1314520.com'),
        crtsh_query("<issuer_org>", match="ILIKE") — graph any additional CNs found.
   c. Favicon hash pivot — if onyphe/VT exposed favicon hash:
-     → shodan_search("http.favicon.hash:<hash>") AND onyphe_datascan("favicon:<hash>")
+     → shodan_host_count("http.favicon.hash:<hash>") AND onyphe_datascan("favicon:<hash>")
      → urlscan_search("hash:<hash>") as a free-tier complement; graph matches.
      → For matches: add_node(ip), add_edge(same_favicon)
   d. Onyphe pastries pivot — if the ip has been leaked in paste dumps:
@@ -2270,7 +2322,7 @@ STEP 7 — Final report (MANDATORY — always do this last)
     □ threatfox_search(<seed>)
     □ onyphe_ip(<seed>)
     □ onyphe_threatlist(<seed>)
-    □ shodan_search("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") — if JARM found
+    □ shodan_host_count("ssl.jarm:<jarm>") AND onyphe_datascan("jarm:<jarm>") — if JARM found
     □ virustotal_resolutions_ip(<seed>)
   If any are unchecked, do NOT write the report yet. Go call them first.
 
@@ -2318,12 +2370,17 @@ The investigation's purpose is to surface the CLUSTER of hosts sharing this
 fingerprint and flag it if that cluster is threat-associated.
 
 STEP 1: add_node(jarm, <seed>, tags=["seed"])
-STEP 2: shodan_search("ssl.jarm:<seed>") — MANDATORY
+STEP 2: shodan_host_count("ssl.jarm:<seed>", facets="asn,org,country,port") — MANDATORY
+  → FREE (0 query credits). This returns the cluster SIZE and facet breakdown, NOT the
+    hosts. Record total + top facets in the jarm node metadata as evidence.
+  → If total is 0, the fingerprint has no live cluster: record that and skip to STEP 5.
+  → If total is > 200, note "common_jarm_likely_cdn" in seed metadata.
+STEP 2b: Get the member HOSTS from the free scanners — netlas_jarm(<seed>) AND
+  zoomeye_jarm(<seed>) (and onyphe_datascan("jarm:<seed>") if available).
   → For each result (max 20 hosts): add_node(ip, <ip>, metadata={port, org, asn})
     and add_edge(ip→jarm, has_jarm). Do NOT defuse before adding the node, but DO
     defuse(ip, <ip>) before running any further IP enrichment in STEP 4.
-  → If the result set is > 200 matches, note "common_jarm_likely_cdn" in seed
-    metadata and still keep 10 representative hosts.
+  → Keep 10 representative hosts when the cluster is large.
 STEP 3: urlscan_search("hash:<seed>") — cross-source confirmation
   → For each scan result: if a page_url is present, add_node(url), add_edge(url→jarm, has_jarm)
 STEP 4: Pick top 3 distinct IPs (by diversity of ASN/org) and run a LIGHT IP workflow:
@@ -2335,7 +2392,7 @@ STEP 6: Final report (value="investigation_summary"). In key_findings include th
   cluster size, dominant ASN(s), and whether any cluster member is directly flagged.
   Follow R11 — the JARM is only malicious if at least one concrete detection hit exists.
   Before writing the report verify:
-    □ shodan_search("ssl.jarm:<seed>")
+    □ shodan_host_count("ssl.jarm:<seed>")
     □ threatfox_search(<seed>)
   add_edge(jarm→report, known_ioc)
 
@@ -2347,8 +2404,10 @@ equivalent. The goal is to characterize the AS and surface any abuse cluster
 within it WITHOUT trying to enumerate every host (ASes can hold millions of IPs).
 
 STEP 1: add_node(asn, <seed>, tags=["seed"])  (normalized form "AS<digits>")
-STEP 2: shodan_search("asn:<seed>") — MANDATORY, with a narrowing filter.
-  Prefer "asn:<seed> port:443" to keep the result set manageable. For each hit
+STEP 2: shodan_host_count("asn:<seed> port:443", facets="org,country,product") — MANDATORY.
+  FREE (0 query credits). Returns how many web-facing hosts the ASN holds and what they
+  run — record total + top facets in the asn node metadata. It does NOT return hosts.
+STEP 2b: Get the member HOSTS free via netlas_search("asn:<seed>"). For each hit
   (max 20): add_node(ip), add_edge(ip→asn, hosted_on_asn), add_edge(asn→ip, announces).
   Store open_ports, http_title, jarm in ip metadata.
 STEP 3: For the top 5 IPs with the most interesting fingerprints (non-generic
@@ -2501,6 +2560,8 @@ _ALLOWED_TOOLS = (
     "mcp__cti__onyphe_ctl,mcp__cti__onyphe_pastries,mcp__cti__onyphe_geoloc,"
     "mcp__cti__ip_api_lookup,mcp__cti__ip_api_batch_lookup,mcp__cti__ip_api_edns,"
     "mcp__cti__shodan_host,mcp__cti__shodan_search,"
+    "mcp__cti__shodan_host_count,mcp__cti__shodan_api_info,"
+    "mcp__cti__internetdb_ip,"
     "mcp__cti__otx_domain,mcp__cti__otx_ip,mcp__cti__otx_file,"
     "mcp__cti__threatfox_search,mcp__cti__wayback,"
     "mcp__cti__mnemonic_pdns,"
@@ -3245,7 +3306,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                     "url-path-template is a CLUSTER-EXPANSION pivot. For each one:\n"
                     "    1) urlscan_search(\"page.title:\\\"<title>\\\"\", size=200) — siblings using the same kit template\n"
                     "    2) urlscan_search(\"page.url:/<distinctive-path>/\") — siblings using the same URL path\n"
-                    "    3) shodan_search(\"http.favicon.hash:<hash>\") + netlas_favicon + zoomeye_favicon\n"
+                    "    3) shodan_host_count(\"http.favicon.hash:<hash>\") + netlas_favicon + zoomeye_favicon\n"
                     "  After EACH urlscan/shodan/netlas hit list, add EVERY distinct sibling domain "
                     "or IP as a node with a same_template/same_favicon/same_jarm edge. Do NOT "
                     "summarise the cluster in prose — graph every member.\n"
@@ -3549,8 +3610,8 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 f"shodan_host+threatfox_search; domain → rdap_domain+"
                 f"virustotal_domain+threatfox_search+otx_domain+onyphe_domain; "
                 f"cert with serial → certspotter_serial+crtsh_serial; "
-                f"jarm → shodan_search+onyphe_datascan+netlas_jarm+zoomeye_jarm+"
-                f"urlscan_search('hash:<jarm>'); favicon_hash → shodan_search("
+                f"jarm → shodan_host_count+onyphe_datascan+netlas_jarm+zoomeye_jarm+"
+                f"urlscan_search('hash:<jarm>'); favicon_hash → shodan_host_count("
                 f"'http.favicon.hash:<h>')+netlas_favicon+zoomeye_favicon+"
                 f"onyphe_datascan('favicon:<h>'); title_hash → urlscan_search("
                 f"'page.title:\"<title>\"', size=200) for kit-template siblings.\n"

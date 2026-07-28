@@ -104,7 +104,8 @@ Pulsedive, Censys, EmailRep, Project Honey Pot).
 VIRUSTOTAL_API_KEY=    # 4 req/min on free tier
 URLSCAN_API_KEY=       # free
 ONYPHE_API_KEY=        # free community tier
-SHODAN_API_KEY=        # paid; optional
+SHODAN_API_KEY=        # Membership; optional. Free endpoints only by default —
+                       # metered search is off unless BOUNCE_SHODAN_ALLOW_CREDITS=1
 OTX_API_KEY=           # free
 ABUSECH_AUTH_KEY=      # free, register at https://auth.abuse.ch/  (URLhaus + MalwareBazaar)
 
