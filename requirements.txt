@@ -5,7 +5,11 @@ python-dotenv>=1.0
 dnspython>=2.6
 mmh3>=4.1
 pydantic>=2.6
-mcp>=1.0
+# Upper bound is load-bearing: mcp 2.0 removed `mcp.server.fastmcp`, which every
+# server in backend/mcp_servers/ imports. Unpinned, a fresh `pip install` (CI or a
+# clean deploy) resolves to 2.x and every MCP server fails to start — i.e. every
+# investigation returns zero nodes. Lift only together with a FastMCP migration.
+mcp>=1.0,<2.0
 websockets>=12.0
 fpdf2>=2.7
 pypdf>=4.0

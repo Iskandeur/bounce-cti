@@ -1107,6 +1107,43 @@ def export_kyb_dossier(inv_id: str, user_id: int = Depends(current_user)):
             "filename": f"bounce-kyb-{inv_id}.dossier.md"}
 
 
+@app.get("/api/investigations/{inv_id}/leads")
+def investigation_leads(inv_id: str, user_id: int = Depends(current_user)):
+    """Context-pool leads + corroboration telemetry for the investigation.
+
+    Leads are claims sourced from the agent's prior knowledge or from open-web
+    text rather than from a source tool (see backend/context_pool.py). They are
+    capped at confidence 0.35, excluded from every actionable export, and only
+    become findings once a primary source tool ratifies them.
+
+    ``corroboration_rate`` is the measurable hallucination thermometer for a run:
+    how much of what the model proposed actually survived contact with a source."""
+    _require_owner(inv_id, user_id)
+    from . import context_pool
+    leads = gs.list_nodes_of_type(inv_id, context_pool.LEAD_NODE_TYPE)
+    stats = context_pool.corroboration_stats(leads)
+    vertical = gs.get_vertical(inv_id)
+    return {
+        **stats,
+        "vertical": vertical,
+        "context_pool_enabled": context_pool.context_pool_enabled(vertical),
+        "ctx_calls_used": gs.get_counter(inv_id, "ctx_calls"),
+        "ctx_budget": context_pool.ctx_budget(),
+        "leads": [
+            {"id": n["id"], "claim": n["value"], "confidence": n.get("confidence"),
+             "source": n.get("source"), "tags": n.get("tags") or [],
+             "subject": (n.get("metadata") or {}).get("subject"),
+             "claim_type": (n.get("metadata") or {}).get("claim_type"),
+             "verifiable_by": (n.get("metadata") or {}).get("verifiable_by"),
+             "falsifier": (n.get("metadata") or {}).get("falsifier"),
+             "evidence_tool": (n.get("metadata") or {}).get("verdict_evidence_tool"),
+             "evidence_value": (n.get("metadata") or {}).get("verdict_evidence_value"),
+             "note": (n.get("metadata") or {}).get("verdict_note")}
+            for n in leads
+        ],
+    }
+
+
 @app.get("/api/investigations/{inv_id}/nodes/{node_id}/evidence")
 def node_evidence(inv_id: str, node_id: str, user_id: int = Depends(current_user)):
     """Return raw cached CTI source data relevant to a node.

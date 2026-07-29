@@ -17,6 +17,11 @@ backend/
                         #   (main → hypothesis_write → followup → report_write), pumps events
   graph_store.py        # SQLite schema + CRUD (investigations, nodes, edges, events,
                         #   cache, users, sessions, shares, pivot_tasks, quota_state)
+                        #   + per-investigation counters (get_counter/bump_counter,
+                        #   backed by the cache table so they survive the per-phase
+                        #   agent respawns), list_nodes_of_type, and
+                        #   set_node_tags_exclusive (the lead lifecycle is a state
+                        #   machine, not an accumulating tag bag)
   config.py             # Env var loading (API keys, paths)
   seeds.py              # Seed registry: single source of truth for per-seed-type
                         #   behaviour (mandatory_tools + investigation_prompt +
@@ -25,6 +30,10 @@ backend/
                         #   ladders in agent_runner (now eliminated). Multi-
                         #   vertical foundation (Phase 1).
   verticals.py          # Vertical registry: the CTI/OSINT/DD abstraction.
+                        #   Also CONTEXT_POOL_KEY/MODULE + CONTEXT_POOL_PROMPT_BLOCK
+                        #   (the lead-discipline rules C1-C6, appended by
+                        #   build_system_prompt only when the pool is mounted;
+                        #   explicitly AMENDS rule R3's "do not search the web").
                         #   Vertical{name,label,agent_name,seed_types,
                         #   source_pool,prompt_block} + VERTICALS (cti + osint
                         #   lens [reuses cti pool] + dd [Due Diligence/KYB, own
@@ -38,6 +47,35 @@ backend/
                         #   (agent_runner.build_system_prompt)
                         #   swaps agent_name + appends prompt_block — iso-
                         #   functional for CTI. Multi-vertical foundation (Phase 1).
+  context_pool.py       # The SECOND EPISTEMIC TIER: model parametric memory +
+                        #   open-web text. Everything entering through it becomes
+                        #   a `lead` node — never a typed IOC — with source=
+                        #   parametric_memory / web:<host>, confidence clamped to
+                        #   LEAD_CONFIDENCE_CAP (0.35) SERVER-SIDE, and a
+                        #   lifecycle tag (unverified → corroborated | refuted |
+                        #   unverifiable). A lead is excluded from every
+                        #   actionable export until a PRIMARY source tool
+                        #   ratifies it (is_actionable). Also holds the
+                        #   mechanical legal guardrails (claim_type_denied: DD
+                        #   adverse-media + special-category claims refused at
+                        #   the tool boundary, not by prompt), the anti-circular
+                        #   rule (is_primary_evidence_tool — memory may not
+                        #   corroborate memory), the SSRF guard (check_fetch_url
+                        #   / check_fetch_host_address), corroboration_stats (the
+                        #   measurable hallucination thermometer), the shared
+                        #   dossier renderers (split_leads /
+                        #   leads_markdown_section) and the enablement policy
+                        #   (context_pool_enabled — default ON for osint + dd,
+                        #   OFF for cti). Pure module, no I/O; locked by
+                        #   tests/test_context_pool.py.
+  sources/web_context.py# Open-web source behind mcp__ctx__web_search / web_fetch.
+                        #   Search backends: Brave → Serper → keyless DuckDuckGo
+                        #   HTML fallback. Everything cached in the `cache` table
+                        #   so an eval re-run replays byte-identical content
+                        #   instead of that hour's SERP. Fetch is SSRF-guarded
+                        #   (scheme allowlist + pre-DNS host check + post-DNS
+                        #   check on every resolved address + redirect re-check)
+                        #   and byte-capped.
   auth.py               # PIN-based auth, sessions, admin bootstrap + impersonation
   defuse_lists.py       # CDN/parking/sinkhole/blackhole/dyndns noise filters
                         #   + LE-takedown registrant markers (sinkhole_kind)
@@ -48,6 +86,10 @@ backend/
                         #   extracts IOCs from scripts, builds the command_line
                         #   context node + report_context for the agent
   action_exports.py     # Operational deliverables for the Actions tab:
+                        #   NB: context-pool leads and any node still tagged
+                        #   unverified/refuted/unverifiable are excluded with NO
+                        #   analyst override (unlike include_defused) — a defused
+                        #   node is real-but-noisy, an unverified one may not exist.
                         #   render_blocklist (plain/hosts/unbound/rpz/palo_edl/
                         #     cisco_acl/csv), render_detection (sigma/snort/
                         #     yara), render_takedown (per-host abuse email
@@ -130,6 +172,17 @@ backend/
                         #   threat_actor nodes (+ kit-handle tags to phishing_kit
                         #   nodes). add_edge auto-stubs missing
                         #   endpoints (phantom_autostub).
+    ctx_mcp.py          # MCP server: the CONTEXT POOL (mcp__ctx__*), mounted
+                        #   ALONGSIDE the vertical's source pool so its calls are
+                        #   counted/budgeted separately from BOUNCE_TOTAL_CTI_BUDGET.
+                        #   recall_prior_knowledge (NO network, no cost — forces
+                        #   the model's prior knowledge out of the report prose
+                        #   and into an auditable, falsifiable, queued-for-
+                        #   verification lead; requires verifiable_by + falsifier),
+                        #   web_search / web_fetch (cached, budgeted, SSRF-guarded,
+                        #   returned with an untrusted-content warning),
+                        #   context_budget. Budget enforced server-side via a
+                        #   persisted counter so it survives per-phase respawns.
     cti_mcp.py          # MCP server: ~90 async CTI source tools
                         #   (incl. internetdb_ip — keyless/creditless IP exposure,
                         #   shodan_host_count — free cluster size + facets (the
@@ -339,7 +392,10 @@ A red gate must be fixed before merge. Pair this with branch protection on
   `ct_burst_cohort` report node with `metadata.issuance_date`, satisfying the
   EVAL_PROTOCOL scorer's `ct_burst_window` pivot rule and unblocking Case 9
   Tycoon-2FA PS 75→100 (2026-06-17 fix)), then ensures a final
-  `investigation_summary` report node (`phase_report_write`), then runs an
+  `investigation_summary` report node (`phase_report_write`), then — when the
+  context pool is mounted and leads are still unverified — resolves them in
+  `phase_corroborate_leads` (placed BEFORE the report write so the report
+  describes leads by verdict instead of asserting them), then runs an
   autonomous pivot-drain loop (`phase_pivot_drain_<N>`, added 2026-05) that
   reads the report's own `pivot_suggestions` and the pivot queue, executes
   them, and recurses for up to `BOUNCE_PIVOT_DRAIN_ROUNDS` rounds (default 3,
@@ -486,6 +542,36 @@ A red gate must be fixed before merge. Pair this with branch protection on
   tool** — a mandatory call the guard refuses can never be satisfied, so the follow-up
   phase would nag forever (locked by a test). `/shodan/scan` and Network Alerts are
   deliberately not implemented (active probing + account-state mutation).
+- **Context pool = hypotheses, source pool = jury** (`backend/context_pool.py`,
+  `mcp__ctx__*`): the agent's parametric memory and open-web text are a **second,
+  weaker epistemic tier**, not another source. They were already leaking into
+  report prose untraced (that is why R11 and the "do not invent" rules exist);
+  the pool channels them instead. Everything entering through it becomes a
+  **`lead`** node — never a typed IOC — `source=parametric_memory` / `web:<host>`,
+  confidence clamped to **0.35 in `graph_mcp.add_node`** (server-side: a prompt
+  rule is a suggestion, this is an invariant), tagged `unverified`, and
+  **excluded from every actionable export** (blocklist / detection / takedown /
+  STIX; dossiers + PDF show them under a separate labelled heading). A lead
+  becomes a finding ONLY via `mcp__graph__corroborate_lead`, which requires a
+  **primary** source tool as evidence — a `mcp__ctx__*` tool is rejected, since
+  memory corroborating memory is circular. On `corroborated` + `promote_as_*` the
+  real typed node is minted with the *primary tool* as provenance and linked by a
+  `corroborated_by` edge. `verdict=refuted` / `unverifiable` are **success
+  states**, not failures. Because a lead is capped, tagged and non-exportable,
+  the same mechanism is also the **prompt-injection defence**: text injected into
+  a fetched page can only ever mint a lead a real source must ratify.
+  Dedicated phase `phase_corroborate_leads` runs *before* the report is written.
+  Metric: `corroboration_rate` (`GET /api/investigations/{id}/leads`) — the
+  measurable hallucination thermometer, per run / vertical / model.
+  **Enablement is deliberately asymmetric** (`BOUNCE_CTX_ENABLED`, default
+  `auto`): ON for `osint` + `dd`, **OFF for `cti`**. CTI carries the byte-for-byte
+  prompt invariant (roadmap 4.4) and the EVAL §4.5 budget cliff, so enable it
+  there only after an eval run (`BOUNCE_CTX_ENABLED=all`). `BOUNCE_CTX_WEB=0`
+  keeps the free, network-less `recall_prior_knowledge` while removing the
+  injection surface entirely; `BOUNCE_CTX_BUDGET` (default 12) caps calls per
+  investigation. The native `WebSearch` / `WebFetch` stay in `_DISALLOWED_TOOLS`
+  even when the pool is on — they would bypass the cache (eval determinism), the
+  budget, the SSRF guard and the lead tier.
 - **Key rotation**: `backend/key_pool.py` lets each source accept either
   `<SRC>_API_KEY=k1` (single) or `<SRC>_API_KEYS=k1,k2,k3` (multi, takes precedence).
   Cooldown on 429 (60s default), full-day cooldown on quota exhausted. Sources call

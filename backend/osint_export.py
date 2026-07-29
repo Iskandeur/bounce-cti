@@ -23,6 +23,8 @@ is unit-testable. Output is Markdown text; the API wraps it in the usual
 from __future__ import annotations
 
 import time
+
+from .context_pool import leads_markdown_section, split_leads
 from typing import Iterable
 
 # Node types that carry identity/footprint meaning in an OSINT dossier, in the
@@ -104,7 +106,9 @@ def render_dossier(graph: dict, inv: dict) -> str:
     seed_value = inv.get("seed_value", "?")
     seed_type = inv.get("seed_type", "unknown")
     title = inv.get("title") or ""
-    non_report = [n for n in nodes if n.get("type") != "report"]
+    # Context-pool leads are kept out of the body (they are not findings) and
+    # rendered under their own heading below.
+    non_report, leads = split_leads([n for n in nodes if n.get("type") != "report"])
 
     L: list[str] = []
     L.append(f"# OSINT Dossier — {seed_value}")
@@ -175,6 +179,9 @@ def render_dossier(graph: dict, inv: dict) -> str:
                 f = f.get("finding") or f.get("text") or str(f)
             L.append(f"- {f}")
         L.append("")
+
+    # ── Leads (context pool) ──
+    L.extend(leads_markdown_section(leads))
 
     # ── Provenance ──
     sources = set()

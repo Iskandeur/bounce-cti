@@ -869,6 +869,93 @@ def cache_set(key: str, value: Any):
                   (key, json.dumps(value), time.time()))
 
 
+# ── Per-investigation counters ────────────────────────────────────────────
+# Backed by the `cache` table (same trick as backend/source_health.py) so a
+# counter survives across the several `claude -p` phase spawns of one run — each
+# phase starts fresh MCP server processes, so an in-process counter would reset
+# and a per-investigation budget would never actually bind.
+
+def _counter_key(inv_id: str, name: str) -> str:
+    return f"counter|{inv_id}|{name}"
+
+
+def get_counter(inv_id: str, name: str) -> int:
+    """Read a per-investigation counter (0 if never bumped)."""
+    v = cache_get(_counter_key(inv_id, name), ttl=float("inf"))
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def bump_counter(inv_id: str, name: str, delta: int = 1) -> int:
+    """Increment a per-investigation counter and return the new value."""
+    new = get_counter(inv_id, name) + int(delta)
+    cache_set(_counter_key(inv_id, name), new)
+    return new
+
+
+def list_nodes_of_type(inv_id: str, type_: str) -> list[dict]:
+    """All nodes of one type (id, value, metadata, tags, confidence, source).
+
+    Used by the context-pool lead lifecycle (list/promote leads) and by the
+    corroboration telemetry; keeps callers out of raw SQL."""
+    with conn() as c:
+        rows = c.execute(
+            "SELECT id, type, value, metadata, tags, confidence, source, created_at "
+            "FROM nodes WHERE investigation_id=? AND type=? ORDER BY created_at",
+            (inv_id, type_),
+        ).fetchall()
+    out = []
+    for r in rows:
+        out.append({
+            "id": r["id"], "type": r["type"], "value": r["value"],
+            "metadata": json.loads(r["metadata"] or "{}"),
+            "tags": json.loads(r["tags"] or "[]"),
+            "confidence": r["confidence"], "source": r["source"],
+            "created_at": r["created_at"],
+        })
+    return out
+
+
+def set_node_tags_exclusive(inv_id: str, node_id: str, add: str,
+                            remove: set[str]) -> Optional[dict]:
+    """Add one tag while removing a set of mutually-exclusive siblings.
+
+    The lead lifecycle (unverified → corroborated | refuted | unverifiable) is a
+    state machine, not an accumulating tag bag: `tag_node` alone would leave a
+    node tagged both `unverified` and `corroborated`, which the corroboration
+    telemetry would then bucket by tag-precedence while the export filter still
+    read it as non-actionable. Emits a full `node_updated` event so connected
+    clients re-render the lead's new state live."""
+    with conn() as c:
+        row = c.execute("SELECT * FROM nodes WHERE id=? AND investigation_id=?",
+                        (node_id, inv_id)).fetchone()
+        if not row:
+            return None
+        tags = {t for t in json.loads(row["tags"] or "[]") if t not in remove}
+        if add:
+            tags.add(add)
+        c.execute("UPDATE nodes SET tags=? WHERE id=?",
+                  (json.dumps(sorted(tags)), node_id))
+        row2 = c.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
+        node = dict(row2)
+        node["metadata"] = json.loads(node.get("metadata") or "{}")
+        node["tags"] = json.loads(node.get("tags") or "[]")
+        event = {"kind": "node_updated", "node": {
+            "id": node["id"], "type": node["type"], "value": node["value"],
+            "metadata": node["metadata"], "tags": node["tags"],
+            "confidence": node.get("confidence") or 0.8,
+            "source": node.get("source") or "agent",
+            "created_at": node.get("created_at") or time.time(),
+        }}
+        c.execute(
+            "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+            (inv_id, event["kind"], json.dumps(event), time.time()),
+        )
+    return node
+
+
 # ── Pivot queue (autonomy engine) ─────────────────────────────────────────
 
 def _pivot_task_id(inv: str, node_type: str, node_value: str, pivot_op: str) -> str:
@@ -891,6 +978,13 @@ def enqueue_pivot(inv_id: str, node_type: str, node_value: str, pivot_op: str,
             return {"id": tid, "was_new": True}
         except sqlite3.IntegrityError:
             return {"id": tid, "was_new": False}
+
+
+def complete_pivot_for(inv_id: str, node_type: str, node_value: str, pivot_op: str,
+                       status: str = "done", summary: Optional[str] = None) -> bool:
+    """Close a queued pivot addressed by (node, op) rather than by task id."""
+    return complete_pivot(_pivot_task_id(inv_id, node_type, node_value, pivot_op),
+                          status=status, summary=summary)
 
 
 def acquire_pivot(inv_id: str) -> Optional[dict]:

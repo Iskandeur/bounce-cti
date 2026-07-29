@@ -3499,3 +3499,55 @@ button.secondary:hover {
   color: var(--on-surface);
 }
 .vertical-pinned-hint { font-weight: 400; font-size: 11px; color: var(--on-dim); }
+
+/* ── Context-pool leads ────────────────────────────────────────────────────
+   Claims the agent brought from its own prior knowledge or from open-web text
+   rather than from a source tool (backend/context_pool.py). Styled as a sibling
+   of the hypothesis card but in a cooler, deliberately un-alarming violet: a
+   lead is speculation under test, not a finding. The caveat text is part of the
+   contract — this panel must never read like the report. */
+.lead-card {
+  border-left-color: #9a8cb8aa;
+}
+.lead-card .hypothesis-label {
+  color: #9a8cb8;
+}
+.lead-card .lead-pending-badge {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--warning, #e3b341);
+  border: 1px solid var(--outline-dim);
+  border-radius: 8px;
+  padding: 0 5px;
+}
+.lead-card .lead-body {
+  margin-top: 5px;
+  font-size: 11px;
+}
+.lead-card .lead-caveat {
+  margin: 0 0 6px 0;
+  font-size: 10px;
+  opacity: 0.7;
+  font-style: italic;
+}
+.lead-card .lead-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 0;
+  border-top: 1px solid var(--outline-dim);
+}
+.lead-card .lead-state {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+.lead-card .lead-claim {
+  color: var(--on-bg);
+}
+.lead-card .lead-evidence {
+  font-size: 10px;
+  opacity: 0.65;
+  word-break: break-word;
+}

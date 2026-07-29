@@ -55,6 +55,21 @@ DOM fingerprints) building a live infrastructure graph in your browser.
   with the current graph (and a selection) as context.
 - **Noise defusing**: built-in CDN ranges, parking nameservers, sinkhole IPs
   and DynDNS TLDs — agent must call `defuse()` before pivoting on infrastructure.
+- **Leads, separated from facts**: the agent can also draw on its own prior
+  knowledge and on the open web — useful for naming a campaign, routing a
+  company to the right registry, or connecting a handle to a public project,
+  none of which the source pool can answer. Because that material is
+  unverifiable at the point of production, it never enters the graph as a
+  finding: it becomes a **lead** (confidence capped at 0.35, tagged
+  `unverified`, dashed on the canvas) and is **excluded from every actionable
+  export** — blocklists, detection rules, takedown emails and STIX. A lead
+  becomes a real node only once a *primary* source tool corroborates it, and the
+  promoted node carries that tool as its provenance. `refuted` and
+  `unverifiable` are recorded as normal outcomes, and each investigation reports
+  a **corroboration rate** — how much of what the model proposed actually
+  survived contact with a source. Reports, dossiers and the PDF list leads under
+  their own clearly-labelled heading, never in the body. Enabled by default for
+  OSINT and Due Diligence; opt-in for CTI (`BOUNCE_CTX_ENABLED`).
 
 ## Architecture
 
@@ -135,6 +150,14 @@ EMAILREP_API_KEY=        #  10/day anon  https://emailrep.io/key             (op
 # No-auth sources (no key needed): CIRCL hashlookup + vuln-lookup, AlienVault
 # reputation feed, PhishTank, Tor exit-relay list, dnstwist (local binary —
 # `pip install dnstwist`, already in requirements.txt).
+
+# Context pool (leads). No key required: `recall_prior_knowledge` needs no
+# network at all, and web search falls back to a keyless DuckDuckGo endpoint.
+BOUNCE_CTX_ENABLED=      # auto (default: OSINT+DD) | all | 0 | "osint,dd"
+BOUNCE_CTX_WEB=          # 0 = prior-knowledge only, no web (no injection surface)
+BOUNCE_CTX_BUDGET=       # context calls per investigation (default 12, 0 = unlimited)
+BRAVE_SEARCH_API_KEY=    # optional, preferred search backend
+SERPER_API_KEY=          # optional, second choice
 
 # Multi-key rotation (optional). Supersedes the single-key form per source.
 # VIRUSTOTAL_API_KEYS=k1,k2,k3

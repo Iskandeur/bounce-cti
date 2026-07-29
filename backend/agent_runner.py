@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Optional
 from .config import CLAUDE_BIN
+from . import context_pool
 from . import graph_store as gs
 from . import seeds
 from . import verticals
@@ -1364,6 +1365,17 @@ def _write_mcp_config(inv_id: str) -> Path:
             },
         }
     }
+    # The context pool (model memory + wrapped open web) mounts alongside the
+    # source pool under its own mcp__ctx__* namespace, so its calls are counted,
+    # budgeted and whitelisted separately from the source-pool budget the
+    # EVAL_PROTOCOL §4.5 bands are calibrated on. It needs BOUNCE_INV_ID because
+    # it writes lead nodes and enforces the per-investigation ctx budget.
+    if context_pool.context_pool_enabled(vertical.name):
+        cfg["mcpServers"][verticals.CONTEXT_POOL_KEY] = {
+            "command": python,
+            "args": [launcher, verticals.CONTEXT_POOL_MODULE],
+            "env": {**base_env, "BOUNCE_INV_ID": inv_id},
+        }
     p = ROOT / "data" / f"mcp-{inv_id}.json"
     p.write_text(json.dumps(cfg, indent=2))
     return p
@@ -2577,6 +2589,11 @@ _ALLOWED_TOOLS = (
     "mcp__cti__openphish_check,"
     "mcp__cti__dom_fingerprints"
 )
+# NB: the native WebSearch / WebFetch stay disallowed even when the context pool
+# is mounted. Open-web access goes exclusively through mcp__ctx__web_search /
+# mcp__ctx__web_fetch, which are cached (deterministic eval replay), counted
+# against BOUNCE_CTX_BUDGET, SSRF-guarded, and can only ever mint `lead` nodes.
+# The native tools would bypass all four properties.
 _DISALLOWED_TOOLS = "Bash,Edit,Write,MultiEdit,Read,Glob,Grep,NotebookEdit,WebSearch,WebFetch,Task,TodoWrite"
 
 
@@ -2592,6 +2609,26 @@ def build_allowed_tools(pool: str) -> str:
     if pool == "cti":
         return _ALLOWED_TOOLS
     return _ALLOWED_TOOLS.replace("mcp__cti__", f"mcp__{pool}__")
+
+
+# Context-pool tools, appended only when the pool is mounted for the vertical.
+# Kept OUT of _ALLOWED_TOOLS so build_allowed_tools("cti") stays byte-identical
+# to the historical whitelist (roadmap invariant 4.4 / test_verticals) and a
+# vertical without the context pool sees no lead surface at all.
+_CTX_ALLOWED_TOOLS = (
+    "mcp__ctx__recall_prior_knowledge,mcp__ctx__web_search,"
+    "mcp__ctx__web_fetch,mcp__ctx__context_budget,"
+    "mcp__graph__corroborate_lead,mcp__graph__lead_status"
+)
+
+
+def build_allowed_tools_for(vertical: "verticals.Vertical") -> str:
+    """Full --allowedTools whitelist for a vertical: its source pool, plus the
+    context pool when enabled for that vertical."""
+    tools = build_allowed_tools(vertical.source_pool)
+    if context_pool.context_pool_enabled(vertical.name):
+        tools = tools + "," + _CTX_ALLOWED_TOOLS
+    return tools
 
 
 def _build_env(inv_id: str) -> dict:
@@ -2653,6 +2690,95 @@ def _build_env(inv_id: str) -> dict:
     return env
 
 
+_CORROBORATE_SYSTEM_PROMPT = """You are Bounce-CTI, running a single focused phase: \
+LEAD CORROBORATION. Do not investigate anything new.
+
+Earlier in this investigation you recorded `lead` nodes — claims that came from your
+own prior knowledge or from open-web text, not from a source tool. They are stored
+with confidence <= 0.35, tagged `unverified`, and are EXCLUDED from every export.
+Your only job now is to resolve them.
+
+For EACH pending lead:
+  1. Read its `verifiable_by` and `falsifier` fields (lead_status() returns them).
+  2. Call the primary source tool(s) that would confirm or kill it. One or two
+     calls per lead — this phase is not a new investigation.
+  3. Call mcp__graph__corroborate_lead(lead_value=<the lead's value>,
+     verdict=..., evidence_tool=..., evidence_value=..., note=...):
+       - "corroborated"  a source tool independently confirms it. Pass the tool
+                         name and the exact value it returned. If the claim
+                         asserts a concrete indicator, ALSO pass
+                         promote_as_type / promote_as_value to create the real
+                         typed node.
+       - "refuted"       a source contradicts it. This is a SUCCESS, not a
+                         failure: record it plainly.
+       - "unverifiable"  no available source can test it either way. Honest and
+                         acceptable. Do not stretch to corroborate.
+
+HARD RULES:
+  - A lead may NOT be corroborated by another mcp__ctx__* call. Memory cannot
+    corroborate memory; the tool will reject it.
+  - Do NOT invent evidence values. evidence_value must be something a tool
+    actually returned in this phase.
+  - Prefer "refuted"/"unverifiable" over a weak "corroborated". A false
+    corroboration is the single worst outcome of this phase: it launders a guess
+    into an exportable, actionable indicator.
+  - Do not create a new report node here.
+
+Finish by calling mcp__graph__lead_status() one last time so the final
+corroboration counts are recorded.
+"""
+
+
+# Turn budget for the corroboration phase. Deliberately small: each lead needs
+# ~1 source call + 1 corroborate_lead call, and this phase must never become a
+# second investigation.
+CORROBORATE_MAX_TURNS = int(os.environ.get("BOUNCE_CORROBORATE_MAX_TURNS", "30"))
+
+
+async def _phase_corroborate_leads(inv_id: str, model: str, env: dict,
+                                   mcp_cfg_path: Path) -> Optional[dict]:
+    """Resolve every outstanding context-pool lead. No-op when the pool is off
+    for this vertical or nothing is pending. Returns the phase's quota dict."""
+    vertical = verticals.get_vertical(gs.get_vertical(inv_id))
+    if not context_pool.context_pool_enabled(vertical.name):
+        return None
+
+    leads = gs.list_nodes_of_type(inv_id, context_pool.LEAD_NODE_TYPE)
+    resolved = {context_pool.TAG_CORROBORATED, context_pool.TAG_REFUTED,
+                context_pool.TAG_UNVERIFIABLE}
+    pending = [n for n in leads if not (set(n.get("tags") or []) & resolved)]
+    if not pending:
+        _log(inv_id, "phase_corroborate_leads_skipped",
+             {"reason": "no pending leads", "total_leads": len(leads)})
+        return None
+
+    lines = []
+    for n in pending[:25]:
+        md = n.get("metadata") or {}
+        lines.append(
+            f"- lead_value: {n['value']!r}\n"
+            f"    subject: {md.get('subject')}\n"
+            f"    claim_type: {md.get('claim_type')}\n"
+            f"    verifiable_by: {md.get('verifiable_by')}\n"
+            f"    falsifier: {md.get('falsifier')}"
+        )
+    prompt = (
+        f"{len(pending)} lead(s) are still unverified. Resolve them now, "
+        "one corroborate_lead call each:\n\n" + "\n".join(lines) +
+        "\n\nStart by calling mcp__graph__lead_status() to confirm the list."
+    )
+
+    _log(inv_id, "phase_corroborate_leads_starting", {"pending": len(pending)})
+    rc, saw, _, quota = await _run_claude_phase(
+        inv_id, prompt, _CORROBORATE_SYSTEM_PROMPT, model, env, mcp_cfg_path,
+        phase="corroborate_leads", max_turns=CORROBORATE_MAX_TURNS,
+    )
+    after = gs.list_nodes_of_type(inv_id, context_pool.LEAD_NODE_TYPE)
+    stats = context_pool.corroboration_stats(after)
+    _log(inv_id, "phase_corroborate_leads_done", {"rc": rc, "saw_result": saw, **stats})
+    return quota
+
+
 def build_system_prompt(template: str, vertical: "verticals.Vertical") -> str:
     """Compose a phase system prompt from the shared {core} template and the
     {vertical}: substitute the agent identity name and append the vertical's
@@ -2661,13 +2787,20 @@ def build_system_prompt(template: str, vertical: "verticals.Vertical") -> str:
     The {core} templates (SYSTEM_PROMPT, _FOLLOWUP_SYSTEM_PROMPT, …) are written
     in the CTI voice ("You are Bounce-CTI"). For a non-CTI vertical the agent
     name is swapped throughout and the vertical's own prompt_block is appended.
-    For CTI (agent_name='Bounce-CTI', prompt_block='') this returns the template
-    byte-for-byte (roadmap invariant 4.4)."""
+    When the context pool is mounted for this vertical, the lead-discipline block
+    is appended too — so the rules governing prior knowledge / open-web material
+    arrive together with the tools that produce it, and are absent when they
+    aren't mounted.
+
+    For CTI (agent_name='Bounce-CTI', prompt_block='', context pool off by
+    default) this returns the template byte-for-byte (roadmap invariant 4.4)."""
     out = template
     if vertical.agent_name != "Bounce-CTI":
         out = out.replace("Bounce-CTI", vertical.agent_name)
     if vertical.prompt_block:
         out = out + "\n\n" + vertical.prompt_block
+    if context_pool.context_pool_enabled(vertical.name):
+        out = out + "\n\n" + verticals.CONTEXT_POOL_PROMPT_BLOCK
     return out
 
 
@@ -2687,7 +2820,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
     # build_system_prompt / build_allowed_tools).
     vertical = verticals.get_vertical(gs.get_vertical(inv_id))
     system_prompt = build_system_prompt(system_prompt, vertical)
-    allowed_tools = build_allowed_tools(vertical.source_pool)
+    allowed_tools = build_allowed_tools_for(vertical)
     _log(inv_id, f"phase_{phase}_starting", {"prompt_preview": prompt[:200]})
 
     cmd = [
@@ -3350,6 +3483,24 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             still_missing = _missing_mandatory_tools(seed_type, seed_value, called_after)
             if still_missing:
                 _log(inv_id, "phase2_incomplete", {"still_missing": still_missing})
+
+    # ── Phase 2b: Lead corroboration ──
+    # Every context-pool input (prior knowledge / open web) landed as an
+    # `unverified` lead. This phase exists because the whole value of the tier is
+    # the verification step, and an agent that has just written a plausible-
+    # sounding claim has no incentive to go kill it. Running corroboration as its
+    # own phase — BEFORE the report is written — means the report describes leads
+    # by their verdict rather than asserting them, and the corroboration rate
+    # becomes a real per-run measurement instead of an aspiration.
+    if not _is_parked(inv_id):
+        try:
+            quota_c = await _phase_corroborate_leads(
+                inv_id, model, env, mcp_cfg_path)
+            if quota_c and quota_c.get("hit"):
+                _finalise_quota_halt(inv_id, quota_c)
+                return
+        except Exception as e:
+            _log(inv_id, "phase_corroborate_leads_error", {"error": str(e)[:300]})
 
     # ── Phase 3: Report-write fallback ──
     # If after main (+ optional followup) no investigation_summary report node

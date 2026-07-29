@@ -629,6 +629,20 @@ def known_pivot_types() -> tuple[str, ...]:
     return tuple(_PIVOT_RULES)
 
 
+# ── Context-pool leads ─────────────────────────────────────────────────────
+# A `lead` node (backend/context_pool.py) carries an unverified claim, so its one
+# and only pivot is "go test this against a primary source". Registering exactly
+# one rule also means a lead — whose value is free text, not an indicator — can
+# never fan out the CTI pivot set the way a domain/ip node does.
+#
+# `verify_lead` is an instruction rather than a source tool, so
+# reconcile_pivots_from_events cannot auto-close it from the event log; it is
+# closed explicitly by mcp__graph__corroborate_lead. That is deliberate: an
+# un-drained lead queue is exactly the signal that context-pool material was
+# collected but never ratified, and gaps_report should show it.
+register_pivots("lead", [("verify_lead", 2, None, False)])
+
+
 def discriminating_marker(node_type: str, tags: list[str] | None,
                            metadata: dict | None) -> bool:
     """Return True if this node counts as a "discriminating fingerprint" for

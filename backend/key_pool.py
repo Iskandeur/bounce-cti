@@ -50,6 +50,10 @@ _ENV_PREFIX = {
     "pulsedive": "PULSEDIVE",
     "censys": "CENSYS",
     "emailrep": "EMAILREP",
+    # Context pool (open-web search backends). Both optional: web_search falls
+    # back to the keyless DuckDuckGo HTML endpoint when neither is configured.
+    "brave_search": "BRAVE_SEARCH",
+    "serper": "SERPER",
 }
 
 _lock = threading.Lock()
