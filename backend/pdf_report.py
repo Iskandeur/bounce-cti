@@ -2,6 +2,7 @@
 import time
 from fpdf import FPDF
 from . import graph_store as gs
+from .context_pool import split_leads
 
 
 # Threat assessment color map (R, G, B)
@@ -219,7 +220,10 @@ def generate_pdf(inv_id: str) -> bytes:
     # ── Graph statistics ──
     _section_title(pdf, "Graph Statistics")
     pdf.set_font("DejaVu", "", 9)
-    non_report_nodes = [n for n in nodes if n.get("type") != "report"]
+    # Context-pool leads are listed in their own table below, never mixed into
+    # the node inventory where they would read as observed indicators.
+    non_report_nodes, lead_nodes = split_leads(
+        [n for n in nodes if n.get("type") != "report"])
     type_counts = {}
     for n in non_report_nodes:
         t = n.get("type", "unknown")
@@ -303,6 +307,42 @@ def generate_pdf(inv_id: str) -> bytes:
         pdf.cell(45, 4, src_str, border=1)
         pdf.cell(20, 4, tags_str, border=1)
         pdf.cell(0, 4, f"{conf:.0%}", border=1, new_x="LMARGIN", new_y="NEXT")
+
+    # ── Context-pool leads ──
+    # Rendered as their own table, after the inventory, with the caveat in the
+    # section body: a lead came from the agent's prior knowledge or from open-web
+    # text, not from a source tool, and is excluded from every actionable export.
+    if lead_nodes:
+        from .context_pool import corroboration_stats
+        stats = corroboration_stats(lead_nodes)
+        pdf.ln(4)
+        _section_title(pdf, "Leads (context pool — not established facts)")
+        pdf.set_font("DejaVu", "", 8)
+        rate = stats["corroboration_rate"]
+        pdf.multi_cell(_EW, 4.5, _safe(
+            f"{stats['total_leads']} lead(s) from the agent's prior knowledge or from "
+            "open-web text, not from a source tool. Excluded from blocklists, detection "
+            f"rules, takedown bundles and STIX. Corroboration rate: "
+            f"{rate if rate is not None else 'n/a'} "
+            f"({stats['corroborated']} corroborated / {stats['refuted']} refuted / "
+            f"{stats['unverifiable']} unverifiable / {stats['unverified']} untested)."))
+        pdf.ln(2)
+        pdf.set_font("DejaVu", "B", 8)
+        pdf.cell(22, 5, "Verdict", border=1)
+        pdf.cell(28, 5, "Claim type", border=1)
+        pdf.cell(0, 5, "Claim", border=1, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("DejaVu", "", 7)
+        for n in lead_nodes:
+            md = n.get("metadata", {}) or {}
+            tags = set(n.get("tags") or [])
+            verdict = next((t for t in ("corroborated", "refuted", "unverifiable")
+                            if t in tags), "unverified")
+            claim = _safe(n.get("value", ""))
+            if len(claim) > 90:
+                claim = claim[:87] + "..."
+            pdf.cell(22, 4, verdict, border=1)
+            pdf.cell(28, 4, _safe(md.get("claim_type", ""))[:20], border=1)
+            pdf.cell(0, 4, claim, border=1, new_x="LMARGIN", new_y="NEXT")
 
     # ── Timeline ──
     pdf.add_page()

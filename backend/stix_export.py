@@ -7,6 +7,7 @@ import hashlib
 import re
 from datetime import datetime, timezone
 from . import graph_store as gs
+from .context_pool import LEAD_NODE_TYPE, is_actionable as _tier_actionable
 
 
 # Deterministic STIX UUIDv5 namespace for Bounce-CTI
@@ -377,8 +378,13 @@ _BUILDERS = {
     "apt":       ("threat-actor",       _make_threat_actor),
 }
 
-# Types we intentionally skip (no standard STIX SCO/SDO equivalent)
-_SKIP_TYPES = {"report", "jarm", "ja3", "ja3s", "favicon", "js_hash"}
+# Types we intentionally skip (no standard STIX SCO/SDO equivalent).
+# `lead` is skipped for a different reason: it is context-pool material (model
+# memory / open-web text) that no source tool has ratified. A STIX bundle is
+# consumed by a downstream TIP as intelligence, so an unverified lead must not
+# appear in one — see backend/context_pool.py.
+_SKIP_TYPES = {"report", "jarm", "ja3", "ja3s", "favicon", "js_hash",
+               LEAD_NODE_TYPE}
 
 
 def generate_stix_bundle(inv_id: str, tlp: str = "amber") -> dict:
@@ -431,6 +437,7 @@ def build_stix_bundle(nodes, edges, inv, inv_id, tlp: str = "amber") -> dict:
     stix_type_by_id = {}    # stix id → stix type (for relationship validation)
     indicator_seeds = []    # (node, stix_type) eligible for an indicator SDO
     unmodelled = []         # raw values we couldn't represent as a valid SCO
+    excluded_leads = []     # context-pool material deliberately kept out (unratified)
     skipped = set()
 
     # Convert nodes
@@ -439,6 +446,17 @@ def build_stix_bundle(nodes, edges, inv, inv_id, tlp: str = "amber") -> dict:
         nvalue = n.get("value", "")
 
         if ntype in _SKIP_TYPES:
+            if ntype == LEAD_NODE_TYPE:
+                excluded_leads.append(f"{(n.get('metadata') or {}).get('claim_type') or 'lead'}:"
+                                      f"{str(nvalue)[:120]}")
+            skipped.add(n.get("id"))
+            continue
+
+        # A node still carrying an unverified/refuted lifecycle tag came from the
+        # context pool and was never ratified by a source tool — keep it out of
+        # the bundle even though its type is modellable.
+        if not _tier_actionable(n):
+            excluded_leads.append(f"{ntype}:{str(nvalue)[:120]}")
             skipped.add(n.get("id"))
             continue
 
@@ -577,7 +595,15 @@ def build_stix_bundle(nodes, edges, inv, inv_id, tlp: str = "amber") -> dict:
     summary = report_md.get("summary", "")
 
     all_obj_ids = [o["id"] for o in objects if o["id"] != identity_id]
-    if all_obj_ids:
+    # Emit the report SDO even when nothing was modellable, provided there is
+    # something to DISCLOSE (withheld leads / unmodelled observables). Otherwise
+    # the case where every node was excluded — the one a consumer most needs told
+    # about — would silently produce a bundle that says nothing at all.
+    # STIX 2.1 requires report.object_refs to be non-empty, so fall back to
+    # referencing the producing identity rather than emitting an invalid SDO.
+    report_refs = all_obj_ids or (
+        [identity_id] if (excluded_leads or unmodelled) else [])
+    if report_refs:
         report_stix_id = _stix_id("report", inv_id, "report", "stix_bundle")
         report_obj = {
             "type": "report",
@@ -591,7 +617,7 @@ def build_stix_bundle(nodes, edges, inv, inv_id, tlp: str = "amber") -> dict:
             "created": created,
             "modified": created,
             "created_by_ref": identity_id,
-            "object_refs": all_obj_ids,
+            "object_refs": report_refs,
             "labels": [f"threat-assessment:{threat_assessment}"],
             "object_marking_refs": [marking_id],
         }
@@ -602,6 +628,11 @@ def build_stix_bundle(nodes, edges, inv, inv_id, tlp: str = "amber") -> dict:
             report_obj["x_bounce_ioc_list"] = [str(i) for i in iocs]
         if unmodelled:
             report_obj["x_bounce_unmodelled_observables"] = unmodelled
+        # Transparency, not omission: the consumer is told that context-pool
+        # material existed and was withheld for lack of corroboration, rather
+        # than silently receiving a bundle that looks fully verified.
+        if excluded_leads:
+            report_obj["x_bounce_unverified_leads_excluded"] = excluded_leads
 
         objects.append(report_obj)
 

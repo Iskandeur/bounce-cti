@@ -15,7 +15,10 @@ const NODE_COLORS = {
   country: '#ff7b72', person: '#ff80b3', command_line: '#f0883e',
   executable_name: '#ffb86b', wallet_address: '#f1c40f',
   username: '#a371f7', ja3: '#caa6ff', ja3s: '#9d7fe0',
-  phone: '#2dd4bf', company: '#6ee7b7', threat_actor: '#ff5c8a'
+  phone: '#2dd4bf', company: '#6ee7b7', threat_actor: '#ff5c8a',
+  // Context-pool lead: deliberately desaturated grey-violet so it never reads
+  // as a confirmed indicator at a glance. Paired with a dashed border below.
+  lead: '#9a8cb8'
 }
 const NODE_SHAPES = {
   domain: 'ellipse', ip: 'rectangle', ns: 'diamond', registrar: 'hexagon',
@@ -24,10 +27,19 @@ const NODE_SHAPES = {
   command_line: 'rhomboid', executable_name: 'vee',
   email: 'round-tag', wallet_address: 'rhomboid', username: 'star',
   phone: 'round-diamond', company: 'round-rectangle',
-  ja3: 'heptagon', ja3s: 'octagon', threat_actor: 'star'
+  ja3: 'heptagon', ja3s: 'octagon', threat_actor: 'star',
+  lead: 'round-tag'
 }
 const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
                        error: '#f85149', quota_exceeded: '#d29922' }
+
+// Context-pool lead lifecycle (backend/context_pool.py), in precedence order:
+// a resolved verdict wins over the initial `unverified`.
+const LEAD_STATES = ['corroborated', 'refuted', 'unverifiable', 'unverified']
+const LEAD_STATE_COLOR = {
+  corroborated: '#56d364', refuted: '#f85149',
+  unverifiable: '#8b949e', unverified: '#9a8cb8',
+}
 
 // Render a unix-epoch reset time as a "Xh Ym Zs" countdown relative to now.
 // Returns '' once the reset epoch has passed so the caller can swap the UI to
@@ -588,6 +600,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // Per-investigation budget-extension log entries (R4). Internal accounting
   // — kept off the graph and shown compactly in the Report tab.
   const [budgetLog, setBudgetLog] = useState([])
+  // Context-pool leads + corroboration telemetry for the active investigation
+  // (GET /api/investigations/{id}/leads). Null until loaded / when the pool is
+  // not mounted for this vertical, in which case the panel stays hidden.
+  const [leadStats, setLeadStats] = useState(null)
   const [copied, setCopied] = useState(false)
   const [nodeValues, setNodeValues] = useState(new Map())
   const [filterTypes, setFilterTypes] = useState(new Set())
@@ -614,6 +630,18 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // Empty set == "all nodes" (implicit select-all).
   const [pickedIds, setPickedIds] = useState(new Set())
   const [nodeCount, setNodeCount] = useState(0)
+  // Refresh lead telemetry whenever the active investigation or its graph size
+  // changes. Cheap (one small query) and keeps the panel honest while the
+  // corroboration phase is still flipping verdicts mid-run.
+  useEffect(() => {
+    if (!activeInv) { setLeadStats(null); return }
+    let cancelled = false
+    fetch(`/api/investigations/${activeInv}/leads`, { credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled) setLeadStats(d) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [activeInv, nodeCount])
   const [graphSearch, setGraphSearch] = useState('')
   const [searchMatches, setSearchMatches] = useState(0)
   const [batchCombined, setBatchCombined] = useState(true)
@@ -859,6 +887,31 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         {
           selector: 'node[?seed]',
           style: { 'width': 32, 'height': 32, 'border-width': 3, 'border-color': '#f0f6fc', 'font-weight': 'bold' }
+        },
+        // Context-pool material: an unratified claim from the agent's prior
+        // knowledge or from open-web text. Rendered dashed + translucent so it
+        // is never mistaken on the canvas for an observed indicator. A lead that
+        // gets corroborated is re-tagged and picked up by the rule below.
+        {
+          selector: 'node[leadState = "unverified"], node[leadState = "unverifiable"]',
+          style: {
+            'border-style': 'dashed',
+            'border-color': '#9a8cb8',
+            'border-width': 2,
+            'opacity': 0.72,
+          }
+        },
+        {
+          selector: 'node[leadState = "corroborated"]',
+          style: { 'border-style': 'solid', 'border-color': '#56d364', 'opacity': 1 }
+        },
+        {
+          selector: 'node[leadState = "refuted"]',
+          style: {
+            'border-style': 'dotted',
+            'border-color': '#f85149',
+            'opacity': 0.4,
+          }
         },
         // Analyst-pinned nodes: gold halo + thicker border, plus an
         // emoji prefix in the label (turned on/off via showPinsRef).
@@ -1277,6 +1330,11 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     const FLAG_TAGS = ['pinned', 'suspicious', 'phishing', 'cdn', 'parking', 'sinkhole', 'seed']
     const tagSet = new Set(n.tags || [])
     FLAG_TAGS.forEach(t => { d[t] = tagSet.has(t) })
+    // Context-pool lifecycle, flattened to a single data field so the cytoscape
+    // stylesheet can select on it (cytoscape selectors can't test array
+    // membership, and this codebase doesn't use classes). Always set explicitly
+    // so a corroborated lead loses its dashed styling on re-ingest.
+    d.leadState = LEAD_STATES.find(s => tagSet.has(s)) || ''
     if (cy.$id(n.id).length) {
       cy.$id(n.id).data(d)
     } else {
@@ -2823,6 +2881,64 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
                   Once the full investigation_summary report is rendered below,
                   the hypothesis is mostly a historical artefact — collapse it
                   hard and dim it. */}
+              {/* ── Context-pool leads ──────────────────────────────────
+                  Claims the agent brought from its own prior knowledge or
+                  from open-web text, kept visually and structurally apart
+                  from observed findings. The corroboration rate is the
+                  run's hallucination thermometer: how much of what the
+                  model proposed survived contact with a real source. */}
+              {leadStats && leadStats.total_leads > 0 && (
+                <details className="hypothesis-card lead-card">
+                  <summary>
+                    <span className="hypothesis-label">leads</span>
+                    <span className="hypothesis-cat">
+                      {leadStats.corroborated}/{leadStats.total_leads} corroborated
+                      {leadStats.corroboration_rate !== null
+                        && ` · ${Math.round(leadStats.corroboration_rate * 100)}%`}
+                    </span>
+                    {leadStats.unverified > 0 && (
+                      <span className="lead-pending-badge">
+                        {leadStats.unverified} untested
+                      </span>
+                    )}
+                  </summary>
+                  <div className="lead-body">
+                    <p className="lead-caveat">
+                      Not established facts — these came from the agent's prior
+                      knowledge or from open-web text, not from a source tool.
+                      They are excluded from blocklists, detection rules,
+                      takedown bundles and STIX.
+                    </p>
+                    {(leadStats.leads || []).map(l => {
+                      const state = LEAD_STATES.find(s => (l.tags || []).includes(s))
+                        || 'unverified'
+                      return (
+                        <div key={l.id} className="lead-item">
+                          <span
+                            className="lead-state"
+                            style={{ color: LEAD_STATE_COLOR[state] }}
+                          >
+                            {state}
+                          </span>
+                          <span className="lead-claim">{l.claim}</span>
+                          {l.evidence_tool && (
+                            <span className="lead-evidence">
+                              via {l.evidence_tool}
+                              {l.evidence_value ? ` → ${l.evidence_value}` : ''}
+                            </span>
+                          )}
+                          {state === 'unverified' && l.falsifier && (
+                            <span className="lead-evidence">
+                              falsifier: {l.falsifier}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </details>
+              )}
+
               {hypothesis && (() => {
                 const cat = hypothesis.category || hypothesis.candidate_category
                 const altCat = hypothesis.alternate_category

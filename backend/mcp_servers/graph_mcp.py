@@ -5,6 +5,7 @@ Investigation id is read from env BOUNCE_INV_ID (set by backend when spawning cl
 import os
 from typing import Optional
 from mcp.server.fastmcp import FastMCP
+from .. import context_pool as cp
 from .. import graph_store as gs
 from .. import key_pool
 from .. import source_health
@@ -150,6 +151,49 @@ def _auto_enqueue_pivots(type_: str, value: str, metadata: dict | None = None) -
             "deferred": deferred}
 
 
+def _add_node_impl(type: str, value: str, metadata: dict | None = None,
+                   confidence: float = 0.8, source: str = "agent",
+                   tags: list[str] | None = None) -> dict:
+    """Implementation behind the `add_node` tool.
+
+    Kept separate from the decorated tool so in-process callers (notably
+    ``corroborate_lead``'s promotion path) reuse the exact same logic — the tier
+    boundary, dedup, auto-enqueue and tag promotion — without depending on what
+    the FastMCP decorator returns. The agent-facing documentation lives on the
+    `add_node` tool below.
+    """
+    # ── Context-pool tier boundary (backend/context_pool.py) ────────────────
+    # Anything whose provenance is the model's own memory or open-web text is
+    # NOT an observation, so it may not enter the graph as a typed IOC. Collapse
+    # it to a `lead`, clamp the confidence, and force the `unverified` lifecycle
+    # tag. Enforced HERE rather than by prompt rule: this is what makes an
+    # injected web page (or a hallucination) unable to mint an exportable node —
+    # it can only ever produce a low-confidence lead that a primary source tool
+    # must ratify via corroborate_lead().
+    if cp.is_lead_source(source) or type == cp.LEAD_NODE_TYPE:
+        original_type = type
+        type = cp.LEAD_NODE_TYPE
+        confidence = cp.cap_lead_confidence(confidence)
+        tags = [t for t in (tags or []) if t not in cp.LEAD_LIFECYCLE_TAGS]
+        tags.append(cp.TAG_UNVERIFIED)
+        metadata = dict(metadata or {})
+        metadata.setdefault("tier", "context_pool")
+        if original_type != cp.LEAD_NODE_TYPE:
+            # Preserve what the agent *wanted* to create, so corroborate_lead can
+            # promote it to exactly that type once a primary source confirms it.
+            metadata.setdefault("proposed_type", original_type)
+
+    # Auto-tag documented known-bad tool defaults (e.g. Cobalt Strike default
+    # cert serial) so the agent doesn't have to recall the fingerprint.
+    kb = known_bad_marker(type, value)
+    if kb:
+        tag, note = kb
+        tags = list(set((tags or []) + [tag]))
+        metadata = dict(metadata or {})
+        metadata.setdefault("known_bad_marker", note)
+    return _add_node_rest(type, value, metadata, confidence, source, tags)
+
+
 @mcp.tool()
 def add_node(type: str, value: str, metadata: dict | None = None,
              confidence: float = 0.8, source: str = "agent",
@@ -195,16 +239,21 @@ def add_node(type: str, value: str, metadata: dict | None = None,
 
     Side effect: pivots applicable to this node type are auto-enqueued in
     the pivot_tasks table. Call ``next_pivot()`` to drain the queue.
-    """
-    # Auto-tag documented known-bad tool defaults (e.g. Cobalt Strike default
-    # cert serial) so the agent doesn't have to recall the fingerprint.
-    kb = known_bad_marker(type, value)
-    if kb:
-        tag, note = kb
-        tags = list(set((tags or []) + [tag]))
-        metadata = dict(metadata or {})
-        metadata.setdefault("known_bad_marker", note)
 
+    ⚠️ `lead` is NOT in the list above and must not be passed by hand: it is the
+    context-pool tier (see mcp__ctx__recall_prior_knowledge). Passing a
+    context-pool `source` (parametric_memory / web:*) collapses the node to a
+    `lead`, caps its confidence at 0.35 and tags it `unverified` — so state real
+    observations with the real source that produced them.
+    """
+    return _add_node_impl(type, value, metadata=metadata, confidence=confidence,
+                          source=source, tags=tags)
+
+
+def _add_node_rest(type: str, value: str, metadata: dict | None,
+                   confidence: float, source: str,
+                   tags: list[str] | None) -> dict:
+    """Tail of the add_node pipeline: dedup, store, auto-enqueue, tag promotion."""
     # DD: dedupe a company against an existing one that is the SAME legal entity
     # under a different string — by LEI, or by canonical name (so the free-text
     # seed 'Danone' folds into 'DANONE SA', and HTML-entity variants 'ERNST &
@@ -246,8 +295,13 @@ def add_node(type: str, value: str, metadata: dict | None = None,
     # `threat_actor` node + `attributed_to` edge. Normalisation of the agent's
     # own finding (the tag is its evidence) — provenance preserved so it isn't a
     # fabricated attribution.
+    # A lead must never auto-promote a threat_actor / phishing_kit node: that
+    # would launder an unverified belief into a first-class attribution, which is
+    # precisely the failure the lead tier exists to prevent.
+    promotable_tags = [] if type == cp.LEAD_NODE_TYPE else (tags or [])
+
     promoted = []
-    for t in (tags or []):
+    for t in promotable_tags:
         actor = actor_handle_for_tag(t)
         if not actor:
             continue
@@ -268,7 +322,7 @@ def add_node(type: str, value: str, metadata: dict | None = None,
     # tag to a first-class `phishing_kit` node + `uses_kit` edge so the tooling
     # attribution is queryable (e.g. Tycoon 2FA) rather than buried in a tag.
     kits_promoted = []
-    for t in (tags or []):
+    for t in promotable_tags:
         kit = kit_handle_for_tag(t)
         if not kit:
             continue
@@ -309,6 +363,116 @@ def add_edge(src_type: str, src_value: str, dst_type: str, dst_value: str,
         pass
     return gs.add_edge(INV_ID, src_type, src_value, dst_type, dst_value,
                        relation, evidence=evidence, source=source, confidence=confidence)
+
+
+@mcp.tool()
+def corroborate_lead(lead_value: str, verdict: str,
+                     evidence_tool: str = "", evidence_value: str = "",
+                     note: str = "",
+                     promote_as_type: str = "", promote_as_value: str = "") -> dict:
+    """Close out a `lead` after testing it against a PRIMARY source tool.
+
+    This is the only path by which context-pool material (your prior knowledge,
+    or something you read on the open web) becomes a real finding.
+
+    verdict:
+      "corroborated" — a primary source tool independently confirms the claim.
+          Pass evidence_tool + evidence_value. If the claim asserts a concrete
+          indicator, also pass promote_as_type/promote_as_value to mint the real
+          typed node (e.g. promote_as_type="domain") linked back to the lead.
+      "refuted"      — a primary source contradicts it. Say which in evidence_tool.
+      "unverifiable" — no available source can test it either way. Honest and
+          useful: it stays in the graph, flagged, and stays out of every export.
+
+    A lead may NOT be corroborated by another context-pool call — memory
+    confirming memory is circular, and the tool rejects it.
+    """
+    verdict = (verdict or "").strip().lower()
+    valid = {cp.TAG_CORROBORATED, cp.TAG_REFUTED, cp.TAG_UNVERIFIABLE}
+    if verdict not in valid:
+        return {"ok": False, "error": f"verdict must be one of {sorted(valid)}"}
+
+    lead = None
+    for n in gs.list_nodes_of_type(INV_ID, cp.LEAD_NODE_TYPE):
+        if n["value"] == lead_value:
+            lead = n
+            break
+    if lead is None:
+        return {"ok": False, "error": f"no lead node with value {lead_value!r}"}
+
+    if verdict == cp.TAG_CORROBORATED:
+        if not cp.is_primary_evidence_tool(evidence_tool):
+            return {"ok": False, "error": (
+                "corroboration requires a PRIMARY source tool as evidence_tool "
+                "(a source-pool tool, not a context-pool or graph tool) — "
+                "memory cannot corroborate memory")}
+        if not evidence_value:
+            return {"ok": False, "error": "evidence_value is required to corroborate"}
+
+    gs.set_node_tags_exclusive(INV_ID, lead["id"], verdict,
+                               set(cp.LEAD_LIFECYCLE_TAGS))
+    md = {
+        "status": verdict,
+        "verdict_evidence_tool": evidence_tool,
+        "verdict_evidence_value": evidence_value,
+        "verdict_note": note,
+    }
+    gs.add_node(INV_ID, cp.LEAD_NODE_TYPE, lead_value, metadata=md,
+                confidence=lead.get("confidence") or cp.LEAD_CONFIDENCE_CAP,
+                source=lead.get("source") or cp.SOURCE_PARAMETRIC)
+    # The lead's verification pivot is now resolved either way.
+    gs.complete_pivot_for(INV_ID, cp.LEAD_NODE_TYPE, lead_value, cp.VERIFY_LEAD_OP,
+                          status="done",
+                          summary=f"{verdict} via {evidence_tool or 'n/a'}")
+
+    out = {"ok": True, "lead": lead_value, "verdict": verdict}
+
+    # Promotion: the claim survived contact with a primary source, so the thing
+    # it asserted may now exist as a real, exportable node — carrying the primary
+    # tool as its provenance, not the lead.
+    if verdict == cp.TAG_CORROBORATED and promote_as_type and promote_as_value:
+        if promote_as_type == cp.LEAD_NODE_TYPE:
+            return {**out, "promoted": False,
+                    "error": "promote_as_type cannot be 'lead'"}
+        promoted = _add_node_impl(
+            type=promote_as_type, value=promote_as_value,
+            metadata={"promoted_from_lead": lead_value,
+                      "corroborating_tool": evidence_tool,
+                      "corroborating_value": evidence_value},
+            confidence=0.7, source=evidence_tool or "corroboration",
+            tags=[cp.TAG_CORROBORATED],
+        )
+        gs.add_edge(INV_ID, cp.LEAD_NODE_TYPE, lead_value,
+                    promote_as_type, promote_as_value, "corroborated_by",
+                    evidence=f"{evidence_tool}: {evidence_value}"[:400],
+                    source="corroboration", confidence=0.7)
+        out["promoted"] = {"type": promote_as_type, "value": promote_as_value,
+                           "id": promoted.get("id")}
+    return out
+
+
+@mcp.tool()
+def lead_status() -> dict:
+    """Corroboration state of every context-pool lead in this investigation.
+
+    Returns the counts, the corroboration rate, and the leads still awaiting a
+    verdict. Any lead left `unverified` at the end of the run is reported in a
+    clearly separated section and excluded from all actionable exports — so
+    closing them out is what turns context-pool work into deliverable intel.
+    """
+    leads = gs.list_nodes_of_type(INV_ID, cp.LEAD_NODE_TYPE)
+    stats = cp.corroboration_stats(leads)
+    pending = [
+        {"value": n["value"],
+         "subject": (n.get("metadata") or {}).get("subject"),
+         "claim_type": (n.get("metadata") or {}).get("claim_type"),
+         "verifiable_by": (n.get("metadata") or {}).get("verifiable_by"),
+         "falsifier": (n.get("metadata") or {}).get("falsifier")}
+        for n in leads
+        if not (set(n.get("tags") or []) & {cp.TAG_CORROBORATED, cp.TAG_REFUTED,
+                                            cp.TAG_UNVERIFIABLE})
+    ]
+    return {**stats, "pending": pending[:40]}
 
 
 @mcp.tool()

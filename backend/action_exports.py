@@ -28,6 +28,8 @@ import re
 import time
 from typing import Iterable
 
+from .context_pool import is_actionable as _tier_actionable
+
 # Defuse tags we never want in actionable output. Same set as
 # pivot_mapping.bad_tags but inverted intent: here we treat them as
 # *unsafe to action*.
@@ -56,6 +58,13 @@ def _iter_actionable(nodes: Iterable[dict], wanted_types: set[str],
         if n.get("type") not in wanted_types:
             continue
         if "seed" not in (n.get("tags") or []) and n.get("type") == "report":
+            continue
+        # Context-pool tier gate. Unlike the defuse filter this has NO analyst
+        # override: a defused node is real-but-noisy and an operator may
+        # knowingly want it, whereas an unverified lead may simply not exist.
+        # Shipping one to a firewall EDL / abuse mailbox is the exact incident
+        # the lead tier exists to prevent.
+        if not _tier_actionable(n):
             continue
         if not include_defused and _is_defused(n):
             continue
@@ -301,6 +310,11 @@ def render_takedown(nodes: list[dict], edges: list[dict],
     by_id = {n["id"]: n for n in nodes if "id" in n}
     for n in nodes:
         if n.get("type") not in ("domain", "ip"):
+            continue
+        # Never send an abuse/takedown request about an unverified lead: that
+        # would put a hallucination in front of a third-party hoster under the
+        # analyst's name.
+        if not _tier_actionable(n):
             continue
         if _is_defused(n):
             continue

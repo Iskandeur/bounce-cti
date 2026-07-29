@@ -48,6 +48,15 @@ You are the evaluation agent (this is also the **nightly autonomous routine** �
 6. **Classify** every delta into a failure mode (§5). Tag exogenous misses `F-DATA-DECAYED` / `F-SRC-TOKEN-DEAD` so they never count against the tool.
 7. **Write the run report** (§6): the CAP/REC split, failure histogram, an **ops-actions** list (seed/token refresh), and **one** ranked mechanical fix.
 
+**Training-data contamination (context pool).** Positive cases come from *public*
+vendor writeups, so a model may recall a case's ground truth rather than pivot to
+it — inflating REC without any real investigation. The context pool makes this
+**measurable rather than invisible**: prior knowledge must be filed as a `lead`
+via `recall_prior_knowledge`, so a run's graph shows which nodes came from memory
+and which from a source tool. When scoring a run with the pool enabled, check that
+ground-truth nodes trace to source-tool evidence, not to a corroborated-by-recall
+chain. This risk predates the feature; the pool is what lets you see it.
+
 **Never** edit positive-case ground truth to match tool output. If a ground-truth entry is genuinely wrong, fix it in a separate commit and log it in the Changelog.
 
 ---
@@ -144,6 +153,9 @@ Every delta (missing node, missing edge, wrong pivot, noise inclusion) must be t
 | **F-DATA-DECAYED** | GT node absent from *every* live source response (seed decayed) | **Exogenous — NOT a tool failure.** Triggers REC SKIP (§3); refresh or retire the seed |
 | **F-SRC-TOKEN-DEAD** | Integrated source returns systemic auth failure (e.g. OpenCTI `AUTH_REQUIRED`) | **Ops action** (refresh token in `.env`), not a code bug; list under the run report's "ops actions" |
 | **F-OVER-ATTRIBUTION** | A negative/benign case (§9b) was clustered or attributed | Restraint failure; tighten defuse / require ≥ 2 corroborating markers for cluster edges |
+| **F-LEAD-UNRESOLVED** | Context-pool leads left `unverified` at end of run | The corroboration phase under-ran: check `phase_corroborate_leads` turn budget / that `verifiable_by` named a real tool |
+| **F-LEAD-LEAK** | A `lead` or unratified node reached an actionable export | **Critical.** The tier boundary failed — check `context_pool.is_actionable` wiring, not the prompt |
+| **F-LEAD-FALSE-CORROB** | A lead marked `corroborated` with evidence the tool did not actually return | **Critical.** Worse than a refuted lead: launders a guess into an exportable indicator |
 
 ---
 
@@ -191,8 +203,10 @@ A fix must not regress **CAP** on any case (LIVE or decayed). Before pushing to 
 | **Restraint floor** | Mean RST across defuse cases (4, 6, 11, 12) + negatives (§9b) | ≥ 80 |
 | **CAP regression** | Any case's CAP below its prior run | **None. Hard gate.** |
 | **REC (context only)** | NR/ER/MK/COV over LIVE cases | reported; **MK ≥ 50** on live primary cases. **No hard target** (data-dependent). |
+| **COR — Corroboration rate** | `corroborated / total_leads` over context-pool leads (`GET /api/investigations/{id}/leads`). Only scored when the context pool was mounted (`BOUNCE_CTX_ENABLED`); N/A otherwise. | reported per run/vertical/model. **Untested-lead rate ≤ 20%** (leaving leads at `unverified` is the failure mode, not refuting them). |
+| **Lead leakage** | Any `lead` node, or any node tagged `unverified`/`refuted`/`unverifiable`, appearing in a blocklist / detection rule / takedown bundle / STIX observable | **0. Hard gate.** |
 
-A commit fails the gate if: **any hallucination, any CAP regression, or the PS / restraint floor is breached.** **Recall decay never fails the gate** — isolating tool capability from data freshness is the entire point of v3. The pre-v3 "overall mean / pass rate" numbers are retained in historical scorecards for trend continuity but are superseded by CAP.
+A commit fails the gate if: **any hallucination, any CAP regression, any lead leakage, or the PS / restraint floor is breached.** **Recall decay never fails the gate** — isolating tool capability from data freshness is the entire point of v3. The pre-v3 "overall mean / pass rate" numbers are retained in historical scorecards for trend continuity but are superseded by CAP.
 
 ---
 

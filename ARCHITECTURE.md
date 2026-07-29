@@ -110,6 +110,8 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 - `GET    /api/investigations/{id}/csv`  — render STIX-flavoured CSV of observables
   (OpenCTI workbench-ready: `stix_type`, `entity_type`, `value`, hash columns,
   `labels`, `confidence`, `sources`, `description`, `first_seen`, `last_seen`)
+- `GET    /api/investigations/{id}/leads` — context-pool leads + corroboration
+  telemetry (`corroboration_rate`, per-claim-type breakdown, ctx budget usage)
 - `GET    /api/investigations/{id}/nodes/{node_id}/evidence`
 - `POST   /api/investigations/{id}/nodes/{node_id}/tag` — toggle a tag (e.g. `pinned`)
 - `POST   /api/investigations/{id}/nodes/{node_id}/note` — set/clear analyst note
@@ -151,7 +153,12 @@ Spawns `claude -p` (Claude Code headless) with:
   whether the seed is parked / sinkholed)
 - Per-investigation `mcp.json` (rendered from the `mcp.json` template, with
   `${BOUNCE_PYTHON}` / `${BOUNCE_INV_ID}` / `${PYTHONPATH}` substituted)
-- `--allowedTools` restricted to MCP tools only (graph + cti)
+- `--allowedTools` restricted to MCP tools only (graph + the vertical's source
+  pool, plus `mcp__ctx__*` + the lead tools when the context pool is mounted —
+  `build_allowed_tools_for`). The native `WebSearch` / `WebFetch` stay
+  **disallowed even then**: open-web access goes exclusively through the wrapped
+  `mcp__ctx__` versions, which are cached, budgeted, SSRF-guarded and can only
+  mint `lead` nodes.
 - `--disallowedTools` blocking `Bash,Edit,Write,MultiEdit,Read,Glob,Grep,NotebookEdit,WebSearch,WebFetch,Task,TodoWrite`
 - `--permission-mode bypassPermissions`
 - Configurable `--model`: bare tier aliases (`sonnet` / `opus` / `haiku`)
@@ -179,6 +186,13 @@ After the main run, additional phases run automatically:
   appends graph-state-aware adaptive Phase 3 targets from
   `_adaptive_followup_targets`, surfaces the chosen working_hypothesis to
   anchor pivot decisions, and runs the agent again.
+- **Phase 2b — `phase_corroborate_leads`** (added 2026-07, context pool): runs
+  only when the context pool is mounted for the vertical AND leads are still
+  unverified. Feeds the agent each pending lead's `verifiable_by` / `falsifier`
+  and requires one `corroborate_lead` call per lead. Deliberately placed
+  **before** the report is written, so the report describes leads by their
+  verdict rather than asserting them — and so `corroboration_rate` becomes a
+  real per-run measurement. Capped at `BOUNCE_CORROBORATE_MAX_TURNS` (default 30).
 - **Phase 3 — `phase_report_write`**: if no `investigation_summary` report
   node exists, runs a single-purpose phase to write one (with mechanically-
   extracted discriminating-marker candidates pre-injected as MUST INCLUDE
@@ -328,10 +342,25 @@ MCP server exposing graph write/read tools + the autonomy engine to the agent:
   actor-handle tag (`ACTOR_HANDLES`) to a first-class `threat_actor` node +
   `attributed_to` edge, and likewise a known phishing-kit tag (`KIT_HANDLES`)
   to a `phishing_kit` node + `uses_kit` edge (provenance preserved).
+  **Context-pool tier boundary**: when `source` is `parametric_memory` or
+  `web:*` (or `type == "lead"`), the node is collapsed to a `lead`, its
+  confidence clamped to ≤ 0.35, and the `unverified` tag forced — the original
+  requested type is kept in `metadata.proposed_type` for the promotion path.
+  Actor/kit tag promotion is suppressed for leads so a guess cannot be laundered
+  into a first-class attribution.
 - `add_edge(src_type, src_value, dst_type, dst_value, relation, evidence, source, confidence)`
   — auto-creates a `phantom_autostub`-tagged stub for any missing endpoint so
   edges never dangle (the analyst can spot the unresolved reference)
 - `tag_node(type, value, tag)`
+- `corroborate_lead(lead_value, verdict, evidence_tool, evidence_value, note,
+  promote_as_type, promote_as_value)` — the ONLY path from context-pool material
+  to a finding. `verdict` ∈ `corroborated` | `refuted` | `unverifiable`;
+  corroboration requires a **primary** source tool as evidence (a `mcp__ctx__*`
+  or `mcp__graph__*` tool is rejected). On `corroborated` + `promote_as_*` the
+  real typed node is minted with the *primary tool* as its provenance and linked
+  back with a `corroborated_by` edge. Closes the lead's `verify_lead` pivot.
+- `lead_status()` — counts, corroboration rate, and the leads still awaiting a
+  verdict.
 - `get_graph(compact: bool = False, stats_only: bool = False)` — full, compact
   (slim metadata), or stats-only (shape + tag counts, no node/edge lists)
 - `get_node(type, value)` — fetch one node's full metadata
@@ -754,6 +783,67 @@ Conformance contract enforced by the pure builder (locked by
   so the bundle ships deployable detection logic, not just a flat IOC list.
 - **Report** — carries `report_types: ["threat-report"]` (SHOULD) alongside the
   legacy `threat-assessment:*` label.
+- **Context-pool exclusion** — `lead` nodes and any node still tagged
+  `unverified` / `refuted` / `unverifiable` are skipped, and named on the report
+  as `x_bounce_unverified_leads_excluded`. The report SDO is emitted even when
+  nothing was modellable but something was withheld (falling back to
+  `object_refs: [identity]`, which STIX requires to be non-empty), so a bundle
+  where everything was excluded still says so instead of arriving silently empty.
+
+### `backend/context_pool.py`
+The **second epistemic tier**. The ~90 source tools return *observations*; this
+module governs the two weaker inputs — the agent's **parametric memory** and
+**open-web text** — under one rule:
+
+> Claude is not another source. Claude is the *hypothesis generator*, and the
+> existing source pool is its *jury*.
+
+Everything entering through the context pool becomes a **`lead` node**, never a
+typed IOC:
+
+| Property | Value | Enforced in |
+|---|---|---|
+| `source` | `parametric_memory` or `web:<host>` | `ctx_mcp` |
+| `confidence` | clamped ≤ `0.35` | `graph_mcp.add_node` (server-side, not prompt) |
+| lifecycle tag | `unverified` → `corroborated` \| `refuted` \| `unverifiable` | `graph_mcp.corroborate_lead` |
+| exports | excluded from blocklist / detection / takedown / STIX | `is_actionable()` |
+
+Key functions: `is_lead_source`, `cap_lead_confidence`, `claim_type_denied`
+(the **mechanical** legal guardrails — DD adverse-media and special-category
+claims are refused at the tool boundary, not by prompt convention),
+`is_primary_evidence_tool` (a context tool may never corroborate a context
+tool — memory confirming memory is circular), `corroboration_stats` (the
+per-run hallucination thermometer), `check_fetch_url` /
+`check_fetch_host_address` (SSRF guard), `split_leads` +
+`leads_markdown_section` (shared dossier rendering), and the enablement policy
+`context_pool_enabled` (default **on for `osint` + `dd`, off for `cti`**).
+
+Because a lead is capped, tagged and non-exportable, the same mechanism defends
+against **prompt injection**: text injected into a fetched page can only ever
+mint a low-confidence lead that a primary source must ratify.
+
+### `backend/mcp_servers/ctx_mcp.py`
+MCP server exposing the context pool as `mcp__ctx__*`, mounted alongside the
+vertical's source pool (its own namespace → counted, budgeted and whitelisted
+separately from the `BOUNCE_TOTAL_CTI_BUDGET` the EVAL §4.5 bands are calibrated
+on). Tools:
+- `recall_prior_knowledge(subject, claim, claim_type, verifiable_by, falsifier,
+  self_confidence)` — **no network, no cost**. Forces prior knowledge out of the
+  report prose (where it currently leaks untraced) into an auditable, falsifiable,
+  queued-for-verification record. Requires the model to name the tool that would
+  test the claim and the observation that would kill it.
+- `web_search(query, …)` / `web_fetch(url, …)` — cached (deterministic eval
+  replay), SSRF-guarded, size-capped, budget-charged. Content is returned with an
+  explicit untrusted-data warning.
+- `context_budget()` — remaining allowance + the vertical's forbidden claim types.
+
+### `backend/sources/web_context.py`
+The open-web source behind `web_search` / `web_fetch`. Search backends in
+precedence order: Brave (`BRAVE_SEARCH_API_KEY`) → Serper (`SERPER_API_KEY`) →
+keyless DuckDuckGo HTML (best-effort fallback). Every response is cached in the
+`cache` table so an eval re-run replays byte-identical content instead of that
+hour's SERP. `web_fetch` applies the scheme allowlist, a pre-DNS host check, a
+post-DNS check on every resolved address, a redirect re-check, and a byte cap.
 
 ### `run_mcp.py`
 Standalone MCP launcher (at project root). Used as `command` in generated
@@ -861,6 +951,14 @@ PROJECTHONEYPOT_API_KEY=    # http:BL access key, free
 # VIRUSTOTAL_API_KEYS=k1,k2,k3
 # NETLAS_API_KEYS=...
 # CERTSPOTTER_API_KEYS=...
+
+# Context pool (model memory + open web) — see backend/context_pool.py
+BOUNCE_CTX_ENABLED=         # auto (default: osint+dd) | all | 0 | explicit list "osint,dd"
+BOUNCE_CTX_WEB=             # 0 disables web_search/web_fetch, keeps recall_prior_knowledge
+BOUNCE_CTX_BUDGET=          # max context-pool calls per investigation (default 12, 0 = unlimited)
+BOUNCE_CORROBORATE_MAX_TURNS=  # turn budget for the corroboration phase (default 30)
+BRAVE_SEARCH_API_KEY=       # optional web_search backend (1st choice)
+SERPER_API_KEY=             # optional web_search backend (2nd choice); else keyless DuckDuckGo
 
 CLAUDE_BIN=claude      # path to claude CLI if not in PATH
 ADMIN_PIN=             # optional 6-digit PIN; the matching user is promoted to admin on startup (idempotent). No auto-generation if unset.
