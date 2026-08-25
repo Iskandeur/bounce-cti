@@ -277,6 +277,27 @@ def admin_delete_user(target_id: int, admin_id: int = Depends(current_admin)):
     return {"ok": True}
 
 
+@app.post("/api/admin/users/{target_id}/rotate_pin")
+def admin_rotate_pin(target_id: int, _: int = Depends(current_admin)):
+    """Give an existing user a new PIN, keeping their investigations.
+
+    The leak case: a PIN ends up in a doc, a screenshot or a public repo.
+    Deleting the user would work but cascades away everything they own, so
+    rotating is the non-destructive fix. Admins are excluded: their PIN comes
+    from BOUNCE_ADMIN_PIN, and bootstrap_admin() would re-create a second admin
+    from the old value on the next restart."""
+    target = auth.get_user(target_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="user not found")
+    if target["is_admin"]:
+        raise HTTPException(
+            status_code=400,
+            detail="admin PIN is set by BOUNCE_ADMIN_PIN; change it there and restart",
+        )
+    pin = auth.rotate_pin(target_id)
+    return {"id": target_id, "pin": pin}
+
+
 @app.post("/api/admin/impersonate/{target_id}")
 def admin_impersonate(target_id: int, response: Response, admin_id: int = Depends(current_admin)):
     target = auth.get_user(target_id)

@@ -1,13 +1,18 @@
 # Eval harness — recovery instructions
 
-If the agent container restarted mid-run, reconstruct state as follows:
+If the agent container restarted mid-run, reconstruct state as follows.
+
+The harness logs in as the eval bench user. Its PIN is **not** kept in this
+repo — export `BOUNCE_EVAL_PIN` in the shell first, from wherever the operator
+stores secrets. (An admin can issue a new one with
+`POST /api/admin/users/<id>/rotate_pin`, which keeps the bench's investigations.)
 
 ```bash
 # 1. Login + persist cookies
 mkdir -p /tmp/eval_run
 curl -s -c /tmp/cookies.txt -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"pin":"995737"}' \
+  -d "{\"pin\":\"$BOUNCE_EVAL_PIN\"}" \
   https://bounce.alexandre-pinoteau.fr/api/auth/login
 
 # 2. Copy harness back into /tmp/eval_run/
