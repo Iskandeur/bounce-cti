@@ -65,6 +65,26 @@ def create_user(allowed_models: Optional[list[str]] = None,
     raise RuntimeError("PIN collision after 20 tries")
 
 
+def rotate_pin(user_id: int) -> str:
+    """Issue a fresh PIN for an existing user and invalidate their sessions.
+
+    Used when a PIN leaks (e.g. pasted into a doc that ends up public). The old
+    PIN stops working immediately, and killing the sessions closes the 30-day
+    window an already-logged-in holder would otherwise keep."""
+    for _ in range(20):
+        pin = _gen_pin()
+        h = pin_hmac(pin)
+        with gs.conn() as c:
+            if c.execute("SELECT 1 FROM users WHERE pin_hmac=?", (h,)).fetchone():
+                continue
+            cur = c.execute("UPDATE users SET pin_hmac=? WHERE id=?", (h, user_id))
+            if cur.rowcount == 0:
+                raise LookupError(f"no such user: {user_id}")
+            c.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+            return pin
+    raise RuntimeError("PIN collision after 20 tries")
+
+
 def bootstrap_admin(pin: Optional[str]):
     """Ensure a user with this PIN exists and is flagged is_admin=1.
     Admin has no model restrictions (allowed_models=NULL). Idempotent."""
