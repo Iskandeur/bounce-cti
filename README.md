@@ -15,6 +15,15 @@ Netlas, ZoomEye, CriminalIP, OTX, ThreatFox, AbuseIPDB, abuse.ch URLhaus &
 MalwareBazaar, Mnemonic pDNS, ip-api, Wayback, Whoxy reverse-WHOIS, OpenPhish,
 DOM fingerprints) building a live infrastructure graph in your browser.
 
+## Demo
+
+[![Bounce-CTI: paste one IOC, watch the graph build itself](media/demo.jpg)](media/demo.mp4)
+
+**[▶ Watch the 20-second demo](media/demo.mp4)** — one IOC pasted, CDN ranges and
+parked nameservers defused before the pivot, and a lead promoted to a finding
+only once a source corroborates it. Asset provenance and licenses:
+[`media/README.md`](media/README.md).
+
 ## Features
 
 - **Live graph**: Cytoscape canvas updated over WebSocket as the agent pivots.
