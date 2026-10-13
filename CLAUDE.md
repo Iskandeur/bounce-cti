@@ -312,6 +312,13 @@ data/                   # Runtime data (gitignored)
   mcp-{id}.json         # Per-investigation MCP configs (temporary)
   mcp-launcher-*.log    # Per-server launcher trace logs (debug)
 runs/                   # Archived eval-protocol scorecards (one folder per run)
+eval/results_digest.py  # Renders EVAL_RESULTS.md from runs/*/scorecard.md (stdlib,
+                        #   offline). Like-for-like trend on the fresh subset only;
+                        #   v2 Overall and v3 CAP never averaged together.
+                        #   `--check` exits 1 when the page is stale (also enforced
+                        #   by backend/tests/test_eval_results_digest.py).
+EVAL_RESULTS.md         # GENERATED published eval digest — re-run the script after
+                        #   adding a run under runs/, never edit by hand
 deploy.sh               # Auto-deploy script (callable on the VPS)
 run_mcp.py              # MCP server launcher (referenced by generated mcp.json configs)
 mcp.json                # Template MCP config (rendered per investigation at runtime)

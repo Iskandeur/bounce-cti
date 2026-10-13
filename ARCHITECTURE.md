@@ -851,6 +851,19 @@ Standalone MCP launcher (at project root). Used as `command` in generated
 specified MCP server module. Cross-platform: works whether invoked by Windows
 Python or WSL Python. Writes a startup trace to `data/mcp-launcher-*.log`.
 
+### `eval/results_digest.py` → `EVAL_RESULTS.md`
+Offline, stdlib-only renderer of the published eval digest. Parses every
+`runs/<date>_<sha>/scorecard.md`: the v2 case table (column `Overall`, rows kept
+only when `Status == done`) and, when present, the v3 capability table (column
+`CAP`, positive cases vs negatives `N1..N3`). A run with neither table is listed
+as blocked, never scored. The headline trend is computed only on runs that
+completed the whole fresh subset (cases 2, 3, 8, 9, 12), so a smoke run cannot
+read as progress; the page also states the measurement's limits (self-graded,
+rubric changes, model change, data decay, Goodhart on CAP). Not part of the
+running service. `--check` returns 1 when `EVAL_RESULTS.md` is stale, and
+`backend/tests/test_eval_results_digest.py` calls it, so CI fails if a run is
+archived without regenerating the page.
+
 ### `frontend/`
 React 18 + Vite + Cytoscape.js (cose-bilkent layout). No router — view
 switching is local state.
