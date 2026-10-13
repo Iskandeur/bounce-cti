@@ -9,7 +9,7 @@
 
 - **Like-for-like trend (v2 Overall, same 5 cases 2, 3, 8, 9, 12):** 49.7 on 2026-04-19 (`20ba0ef`) → 74.4 on 2026-06-17 (`71e5fb1`), over 10 comparable runs.
 - **Capability (v3 CAP, fresh subset):** 92.9, 94.0, 96.0 across the 3 v3 runs (target ≥ 75, stretch ≥ 85).
-- **Runs archived:** 14 (1 blocked by an infrastructure outage, documented rather than scored).
+- **Runs archived:** 14 (1 marked `RUN STATUS: BLOCKED`, documented in its scorecard rather than scored).
 
 ## What these numbers are — and are not
 
@@ -79,7 +79,7 @@ Positive cases are scored on CAP; negative (benign) cases on restraint only.
 | 2026-06-01 `de5a31b` | `opus-4.8` | 5/12 | 74.2 | 92.9 | [scorecard](runs/2026-06-01_de5a31b/scorecard.md) |
 | 2026-06-17 `69fc13c` | `opus-4.8` | 5/12 | 75.7 | 94.0 | [scorecard](runs/2026-06-17_69fc13c/scorecard.md) |
 | 2026-06-17 `71e5fb1` | `opus-4.8` | 5/12 | 74.4 | 96.0 | [scorecard](runs/2026-06-17_71e5fb1/scorecard.md) |
-| 2026-06-17 `90c516b` | `opus-4.8` | 0 | – | – | [blocked — see post-mortem](runs/2026-06-17_90c516b/scorecard.md) |
+| 2026-06-17 `90c516b` | `opus-4.8` | 0 | – | – | [blocked — see scorecard](runs/2026-06-17_90c516b/scorecard.md) |
 
 The v2 mean in this table is over whatever cases each run completed (a
 three-case smoke run and a twelve-case full run are not comparable); use the

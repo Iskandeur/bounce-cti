@@ -42,6 +42,7 @@ FRESH_SUBSET = (2, 3, 8, 9, 12)
 _TITLE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})\s*·\s*commit\s+`?([0-9a-f]{7,40})`?")
 _MODEL_RE = re.compile(r"^-\s*Model:\s*`([^`]+)`", re.MULTILINE)
 _NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
+_BLOCKED_RE = re.compile(r"RUN STATUS:\s*BLOCKED")
 
 
 @dataclass
@@ -147,7 +148,7 @@ def parse_scorecard(name: str, text: str) -> Run:
         # Only a scorecard that says so is a blocked run. Anything else without
         # a recognised table is a format change, and must not be published as
         # an outage.
-        if "BLOCKED" not in text:
+        if not _BLOCKED_RE.search(text):
             raise ValueError(f"{name}: no v2 'Overall' or v3 'CAP' case table "
                              "and no BLOCKED marker; scorecard format not recognised")
         run.blocked = True
@@ -210,8 +211,8 @@ def render(runs: list[Run]) -> str:
         caps = [_mean(r.v3_positive().values()) for r in v3_runs]
         w(f"- **Capability (v3 CAP, fresh subset):** {', '.join(_fmt(c) for c in caps)} "
           f"across the {len(v3_runs)} v3 runs (target ≥ 75, stretch ≥ 85).")
-    w(f"- **Runs archived:** {len(runs)} ({len(runs) - len(scored)} blocked by an "
-      f"infrastructure outage, documented rather than scored).")
+    w(f"- **Runs archived:** {len(runs)} ({len(runs) - len(scored)} marked "
+      f"`RUN STATUS: BLOCKED`, documented in its scorecard rather than scored).")
     w("")
 
     w("## What these numbers are — and are not")
@@ -276,7 +277,7 @@ def render(runs: list[Run]) -> str:
     for r in runs:
         if r.blocked:
             w(f"| {r.date} `{r.commit}` | `{r.model}` | 0 | – | – | "
-              f"[blocked — see post-mortem](runs/{r.name}/scorecard.md) |")
+              f"[blocked — see scorecard](runs/{r.name}/scorecard.md) |")
             continue
         done = r.v2_done()
         attempted = sum(1 for x in r.v2 if x.case.isdigit())

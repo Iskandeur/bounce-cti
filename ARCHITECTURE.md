@@ -856,7 +856,7 @@ Offline, stdlib-only renderer of the published eval digest. Parses every
 `runs/<date>_<sha>/scorecard.md`: the v2 case table (column `Overall`, rows kept
 only when `Status == done`) and, when present, the v3 capability table (column
 `CAP`, positive cases vs negatives `N1..N3`). A run with neither table is listed
-as blocked (never scored) only if its scorecard says `BLOCKED`; otherwise the
+as blocked (never scored) only if its scorecard carries the `RUN STATUS: BLOCKED` line; otherwise the
 script raises, so a format change cannot pass for an outage. The headline trend is computed only on runs that
 completed the whole fresh subset (cases 2, 3, 8, 9, 12), so a smoke run cannot
 read as progress; the page also states the measurement's limits (self-graded,

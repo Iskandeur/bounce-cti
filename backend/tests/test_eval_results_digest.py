@@ -95,7 +95,9 @@ def test_blocked_run_is_flagged_not_scored():
 
 
 def test_unrecognised_scorecard_raises_instead_of_reading_as_an_outage():
-    renamed = V2_CARD.replace("Overall", "Total")
+    # Even with the bare word BLOCKED somewhere in a note: only the status
+    # line marks a blocked run.
+    renamed = V2_CARD.replace("Overall", "Total") + "\nCase 5 was BLOCKED by quota.\n"
     try:
         rd.parse_scorecard("2026-07-01_deadbee", renamed)
     except ValueError as exc:
@@ -118,7 +120,7 @@ def test_render_never_puts_a_partial_run_in_the_trend_table():
     page = rd.render(runs)
     trend = page.split("## Like-for-like trend")[1].split("##")[0]
     assert "ccee7e3" in trend and "71e5fb1" not in trend
-    assert "blocked — see post-mortem" in page
+    assert "blocked — see scorecard" in page
 
 
 def test_published_page_matches_the_archived_runs():
