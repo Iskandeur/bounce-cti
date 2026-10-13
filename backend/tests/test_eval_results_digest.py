@@ -94,6 +94,16 @@ def test_blocked_run_is_flagged_not_scored():
     assert run.v2_done() == {} and rd.subset_mean(run) is None
 
 
+def test_unrecognised_scorecard_raises_instead_of_reading_as_an_outage():
+    renamed = V2_CARD.replace("Overall", "Total")
+    try:
+        rd.parse_scorecard("2026-07-01_deadbee", renamed)
+    except ValueError as exc:
+        assert "not recognised" in str(exc)
+    else:
+        raise AssertionError("a scorecard with no known table must not be silently 'blocked'")
+
+
 def test_subset_mean_requires_all_five_cases():
     full = rd.parse_scorecard("a", V2_CARD)
     assert rd.subset_mean(full) == round((61.8 + 64.0 + 67.2 + 60.8 + 72.1) / 5, 1)

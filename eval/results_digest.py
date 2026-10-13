@@ -143,11 +143,20 @@ def parse_scorecard(name: str, text: str) -> Run:
         v2=_case_table(tables, "Overall", "Status"),
         v3=_case_table(tables, "CAP", "live"),
     )
-    run.blocked = not run.v2 and not run.v3
+    if not run.v2 and not run.v3:
+        # Only a scorecard that says so is a blocked run. Anything else without
+        # a recognised table is a format change, and must not be published as
+        # an outage.
+        if "BLOCKED" not in text:
+            raise ValueError(f"{name}: no v2 'Overall' or v3 'CAP' case table "
+                             "and no BLOCKED marker; scorecard format not recognised")
+        run.blocked = True
     return run
 
 
 def load_runs(runs_dir: Path = RUNS_DIR) -> list[Run]:
+    if not runs_dir.is_dir():
+        raise SystemExit(f"no runs directory at {runs_dir}: nothing to digest")
     runs = []
     for d in sorted(p for p in runs_dir.iterdir() if p.is_dir()):
         card = d / "scorecard.md"
