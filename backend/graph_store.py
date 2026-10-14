@@ -7,6 +7,7 @@ import hashlib
 from collections import Counter
 from contextlib import contextmanager
 from typing import Any, Optional
+from . import fixtures
 from .config import DB_PATH
 
 # Tags that indicate infrastructure owned/operated by a third party (CDN,
@@ -854,19 +855,31 @@ def get_evidence_for_value(value: str) -> list[dict]:
 
 
 def cache_get(key: str, ttl: float = 86400) -> Optional[Any]:
+    # Fixture replay (EVAL_PROTOCOL §4.C): a source response comes from the
+    # fixture set, whatever the TTL and whatever this database holds.
+    if fixtures.replaying() and fixtures.is_source_key(key):
+        return fixtures.replay_get(key)
     with conn() as c:
         row = c.execute("SELECT value, created_at FROM cache WHERE key=?", (key,)).fetchone()
     if not row:
         return None
     if time.time() - row["created_at"] > ttl:
         return None
-    return json.loads(row["value"])
+    value = json.loads(row["value"])
+    # A warm cache answered the agent too: capture records hits, not only writes.
+    if fixtures.capturing():
+        fixtures.record(key, value)
+    return value
 
 
 def cache_set(key: str, value: Any):
+    if fixtures.replaying() and fixtures.is_source_key(key):
+        return  # the fixture set is the cache; replay traffic never reaches a DB
     with conn() as c:
         c.execute("INSERT OR REPLACE INTO cache(key, value, created_at) VALUES (?,?,?)",
                   (key, json.dumps(value), time.time()))
+    if fixtures.capturing():
+        fixtures.record(key, value)
 
 
 # ── Per-investigation counters ────────────────────────────────────────────

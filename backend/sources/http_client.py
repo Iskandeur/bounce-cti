@@ -1,7 +1,17 @@
 import httpx
+from .. import fixtures
 from ..graph_store import cache_get, cache_set
 
 UA = "bounce-cti/0.1 (+research)"
+
+
+def _replay_miss(key: str) -> None:
+    """In fixture replay a cache miss is a question the captured run never
+    asked. Fail it here, under its own name, the way a dead network fails —
+    before any request, so the offline guard is the second wall, not the first."""
+    if fixtures.replaying():
+        raise httpx.ConnectError(
+            f"{fixtures.REPLAY_MISS}: no recorded response for {fixtures.redact(key)}")
 
 
 async def get_json(url: str, headers: dict | None = None, params: dict | None = None,
@@ -10,6 +20,7 @@ async def get_json(url: str, headers: dict | None = None, params: dict | None = 
     cached = cache_get(key, ttl=ttl)
     if cached is not None:
         return cached
+    _replay_miss(key)
     h = {"User-Agent": UA}
     if headers:
         h.update(headers)
@@ -29,6 +40,7 @@ async def post_json(url: str, headers: dict | None = None, json_body: dict | Non
     cached = cache_get(key, ttl=ttl)
     if cached is not None:
         return cached
+    _replay_miss(key)
     h = {"User-Agent": UA, "Content-Type": "application/json"}
     if headers:
         h.update(headers)
@@ -57,6 +69,7 @@ async def get_text(url: str, headers: dict | None = None, params: dict | None = 
     if headers:
         h.update(headers)
     try:
+        _replay_miss(key)
         async with httpx.AsyncClient(timeout=15, follow_redirects=follow_redirects) as c:
             r = await c.get(url, headers=h, params=params)
             data = {"status": r.status_code, "final_url": str(r.url), "text": r.text[:8000]}
@@ -73,6 +86,7 @@ async def post_form(url: str, headers: dict | None = None, form_data: dict | Non
     cached = cache_get(key, ttl=ttl)
     if cached is not None:
         return cached
+    _replay_miss(key)
     h = {"User-Agent": UA}
     if headers:
         h.update(headers)
