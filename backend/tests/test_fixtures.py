@@ -242,6 +242,37 @@ def test_replay_finds_a_capture_made_with_a_real_key_using_a_placeholder(
         os.environ.pop("NETLAS_API_KEY", None)  # set by stand_in, not by monkeypatch
 
 
+def test_capture_records_credentials_not_every_auth_named_var(db, tmp_path, monkeypatch):
+    """SSH_AUTH_SOCK is redacted like any AUTH-named value, but it is not a
+    credential: a replay must not overwrite it with a placeholder."""
+    monkeypatch.setenv("SSH_AUTH_SOCK", "/tmp/ssh-agent-socket-1")
+    monkeypatch.setenv("NETLAS_APIKEY", "oddly-named-key-777")
+    cap = tmp_path / "cap"
+    _capture(db, cap, monkeypatch, "internetdb|1.2.3.4", {"ports": [22]})
+    names = json.loads((cap / fixtures.ENV_FILE).read_text())["secret_env_names"]
+    assert "NETLAS_APIKEY" in names and "SSH_AUTH_SOCK" not in names
+
+
+def test_guard_installs_without_sendmsg(monkeypatch):
+    """Windows sockets have no sendmsg: the guard must still install."""
+    import socket
+
+    class WindowsLikeSocket:  # what the guard sees where sendmsg is missing
+        def connect(self, address): pass
+        def connect_ex(self, address): pass
+        def sendto(self, data, *args): pass
+    monkeypatch.setattr(socket, "socket", WindowsLikeSocket)
+    restore = fixtures.install_offline_guard()
+    try:
+        with pytest.raises(OSError, match="fixture replay"):
+            socket.getaddrinfo("example.com", 443)
+        with pytest.raises(OSError, match="fixture replay"):
+            WindowsLikeSocket().connect(("192.0.2.1", 443))
+    finally:
+        restore()
+    assert not hasattr(WindowsLikeSocket, "sendmsg")
+
+
 def test_stand_in_only_for_secrets_present_at_capture(tmp_path, monkeypatch):
     """A source with no key at capture must still say "no key" in replay."""
     (tmp_path / fixtures.ENV_FILE).write_text(

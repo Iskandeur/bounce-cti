@@ -94,6 +94,9 @@ REPLAY_MISS = "fixture replay"
 # Broad on purpose: a false positive only redacts a harmless value, a miss
 # publishes a key.
 _SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|AUTH|CREDENTIAL")
+# Narrower: the credential variables a replay stands in with a placeholder.
+# Redaction must be broad; standing in must not touch SSH_AUTH_SOCK and kin.
+_CREDENTIAL_NAME = re.compile(r"(API_?KEYS?|_KEYS?|_TOKEN|_SECRET|_PASSWORD|_PASSWD)$")
 _SECRET_EXTRA = ("OPENCTI_URL",)  # may point at a private instance
 _MIN_SECRET_LEN = 8               # shorter values would redact ordinary text
 
@@ -158,6 +161,13 @@ def secret_placeholder(name: str) -> str:
 
 def is_secret_name(name: str) -> bool:
     return bool(_SECRET_NAME.search(name.upper())) or name in _SECRET_EXTRA
+
+
+def is_credential_name(name: str) -> bool:
+    """A variable that holds a source credential (SHODAN_API_KEY, NETLAS_APIKEY,
+    OPENCTI_API_KEYS, ABUSECH_AUTH_KEY, OPENCTI_URL), as opposed to anything
+    else that only needs redacting."""
+    return bool(_CREDENTIAL_NAME.search(name.upper())) or name in _SECRET_EXTRA
 
 
 def _secrets() -> list[tuple[str, str]]:
@@ -229,7 +239,7 @@ def _write_env_names(directory: Path) -> None:
     that had no key at capture must still answer "no key" in replay."""
     if str(directory) in _env_written:
         return
-    names = sorted({n for n, v in os.environ.items() if v and is_secret_name(n)})
+    names = sorted({n for n, v in os.environ.items() if v and is_credential_name(n)})
     _atomic_write(directory / ENV_FILE,
                   json.dumps({"secret_env_names": names}, indent=1) + "\n")
     _env_written.add(str(directory))
@@ -334,7 +344,7 @@ def stand_in_secrets(directory: Path) -> list[str]:
         return []
     set_now = []
     for name in names:
-        if is_secret_name(name) and not os.environ.get(name):
+        if is_credential_name(name) and not os.environ.get(name):
             os.environ[name] = f"fixture-replay-{name}"
             set_now.append(name)
     return set_now
@@ -369,13 +379,11 @@ def install_offline_guard() -> Callable[[], None]:
             f"{REPLAY_MISS}: network disabled, no recorded response "
             f"({what} {redact(str(target))})")
 
-    saved = {
-        "getaddrinfo": socket.getaddrinfo,
-        "connect": socket.socket.connect,
-        "connect_ex": socket.socket.connect_ex,
-        "sendto": socket.socket.sendto,
-        "sendmsg": socket.socket.sendmsg,
-    }
+    # sendmsg does not exist on Windows: guard what the platform has.
+    methods = [m for m in ("connect", "connect_ex", "sendto", "sendmsg")
+               if hasattr(socket.socket, m)]
+    saved = {"getaddrinfo": socket.getaddrinfo,
+             **{m: getattr(socket.socket, m) for m in methods}}
 
     def getaddrinfo(host, *args, **kwargs):
         raise _refused("resolve", host)
@@ -402,16 +410,17 @@ def install_offline_guard() -> Callable[[], None]:
             raise _refused("sendmsg", args[2])
         return saved["sendmsg"](self, buffers, *args)
 
+    guards = {"connect": guarded_connect("connect"),
+              "connect_ex": guarded_connect("connect_ex"),
+              "sendto": sendto, "sendmsg": sendmsg}
     socket.getaddrinfo = getaddrinfo
-    socket.socket.connect = guarded_connect("connect")
-    socket.socket.connect_ex = guarded_connect("connect_ex")
-    socket.socket.sendto = sendto
-    socket.socket.sendmsg = sendmsg
+    for m in methods:
+        setattr(socket.socket, m, guards[m])
 
     def restore() -> None:
         socket.getaddrinfo = saved["getaddrinfo"]
-        for name in ("connect", "connect_ex", "sendto", "sendmsg"):
-            setattr(socket.socket, name, saved[name])
+        for m in methods:
+            setattr(socket.socket, m, saved[m])
     return restore
 
 

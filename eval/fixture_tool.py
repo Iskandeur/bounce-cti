@@ -183,14 +183,20 @@ def promote(inv_id: str, case: str, capture_root: Path = CAPTURE_DIR,
         problems = verify(stage, dotenv, warnings)
         if problems:
             return problems + [f"nothing written: {fixtures_root / case} is unchanged"]
-        dst = fixtures_root / case
+        # Copy next to the target, then swap by rename: an I/O error mid-copy
+        # leaves the old set in place, never a half-written one.
+        fixtures_root.mkdir(parents=True, exist_ok=True)
+        dst, new, old = (fixtures_root / case, fixtures_root / f".{case}.new",
+                         fixtures_root / f".{case}.old")
+        for leftover in (new, old):
+            if leftover.exists():
+                shutil.rmtree(leftover)
+        shutil.copytree(stage, new)
         if dst.exists():
-            for p in [*dst.glob("*.json"), dst / MANIFEST]:
-                if p.exists():
-                    p.unlink()
-        dst.mkdir(parents=True, exist_ok=True)
-        for p in stage.iterdir():
-            shutil.copy2(p, dst / p.name)
+            dst.rename(old)
+        new.rename(dst)
+        if old.exists():
+            shutil.rmtree(old)
     return []
 
 
