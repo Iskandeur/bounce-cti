@@ -43,10 +43,13 @@ Replay wins when both are set. Neither set (the default, and production) =
 no file I/O and no behaviour change.
 
 Secrets: a fixture set is meant to be committed to a public repo. The value of
-every secret-looking env var (``*_API_KEY(S)``, ``*_KEY(S)``, ``*_TOKEN``,
-``*_SECRET``, ``*_PASSWORD``, ``OPENCTI_URL``) is replaced by a placeholder
-(``<secret:SHODAN>``) in both the key and the value before anything is written,
-and a write that still contains one is refused. Lookups apply the same
+every env var whose NAME contains KEY, TOKEN, SECRET, PASSWORD, PASSWD, AUTH or
+CREDENTIAL (so ``NETLAS_APIKEY`` too, not only ``*_API_KEY``), plus
+``OPENCTI_URL``, is replaced by a placeholder (``<secret:SHODAN>``) in both the
+key and the value before anything is written, and a write that still contains
+one is refused. Values shorter than 8 characters are left alone (they would
+redact ordinary text); ``eval/fixture_tool.py verify`` checks the capturing
+``.env`` again before a commit. Lookups apply the same
 redaction, which is what lets a replay with no real key find a capture made
 with one.
 
@@ -57,6 +60,7 @@ reads the environment.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -87,8 +91,9 @@ BOOKKEEPING_PREFIXES = (
 ENV_FILE = "_env.json"   # names (never values) of the secrets present at capture
 REPLAY_MISS = "fixture replay"
 
-_SECRET_NAME = re.compile(
-    r"(_API_KEYS?|_KEYS?|_AUTH_KEY|_TOKEN|_SECRET|_PASSWORD)$")
+# Broad on purpose: a false positive only redacts a harmless value, a miss
+# publishes a key.
+_SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|AUTH|CREDENTIAL")
 _SECRET_EXTRA = ("OPENCTI_URL",)  # may point at a private instance
 _MIN_SECRET_LEN = 8               # shorter values would redact ordinary text
 
@@ -152,7 +157,7 @@ def secret_placeholder(name: str) -> str:
 
 
 def is_secret_name(name: str) -> bool:
-    return bool(_SECRET_NAME.search(name)) or name in _SECRET_EXTRA
+    return bool(_SECRET_NAME.search(name.upper())) or name in _SECRET_EXTRA
 
 
 def _secrets() -> list[tuple[str, str]]:
@@ -339,37 +344,74 @@ class _NetworkDisabled(OSError):
     pass
 
 
+def _is_local(address: Any) -> bool:
+    """A Unix socket path or a literal loopback IP: this machine, not the
+    internet. asyncio needs it (on Windows its self-pipe is a loopback
+    socketpair). A host NAME is never local here: resolving it goes through the
+    refused getaddrinfo, so ``localhost`` stays blocked."""
+    if isinstance(address, (str, bytes)):
+        return True
+    if isinstance(address, tuple) and address and isinstance(address[0], str):
+        try:
+            return ipaddress.ip_address(address[0].split("%", 1)[0]).is_loopback
+        except ValueError:
+            return False
+    return False
+
+
 def install_offline_guard() -> Callable[[], None]:
-    """Refuse name resolution and outbound sockets in this process. Returns the
-    function that puts everything back (tests use it; the MCP server never
-    does). The MCP stdio transport and SQLite use no sockets, so nothing the
-    server needs is affected."""
-    def _refuse(what: str, target_arg: int):
-        # getaddrinfo(host, …) names its target first; a socket method is
-        # patched on the class, so args[0] is the socket and the address follows.
-        def refuse(*args, **kwargs):
-            target = args[target_arg] if len(args) > target_arg else ""
-            raise _NetworkDisabled(
-                f"{REPLAY_MISS}: network disabled, no recorded response "
-                f"({what} {redact(str(target))})")
-        return refuse
+    """Refuse name resolution and every socket that would leave this machine,
+    in this process. Returns the function that puts everything back (tests use
+    it; the MCP server never does). The MCP stdio transport and SQLite use no
+    sockets, and loopback stays open for the event loop's own plumbing."""
+    def _refused(what: str, target: Any) -> _NetworkDisabled:
+        return _NetworkDisabled(
+            f"{REPLAY_MISS}: network disabled, no recorded response "
+            f"({what} {redact(str(target))})")
 
     saved = {
         "getaddrinfo": socket.getaddrinfo,
         "connect": socket.socket.connect,
         "connect_ex": socket.socket.connect_ex,
         "sendto": socket.socket.sendto,
+        "sendmsg": socket.socket.sendmsg,
     }
-    socket.getaddrinfo = _refuse("resolve", 0)
-    socket.socket.connect = _refuse("connect", 1)
-    socket.socket.connect_ex = _refuse("connect", 1)
-    socket.socket.sendto = _refuse("sendto", 2)
+
+    def getaddrinfo(host, *args, **kwargs):
+        raise _refused("resolve", host)
+
+    def guarded_connect(name):
+        real = saved[name]
+
+        def connect(self, address):
+            if not _is_local(address):
+                raise _refused("connect", address)
+            return real(self, address)
+        return connect
+
+    def sendto(self, data, *args):
+        address = args[-1] if args else None
+        if not _is_local(address):
+            raise _refused("sendto", address)
+        return saved["sendto"](self, data, *args)
+
+    def sendmsg(self, buffers, *args):
+        # The address is the 4th parameter; without it the socket is already
+        # connected, and its connect went through the guard.
+        if len(args) >= 3 and args[2] is not None and not _is_local(args[2]):
+            raise _refused("sendmsg", args[2])
+        return saved["sendmsg"](self, buffers, *args)
+
+    socket.getaddrinfo = getaddrinfo
+    socket.socket.connect = guarded_connect("connect")
+    socket.socket.connect_ex = guarded_connect("connect_ex")
+    socket.socket.sendto = sendto
+    socket.socket.sendmsg = sendmsg
 
     def restore() -> None:
         socket.getaddrinfo = saved["getaddrinfo"]
-        socket.socket.connect = saved["connect"]
-        socket.socket.connect_ex = saved["connect_ex"]
-        socket.socket.sendto = saved["sendto"]
+        for name in ("connect", "connect_ex", "sendto", "sendmsg"):
+            setattr(socket.socket, name, saved[name])
     return restore
 
 

@@ -27,6 +27,7 @@ import json
 import re
 import shutil
 import sys
+import tempfile
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -169,17 +170,28 @@ def promote(inv_id: str, case: str, capture_root: Path = CAPTURE_DIR,
                 f"when that investigation ran?)"]
     if not re.fullmatch(r"[A-Za-z0-9_-]+", case):
         return [f"{case!r}: a case name is letters, digits, '-' and '_' only"]
-    dst = fixtures_root / case
-    if dst.exists():
-        for p in [*dst.glob("*.json"), dst / MANIFEST]:
+    # Build and verify the set OUTSIDE the repo first: a set that fails verify
+    # must never sit in the working tree, where one careless `git add` would
+    # publish it, and must not cost the previous good set either.
+    with tempfile.TemporaryDirectory(prefix=f"bounce-fixtures-{case}-") as tmp:
+        stage = Path(tmp) / case
+        stage.mkdir()
+        for p in [*_fixture_files(src), src / fixtures.ENV_FILE]:
             if p.exists():
-                p.unlink()
-    dst.mkdir(parents=True, exist_ok=True)
-    for p in [*_fixture_files(src), src / fixtures.ENV_FILE]:
-        if p.exists():
+                shutil.copy2(p, stage / p.name)
+        (stage / MANIFEST).write_text(_manifest(case, inv_id, stage), encoding="utf-8")
+        problems = verify(stage, dotenv, warnings)
+        if problems:
+            return problems + [f"nothing written: {fixtures_root / case} is unchanged"]
+        dst = fixtures_root / case
+        if dst.exists():
+            for p in [*dst.glob("*.json"), dst / MANIFEST]:
+                if p.exists():
+                    p.unlink()
+        dst.mkdir(parents=True, exist_ok=True)
+        for p in stage.iterdir():
             shutil.copy2(p, dst / p.name)
-    (dst / MANIFEST).write_text(_manifest(case, inv_id, dst), encoding="utf-8")
-    return verify(dst, dotenv, warnings)
+    return []
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -166,6 +166,21 @@ def test_secrets_are_redacted_from_key_and_value(db, tmp_path, monkeypatch):
     assert "k-AAAAAAAAAAAA" not in json.dumps(env)
 
 
+def test_secret_names_are_matched_broadly(db, tmp_path, monkeypatch):
+    """A key under an unusual name must not be published in clear."""
+    monkeypatch.setenv("NETLAS_APIKEY", "oddly-named-key-777")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-xxxxxxxx")
+    for name in ("NETLAS_APIKEY", "CLAUDE_CODE_OAUTH_TOKEN", "ABUSECH_AUTH_KEY",
+                 "OPENCTI_URL", "DB_PASSWD"):
+        assert fixtures.is_secret_name(name), name
+    for name in ("BOUNCE_FIXTURE_DIR", "BOUNCE_SHODAN_CREDIT_BUDGET", "PATH", "HOME"):
+        assert not fixtures.is_secret_name(name), name
+    cap = tmp_path / "cap"
+    monkeypatch.setenv(fixtures.CAPTURE_ENV, str(cap))
+    db.cache_set("GET|https://netlas/x|{'apikey': 'oddly-named-key-777'}", {"ok": 1})
+    assert "oddly-named-key-777" not in "".join(p.read_text() for p in cap.iterdir())
+
+
 def test_placeholder_is_per_source_whatever_the_var_spelling():
     assert {fixtures.secret_placeholder(n) for n in
             ("SHODAN_API_KEY", "SHODAN_API_KEYS", "SHODAN_KEY", "SHODAN_KEYS")} \
@@ -252,7 +267,7 @@ def test_activate_refuses_a_replay_dir_that_does_not_exist(tmp_path, monkeypatch
 
 def test_offline_guard_refuses_resolution_and_connects_then_restores():
     import socket
-    real = socket.getaddrinfo
+    real = socket.getaddrinfo, socket.socket.connect, socket.socket.sendto
     restore = fixtures.install_offline_guard()
     try:
         with pytest.raises(OSError, match="fixture replay"):
@@ -260,19 +275,49 @@ def test_offline_guard_refuses_resolution_and_connects_then_restores():
         s = socket.socket()
         try:
             with pytest.raises(OSError, match="fixture replay"):
-                s.connect(("127.0.0.1", 9))
+                s.connect(("192.0.2.1", 443))  # TEST-NET-1: never reached
         finally:
             s.close()
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            with pytest.raises(OSError, match="fixture replay"):
+                u.sendto(b"dns?", ("192.0.2.53", 53))
+        finally:
+            u.close()
         # httpx resolves a host name first: the refusal surfaces under its name.
         with pytest.raises(httpx.ConnectError, match="fixture replay"):
             asyncio.run(_real_get("http://bounce-fixture-test.invalid/"))
         # An IP literal skips resolution; anyio renames the failure, but it
         # still fails before any byte leaves the box.
         with pytest.raises(httpx.ConnectError):
-            asyncio.run(_real_get("http://127.0.0.1:9/"))
+            asyncio.run(_real_get("http://192.0.2.1:9/"))
     finally:
         restore()
-    assert socket.getaddrinfo is real
+    assert (socket.getaddrinfo, socket.socket.connect, socket.socket.sendto) == real
+
+
+def test_offline_guard_leaves_loopback_open_for_the_event_loop():
+    """asyncio's own plumbing (a loopback socketpair on Windows) must survive;
+    a host NAME stays blocked even when it means this machine."""
+    import socket
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    restore = fixtures.install_offline_guard()
+    try:
+        c = socket.socket()
+        try:
+            c.connect(listener.getsockname())
+        finally:
+            c.close()
+        a, b = socket.socketpair()
+        a.close()
+        b.close()
+        with pytest.raises(OSError, match="fixture replay"):
+            socket.getaddrinfo("localhost", 80)
+    finally:
+        restore()
+        listener.close()
 
 
 async def _real_get(url):
@@ -437,6 +482,26 @@ def test_promote_then_verify(db, tmp_path, monkeypatch):
     assert len(_files(out / "case02")) == 2
     manifest = (out / "case02" / "MANIFEST.md").read_text()
     assert "inv-fx" in manifest and "| internetdb | 1 |" in manifest
+
+
+def test_a_promote_that_fails_verify_writes_nothing(db, tmp_path, monkeypatch):
+    """A contaminated capture must not land in the working tree (one careless
+    `git add` publishes it), and must not cost the previous good set."""
+    tool = _tool()
+    capture_root = tmp_path / "capture"
+    _capture(db, capture_root / "inv-bad", monkeypatch, "otx|ip|1.2.3.4",
+             {"echo": "value-from-prod-env-99"})
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("OTX_API_KEY=value-from-prod-env-99\n")
+    out = tmp_path / "eval-fixtures"
+    good = out / "case02" / "0000good.json"
+    good.parent.mkdir(parents=True)
+    good.write_text("{}")
+
+    problems = tool.promote("inv-bad", "case02", capture_root, out, dotenv=dotenv)
+    assert any("OTX_API_KEY" in p for p in problems)
+    assert any("nothing written" in p for p in problems)
+    assert [p.name for p in (out / "case02").iterdir()] == ["0000good.json"]
 
 
 def test_verify_catches_a_dotenv_secret_and_a_hand_edit(tmp_path):
