@@ -47,18 +47,31 @@ def test_only_a_clean_exit_without_its_result_counts_as_cut(tmp_path):
 
 
 def test_since_bounds_the_window_and_sets_the_exit_code(tmp_path):
-    old = time.time() - 30 * 86400
-    path = _db(tmp_path, [_exit("inv_cut", "main", 0, False, old),
-                          _exit("inv_ok", "main", 0, True, time.time())])
+    now = time.time()
+    day = time.strftime("%Y-%m-%d", time.gmtime(now))   # the day `now` falls in
+    path = _db(tmp_path, [_exit("inv_cut", "main", 0, False, now - 30 * 86400),
+                          _exit("inv_ok", "main", 0, True, now)])
     assert audit.cut_phases(audit._connect(path))["cut"] == 1
-    today = time.strftime("%Y-%m-%d", time.gmtime())
-    assert audit.cut_phases(audit._connect(path), since=time.time() - 3600)["cut"] == 0
-    assert audit.main(["--db", str(path), "--since", today]) == 0
+    assert audit.cut_phases(audit._connect(path), since=now - 3600)["cut"] == 0
+    assert audit.main(["--db", str(path), "--since", day]) == 0
     assert audit.main(["--db", str(path)]) == 0       # no --since: report only
     fresh = tmp_path / "after-deploy"
     fresh.mkdir()
-    path2 = _db(fresh, [_exit("inv_cut", "main", 0, False, time.time())])
-    assert audit.main(["--db", str(path2), "--since", today]) == 1
+    path2 = _db(fresh, [_exit("inv_cut", "main", 0, False, now)])
+    assert audit.main(["--db", str(path2), "--since", day]) == 1
+
+
+def test_a_loss_event_of_the_fixed_reader_fails_the_check(tmp_path):
+    now = time.time()
+    day = time.strftime("%Y-%m-%d", time.gmtime(now))
+    path = _db(tmp_path, [
+        _exit("inv_ok", "main", 0, True, now),
+        ("inv_ok", "agent_stdout_oversize", {"phase": "main", "bytes": 9_000_000}, now),
+        ("inv_ok", "agent_stream_error", {"phase": "main", "stream": "stdout"}, now),
+    ])
+    assert audit.loss_events(audit._connect(path)) == {
+        "agent_stdout_oversize": 1, "agent_stream_error": 1}
+    assert audit.main(["--db", str(path), "--since", day]) == 1
 
 
 def test_longest_lines_measures_the_printed_size(tmp_path):

@@ -15,10 +15,13 @@ its phase, silently. This script measures that from the database alone, read-onl
   work; lines past it after the fix are the fix at work.
 * ``--runs``: for each archived eval run, how many of its scored
   investigations have a cut phase.
+* **loss events of the fixed code**: ``agent_stream_error`` (a pump died) and
+  ``agent_stdout_oversize`` (a line past 8 MiB, logged by size and head only).
 
-Exit 1 when a cut phase is found at or after ``--since``: run it after a deploy
-of the fix, with ``--since`` set to the deploy date, and it should exit 0.
-Stdlib only.
+Exit 1 when a cut phase or a loss event is found at or after ``--since``: run
+it after a deploy of the fix, with ``--since`` set to the deploy date, and it
+should exit 0. A phase cut then killed (``rc != 0``) is not counted, so 0 is
+the floor of the damage, never its measure. Stdlib only.
 """
 from __future__ import annotations
 
@@ -67,6 +70,16 @@ def cut_phases(c: sqlite3.Connection, since: float = 0.0) -> dict:
     return {"phases": sum(total.values()), "cut": sum(cut.values()),
             "cut_by_phase": dict(cut), "investigations": len(invs),
             "cut_investigations": sorted(cut_invs), "latest_cut": latest}
+
+
+LOSS_KINDS = ("agent_stream_error", "agent_stdout_oversize")
+
+
+def loss_events(c: sqlite3.Connection, since: float = 0.0) -> dict[str, int]:
+    """How many times the fixed reader still lost something, by event kind."""
+    rows = c.execute("SELECT kind, COUNT(*) FROM events WHERE kind IN (?, ?) "
+                     "AND created_at >= ? GROUP BY kind", (*LOSS_KINDS, since))
+    return {kind: n for kind, n in rows}
 
 
 def longest_lines(c: sqlite3.Connection, since: float = 0.0, top: int = 5) -> dict:
@@ -126,6 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     if cut["latest_cut"] is not None:
         when = dt.datetime.fromtimestamp(cut["latest_cut"], dt.timezone.utc)
         print(f"latest: {when:%Y-%m-%d %H:%M} UTC")
+    losses = loss_events(c, since)
+    print("loss events of the fixed reader: "
+          + (", ".join(f"{k} {n}" for k, n in sorted(losses.items())) or "none"))
     if args.runs:
         cut_ids = set(cut["cut_investigations"])
         known = {r[0] for r in c.execute("SELECT id FROM investigations")}
@@ -138,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
             n_all, n_cut = n_all + len(ids), n_cut + len(hit)
             print(f"  {run}: {len(hit)} of {len(ids)} scored investigations cut")
         print(f"scored investigations in the database: {n_all}; with a cut phase: {n_cut}")
-    return 1 if (args.since and cut["cut"]) else 0
+    return 1 if (args.since and (cut["cut"] or losses)) else 0
 
 
 if __name__ == "__main__":
