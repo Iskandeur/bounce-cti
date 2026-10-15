@@ -29,6 +29,14 @@
   re-observed. v3 marks such cases `DECAY` and skips their recall.
 - **The model changed** (`opus-4.7` until 2026-05-31, `opus-4.8` after), so
   part of any later gain may be the model's, not the code's.
+- **The transcripts were cut.** Until 2026-10-15 the backend stopped logging
+  a phase at its first tool result longer than 64 KiB (fixed in #63; see
+  EVAL_PROTOCOL §4.A). Measured that day on the production database: 62 of
+  the 99 scored investigations still there have at least one cut phase, from
+  2 of 12 in one run to 5 of 5 in another. So every CTI-call count here is a
+  lower bound, the budget dimension reads too generous and pivot selection
+  too strict, and the trend does not correct for a share of cut cases that
+  differs from run to run.
 - **Hallucination is a hard gate, not a score.** One untraceable node fails
   the run. It fired once (2026-04-19, a misattribution through shared-hosting
   co-residency) and every later scorecard that audits it reports 0 (the
