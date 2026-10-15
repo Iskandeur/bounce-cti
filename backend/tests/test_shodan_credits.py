@@ -142,9 +142,12 @@ def test_opt_in_recognised(monkeypatch):
     assert _reached_network(out)
 
 
-def test_no_key_is_reported_rather_than_refused_as_a_credit_issue():
+def test_no_key_is_reported_rather_than_refused_as_a_credit_issue(monkeypatch):
     """With no key configured the free endpoints report the missing key —
     they must not masquerade as a credit refusal (different operator fix)."""
+    # Force the "no key" state explicitly: a developer shell that exports
+    # SHODAN_API_KEY would otherwise make this test reach the network layer.
+    monkeypatch.setattr(shodan.key_pool, "acquire", lambda _s: None)
     out = asyncio.run(shodan.shodan_host("1.2.3.4"))
     assert "no Shodan key" in out["error"]
     assert out.get("refused") is not True

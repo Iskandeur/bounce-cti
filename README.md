@@ -234,6 +234,16 @@ the deploy pipeline, required GitHub secrets, and rollback procedure.
 
 ## Eval
 
+**Results: [`EVAL_RESULTS.md`](./EVAL_RESULTS.md).** On the same five
+real-world cases, the v2 overall score went from 49.7 (2026-04-19) to 74.4
+(2026-06-17); the decay-proof capability score (v3 CAP) reads 92.9 → 96.0 over
+its three runs. Hallucination is a hard gate: it fired once, in the first run,
+and the scorecards that audit it report 0 since. The page also says what these
+numbers do not show: they are self-graded, the rubric changed, the model
+changed, and there is no external baseline.
+
 `EVAL_PROTOCOL.md` is the active scoring rubric for the agent. Re-run it
 against a new commit whenever you touch the agent system prompt, MCP tool set,
-defuse lists, or source integrations. Past runs live under `runs/`.
+defuse lists, or source integrations. Past runs live under `runs/`; after
+archiving one, regenerate the digest with `python eval/results_digest.py`
+(CI fails if `EVAL_RESULTS.md` is stale).
