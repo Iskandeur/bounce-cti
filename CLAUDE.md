@@ -554,7 +554,9 @@ A red gate must be fixed before merge. Pair this with branch protection on
   first long line, and the rest of the phase went unlogged with no error:
   172 of 372 production investigations lost part of their log, and the event
   log is what `_count_cti_calls`, quota detection, pivot reconciliation and the
-  eval scorer read (EVAL_PROTOCOL §4.A note).
+  eval scorer read (EVAL_PROTOCOL §4.A note). `eval/stream_audit.py` measures
+  it from the database; with `--since <date>` it exits 1 if a phase exited
+  rc=0 without its `result` event.
 - **Auth-failure detection** (`_detect_auth_error`, distinct from quota): when
   the host's `claude` CLI credential is expired/invalid, every phase emits
   `Failed to authenticate. API Error: 401 …` yet the process exits 0, so the run

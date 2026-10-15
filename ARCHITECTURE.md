@@ -969,7 +969,8 @@ UI panels:
    limit back together (a tool result often is longer); one past 8 MiB is
    logged as agent_stdout_oversize (size + head). A pump that dies anyway logs
    agent_stream_error. Before 2026-10-15 the first line past 64 KiB ended the
-   phase's log in silence (see EVAL_PROTOCOL §4.5 note).
+   phase's log in silence (EVAL_PROTOCOL §4.A note; measure it with
+   eval/stream_audit.py).
 9. Follow-up phase: if mandatory tools were skipped or no report node exists,
    a second claude -p invocation is launched with a targeted prompt
 10. WS /ws/{inv_id} polls events table every 0.5s → pushes to browser
