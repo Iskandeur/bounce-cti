@@ -3,11 +3,10 @@
 Thanks for your interest in improving Bounce-CTI! This guide covers how to
 contribute and the few rules that keep the project safe to deploy.
 
-> **License note.** Bounce-CTI is **source-available**, not OSI open-source
-> (see [LICENSE](./LICENSE) and [COMMERCIAL.md](./COMMERCIAL.md)). Contributions
-> are welcome, but before your first contribution can be merged you must sign
-> the **[Contributor License Agreement](./CLA.md)** — this is what lets the
-> project reuse your work across all its distributions. See "CLA" below.
+> **License note.** Bounce-CTI is licensed under the **Apache License 2.0**
+> (see [LICENSE](./LICENSE)). Contributions are welcome, but before your first
+> contribution can be merged you must sign the
+> **[Contributor License Agreement](./CLA.md)**. See "CLA" below.
 
 ## CLA — required before your first merge
 

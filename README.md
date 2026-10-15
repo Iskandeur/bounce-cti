@@ -1,10 +1,7 @@
 # bounce-cti
 
-> **Copyright (c) 2026 Alexandre Pinoteau · All rights reserved.**
-> Source-available for personal study and non-commercial individual use.
-> Any organizational, institutional, governmental, or commercial use
-> requires a written license — see [LICENSE](./LICENSE) and
-> [COMMERCIAL.md](./COMMERCIAL.md).
+> **Copyright (c) 2026 Alexandre Pinoteau · Licensed under the
+> [Apache License 2.0](./LICENSE).**
 
 Autonomous CTI investigation tool. Feed it a domain, IP, file hash, URL, JARM
 fingerprint, ASN, malicious command line, or just the **filename** of a
@@ -14,6 +11,9 @@ tools (DNS / RDAP, crt.sh, CertSpotter, VirusTotal, URLScan, Onyphe, Shodan,
 Netlas, ZoomEye, CriminalIP, OTX, ThreatFox, AbuseIPDB, abuse.ch URLhaus &
 MalwareBazaar, Mnemonic pDNS, ip-api, Wayback, Whoxy reverse-WHOIS, OpenPhish,
 DOM fingerprints) building a live infrastructure graph in your browser.
+
+> **Status:** the OSINT and Due-Diligence (DD) verticals are experimental and
+> frozen: no further development is planned on them. Active work is on CTI.
 
 ## Demo
 
@@ -220,10 +220,9 @@ enforces this and adds an early-exit when a domain looks parked or sinkholed.
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Because
-Bounce-CTI is source-available and may also be offered commercially, your first
-pull request must sign the [Contributor License Agreement](./CLA.md) (handled
-automatically by a bot). A CI merge-gate (`backend imports` + `frontend builds`)
+Contributions are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Your
+first pull request must sign the [Contributor License Agreement](./CLA.md)
+(handled automatically by a bot). A CI merge-gate (`backend imports` + `frontend builds`)
 must pass before any PR is merged, since `main` deploys straight to production.
 
 ## Deployment

@@ -5,10 +5,8 @@
 
 Thank you for contributing to Bounce-CTI. This Contributor License Agreement
 ("Agreement") clarifies the intellectual-property terms under which You
-contribute. It protects both You and the Owner, and — because Bounce-CTI is a
-source-available project that the Owner may also offer under commercial terms —
-it ensures the Owner can use Your contributions across all distributions of the
-Project, including paid or closed modules.
+contribute. It protects both You and the Owner, and it ensures the Owner can
+use Your contributions across all distributions of the Project.
 
 By submitting a contribution (a pull request, patch, or any other code,
 documentation, or material) to the Project, You agree to the terms below. If You
