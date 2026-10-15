@@ -80,3 +80,15 @@ wc -l data/fixtures/replay-misses/<inv_id>.jsonl      # report this next to the 
 shape inside a cache key, appears in a fixture. A credential shape inside a
 response is only a warning: phishing URLs carry tokens. Read them before you
 commit.
+
+Before scoring, check that the event log is whole (on the VPS, read-only):
+
+```bash
+python3 eval/stream_audit.py --db data/bounce.db --since <first day of the run>
+```
+
+Exit 1 means a phase exited without its `result` event in the log, or the
+reader logged `agent_stream_error` / `agent_stdout_oversize`: the transcript
+the scorer reads is cut and `cti_calls` undercounts. Every run under
+`runs/` predates the 2026-10-15 fix: 62 of their 99 scored investigations still
+in the database are cut this way (EVAL_PROTOCOL §4.A note).

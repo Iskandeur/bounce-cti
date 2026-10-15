@@ -273,6 +273,52 @@ _FIRST_EVENT_TIMEOUT_S = float(
     os.environ.get("BOUNCE_AGENT_FIRST_EVENT_TIMEOUT_S", "120")
 )
 
+# How often the per-phase watchdog wakes up (tests shorten it).
+_WATCHDOG_POLL_S = 10.0
+
+# Longest stream-json line kept whole in the event log. One line is one event,
+# and a `user` event carries a tool's full output: a VirusTotal or Onyphe report
+# runs to hundreds of KB. Past this cap the line is logged as
+# `agent_stdout_oversize` (its size and head) and the stream goes on.
+_STREAM_LINE_MAX = 8 * 1024 * 1024
+
+
+async def _iter_stream_lines(stream: asyncio.StreamReader,
+                             max_bytes: Optional[int] = None):
+    """Yield ``(line, size)`` for every line of ``stream``, whatever its length.
+
+    ``async for line in stream`` raises ValueError on the first line longer than
+    the reader's limit (64 KiB by default) and the loop ends there. Until
+    2026-10-15 that ended the event log of the phase at its first tool result
+    over 64 KiB, silently (see test_agent_stream_lines.py). Here a long line is
+    read in pieces and put back together. ``line`` keeps its newline (the last
+    line may have none) and holds at most ``max_bytes`` bytes; ``size`` is the
+    line's real length, so ``size > len(line)`` means the line was cut."""
+    cap = _STREAM_LINE_MAX if max_bytes is None else max_bytes
+    while True:
+        head = bytearray()
+        size = 0
+        eof = False
+        while True:
+            try:
+                piece = await stream.readuntil(b"\n")
+                ended = True
+            except asyncio.IncompleteReadError as e:
+                piece, ended, eof = e.partial, True, True
+            except asyncio.LimitOverrunError as e:
+                # No newline within the limit: e.consumed bytes are buffered and
+                # none is the newline. Take them and look again.
+                piece, ended = await stream.read(max(e.consumed, 1)), False
+            size += len(piece)
+            if len(head) < cap:
+                head += piece[:cap - len(head)]
+            if ended:
+                break
+        if size:
+            yield bytes(head), size
+        if eof:
+            return
+
 
 # Global registry of running agent processes, keyed by investigation id.
 # Used by stop_investigation() to kill a running agent on demand.
@@ -2942,7 +2988,7 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
 
     async def pump_stderr():
         assert proc.stderr is not None
-        async for line in proc.stderr:
+        async for line, _size in _iter_stream_lines(proc.stderr):
             decoded = line.decode(errors="replace").rstrip()
             _log(inv_id, "agent_stderr", decoded)
             hit, reset_at, marker = _detect_quota_error(decoded)
@@ -2956,7 +3002,13 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
 
     async def pump_stdout():
         assert proc.stdout is not None
-        async for line in proc.stdout:
+        async for line, size in _iter_stream_lines(proc.stdout):
+            if size > len(line):
+                first_event["seen"] = True
+                _log(inv_id, "agent_stdout_oversize", {
+                    "phase": phase, "bytes": size, "kept": len(line),
+                    "head": line[:2000].decode(errors="replace")})
+                continue
             text = line.decode(errors="replace").strip()
             if not text:
                 continue
@@ -3041,12 +3093,19 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                 try: proc.kill()
                 except Exception: pass
                 return
-            await asyncio.sleep(10)
+            await asyncio.sleep(_WATCHDOG_POLL_S)
 
     rc = None
     try:
-        await asyncio.gather(pump_stdout(), pump_stderr(), watchdog(),
-                             return_exceptions=True)
+        outcomes = await asyncio.gather(pump_stdout(), pump_stderr(), watchdog(),
+                                        return_exceptions=True)
+        # return_exceptions keeps one failure from cancelling the others, but it
+        # also hid a dead pump: the phase went on unlogged and nothing said so.
+        for name, outcome in zip(("stdout", "stderr", "watchdog"), outcomes):
+            if isinstance(outcome, BaseException):
+                _log(inv_id, "agent_stream_error", {
+                    "phase": phase, "stream": name,
+                    "error": f"{type(outcome).__name__}: {outcome}"[:300]})
         try:
             rc = await asyncio.wait_for(proc.wait(), timeout=10)
         except asyncio.TimeoutError:
