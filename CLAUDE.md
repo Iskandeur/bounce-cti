@@ -543,6 +543,18 @@ A red gate must be fixed before merge. Pair this with branch protection on
   instead of hanging to the 20-min ceiling. This is the guardrail for the kind
   of silent-spawn failure behind the 2026-06-17 outage (the `claude` binary was
   off the systemd service PATH → `FileNotFoundError` → zero output).
+- **Stream lines of any length**: one stream-json line is one event, and a
+  `user` event carries a tool's whole output, so lines of 100-300 KB are normal
+  (VirusTotal, Onyphe). Both pumps read through `_iter_stream_lines`, which puts
+  back together a line longer than asyncio's 64 KiB reader limit. A line past
+  `_STREAM_LINE_MAX` (8 MiB) is logged as `agent_stdout_oversize` (size + first
+  2,000 chars), and a pump that dies logs `agent_stream_error` instead of being
+  swallowed by `gather(return_exceptions=True)`. Never go back to
+  `async for line in proc.stdout`. Until 2026-10-15 that loop raised on the
+  first long line, and the rest of the phase went unlogged with no error:
+  172 of 372 production investigations lost part of their log, and the event
+  log is what `_count_cti_calls`, quota detection, pivot reconciliation and the
+  eval scorer read (EVAL_PROTOCOL §4.A note).
 - **Auth-failure detection** (`_detect_auth_error`, distinct from quota): when
   the host's `claude` CLI credential is expired/invalid, every phase emits
   `Failed to authenticate. API Error: 401 …` yet the process exits 0, so the run
