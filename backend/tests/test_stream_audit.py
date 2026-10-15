@@ -71,6 +71,7 @@ def test_a_loss_event_of_the_fixed_reader_fails_the_check(tmp_path):
     ])
     assert audit.loss_events(audit._connect(path)) == {
         "agent_stdout_oversize": 1, "agent_stream_error": 1}
+    assert audit.loss_events(audit._connect(path), since=now + 1) == {}
     assert audit.main(["--db", str(path), "--since", day]) == 1
 
 

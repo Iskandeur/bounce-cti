@@ -556,7 +556,8 @@ A red gate must be fixed before merge. Pair this with branch protection on
   log is what `_count_cti_calls`, quota detection, pivot reconciliation and the
   eval scorer read (EVAL_PROTOCOL §4.A note). `eval/stream_audit.py` measures
   it from the database; with `--since <date>` it exits 1 if a phase exited
-  rc=0 without its `result` event.
+  rc=0 without its `result` event, or if `agent_stream_error` /
+  `agent_stdout_oversize` was logged.
 - **Auth-failure detection** (`_detect_auth_error`, distinct from quota): when
   the host's `claude` CLI credential is expired/invalid, every phase emits
   `Failed to authenticate. API Error: 401 …` yet the process exits 0, so the run
