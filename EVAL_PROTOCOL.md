@@ -128,7 +128,17 @@ REC is reported per-case and as an aggregate over LIVE cases. A drop in REC on a
 
 ### 4.C Fixture-replay capability track (STANDING TARGET — build incrementally)
 
-The live run is non-deterministic (decay + source flakiness), so live-run CAP still wobbles run-to-run. **Target state:** capture each tool's actual JSON response into a versioned fixture set and **replay it deterministically**, so CAP is byte-reproducible and *a code change is the only variable.* The backend already memoizes source responses in the `cache` table — the build is (1) a capture mode that snapshots a case's responses, (2) a replay mode (`BOUNCE_FIXTURE_DIR`) that serves them offline, (3) fixtures committed under `eval/fixtures/<case>/`. Until built, the **live-run CAP with the §3 freshness gate is the operative metric.** Standing objective for the nightly agent: snapshot the fresh-subset cases first (hashes don't decay), one case per idle night.
+The live run is non-deterministic (decay + source flakiness), so live-run CAP still wobbles run-to-run. **Target state:** capture each tool's actual JSON response into a versioned fixture set and **replay it deterministically**, so the data the agent sees is byte-reproducible and *a code change is the only variable on the data side.* The backend already memoizes source responses in the `cache` table — the build is (1) a capture mode that snapshots a case's responses, (2) a replay mode (`BOUNCE_FIXTURE_DIR`) that serves them offline, (3) fixtures committed under `eval/fixtures/<case>/`. Until (3) exists for a case, the **live-run CAP with the §3 freshness gate is the operative metric** for it. Standing objective for the nightly agent: snapshot the fresh-subset cases first (hashes don't decay), one case per idle night.
+
+**Status (2026-10-14): (1) and (2) are built** (`backend/fixtures.py`, `eval/fixture_tool.py`; mechanism in ARCHITECTURE.md). Proven on real sources: InternetDB, RDAP, CIRCL hashlookup and DNS captured live for case 2's indicators, then replayed in a fresh process on an empty DB with the network off — byte-identical, key order included, and the one request the capture never made failed as a named miss. **(3) is not started:** no case has a committed set yet.
+
+Procedure, per case:
+
+1. On the instance the eval runs against, set `BOUNCE_FIXTURE_CAPTURE=1` in `.env` (read per investigation: no restart), run the case live (`FORCE_NEW=1 python3 sequential_runner.py 2`), then remove the line.
+2. From a working checkout (never the deployed one: untracked files there block its next `git pull`), `python eval/fixture_tool.py promote <inv_id> case02 --capture-root <deployed>/data/fixtures/capture --dotenv <deployed>/.env` → `eval/fixtures/case02/` + `MANIFEST.md` (per-source counts and bytes, every key), then `verify` runs: it fails on any value of the instance's `.env` secrets and on credential shapes in a key, and warns on credential shapes in a response (threat data often carries tokens: look before committing). Responses can also echo the requesting host's IP.
+3. Score a replay on a dev instance with `BOUNCE_FIXTURE_DIR=eval/fixtures/case02`. No API key is needed.
+
+What a replay does **not** pin: the model samples, so a replayed agent can ask a question the captured one never asked. That request fails as `fixture replay: no recorded response for …` and is appended to `data/fixtures/replay-misses/<inv_id>.jsonl`. **Report the miss count next to a replayed CAP**: zero misses = the replay saw exactly the captured world; a high count means the comparison partly measured the network-failure path instead.
 
 ---
 

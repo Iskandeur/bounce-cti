@@ -1313,6 +1313,36 @@ def _mcp_launcher() -> str:
     return str(p).replace("\\", "/")
 
 
+_FIXTURE_TRUTHY = ("1", "true", "yes", "on")
+
+
+def _fixture_env(inv_id: str, env: dict) -> dict:
+    """Fixture switches for this investigation's MCP servers (EVAL_PROTOCOL §4.C,
+    backend/fixtures.py).
+
+    ``BOUNCE_FIXTURE_DIR`` (replay) is made absolute: the servers do not share
+    the backend's cwd; its misses are logged to
+    ``data/fixtures/replay-misses/<inv_id>.jsonl``, one line each, which is how
+    far the replayed agent strayed from the captured one.
+    ``BOUNCE_FIXTURE_CAPTURE=1`` becomes a capture directory of this
+    investigation's own, ``data/fixtures/capture/<inv_id>/``, so two
+    investigations captured in the same window never mix their responses.
+    Both are read from the environment or ``.env``; ``.env`` is re-read for every
+    investigation, so flipping capture on needs no restart. Replay wins when
+    both are set. Neither set → ``{}``: the generated config is unchanged.
+    """
+    replay = (env.get("BOUNCE_FIXTURE_DIR") or "").strip()
+    if replay:
+        p = Path(replay)
+        return {"BOUNCE_FIXTURE_DIR": str(p if p.is_absolute() else ROOT / p),
+                "BOUNCE_FIXTURE_MISSES":
+                str(ROOT / "data" / "fixtures" / "replay-misses" / f"{inv_id}.jsonl")}
+    if (env.get("BOUNCE_FIXTURE_CAPTURE") or "").strip().lower() in _FIXTURE_TRUTHY:
+        return {"BOUNCE_FIXTURE_CAPTURE_DIR":
+                str(ROOT / "data" / "fixtures" / "capture" / inv_id)}
+    return {}
+
+
 def _write_mcp_config(inv_id: str) -> Path:
     """Write a per-investigation mcp.json with correct paths for WSL claude.
 
@@ -1331,7 +1361,9 @@ def _write_mcp_config(inv_id: str) -> Path:
                  "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV",
                  # API keys
                  "VIRUSTOTAL_API_KEY", "URLSCAN_API_KEY", "ONYPHE_API_KEY",
-                 "SHODAN_API_KEY", "OTX_API_KEY")
+                 "SHODAN_API_KEY", "OTX_API_KEY",
+                 # Fixture capture/replay switches (EVAL_PROTOCOL §4.C)
+                 "BOUNCE_FIXTURE_CAPTURE", "BOUNCE_FIXTURE_DIR")
     }
     # Load .env file values explicitly so they are available to MCP servers
     env_file = ROOT / ".env"
@@ -1342,6 +1374,7 @@ def _write_mcp_config(inv_id: str) -> Path:
                 k, _, v = line.partition("=")
                 if k.strip() and k.strip() not in base_env:
                     base_env[k.strip()] = v.strip()
+    base_env.update(_fixture_env(inv_id, base_env))
 
     # Select the source pool for this investigation's vertical. The pool id is
     # used as the MCP server key (tool namespace mcp__<pool>__*) and maps to the

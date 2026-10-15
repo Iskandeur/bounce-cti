@@ -32,6 +32,11 @@ def _log(msg):
 _log(f"start argv={sys.argv}")
 try:
     import importlib
+    # Fixture capture/replay (EVAL_PROTOCOL §4.C) must be set up before any
+    # other backend import: replay stands in placeholder keys that
+    # backend.config reads at import time, then switches the network off.
+    from backend import fixtures
+    _log(fixtures.activate_for_process())
     t0 = time.time()
     mod = importlib.import_module(f"backend.mcp_servers.{module_name}")
     _log(f"imported in {time.time()-t0:.1f}s, calling mcp.run()")

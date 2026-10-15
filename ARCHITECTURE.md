@@ -845,6 +845,54 @@ keyless DuckDuckGo HTML (best-effort fallback). Every response is cached in the
 hour's SERP. `web_fetch` applies the scheme allowlist, a pre-DNS host check, a
 post-DNS check on every resolved address, a redirect re-check, and a byte cap.
 
+### `backend/fixtures.py` (EVAL_PROTOCOL §4.C)
+Capture and offline replay of source responses, so two eval runs on the same
+code see the same data. Stdlib only, imported by `graph_store` and set up by
+`run_mcp.py` (`activate_for_process()`) before any other backend import.
+
+- **Hook points.** `graph_store.cache_get` / `cache_set`: every source memoises
+  its answer there under a source-specific key, so capture covers a new source
+  without touching it. Capture records writes **and hits** (a warm cache still
+  answered the agent). `dns_tools.resolve_all` / `reverse_dns` keep no cache
+  entry and go through `fixtures.through()`.
+- **What is a source key.** Everything except `BOOKKEEPING_PREFIXES`
+  (`counter|`, `source_health|`, `pdf_source:`, `sample_source:`): budgets,
+  dead-source marks and uploaded context are recomputed by the replayed run.
+- **Capture** (`BOUNCE_FIXTURE_CAPTURE_DIR`, set by `agent_runner._fixture_env`
+  to `data/fixtures/capture/<inv_id>/` when `BOUNCE_FIXTURE_CAPTURE=1`): one
+  file per key, `<sha256(key)[:24]>.json` = `{key, source, value}`, canonical
+  text (same response → same bytes), the response's own key order kept, atomic
+  writes. A capture error is logged and swallowed: it never breaks the live run.
+- **Replay** (`BOUNCE_FIXTURE_DIR`): a source key is answered from the set
+  whatever the TTL; `cache_set` of a source key is a no-op; a miss makes
+  `http_client` raise `httpx.ConnectError("fixture replay: no recorded response
+  for …")` before any request, and is appended to `BOUNCE_FIXTURE_MISSES`
+  (`data/fixtures/replay-misses/<inv_id>.jsonl`). `install_offline_guard()`
+  refuses `socket.getaddrinfo` and every socket `connect`/`sendto`/`sendmsg`
+  that would leave the machine, in the MCP process, so a source with its own
+  client (Shodan, InternetDB, WHOIS port 43, DNS) can never fall back to the
+  live internet either. Literal loopback IPs and Unix sockets stay open for the
+  event loop's own plumbing; a host name (even `localhost`) does not resolve. A replay directory that does not
+  exist stops the server at launch (a typo would otherwise score a run where
+  every source "failed").
+- **Secrets.** Before any write, the value of every env var whose name contains
+  `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `AUTH` or `CREDENTIAL` (so
+  `NETLAS_APIKEY` too), plus `OPENCTI_URL`, is replaced by `<secret:SOURCE>` in
+  key and value (values of 8 characters or more), and a write still containing
+  one is refused. Lookups redact
+  the same way. `_env.json` records the NAMES of the keys present at capture;
+  replay stands in `fixture-replay-<NAME>` for those (and only those, so a
+  source that had no key still answers "no key"), which redacts to the same
+  placeholder: a replay needs no API key. `eval/fixture_tool.py verify` is the
+  gate before a commit (`.env` values, credential shapes in keys); `promote`
+  builds and verifies the set in a temp dir and writes nothing to the tree when
+  it fails.
+- **Limits.** Replay pins the data, not the agent's sampling: the miss log is
+  the measure of drift. Source calls made by the main process (the DD sanctions
+  sweep) are replayed but not network-guarded: run replay on a dev instance.
+  `get_evidence_for_value` reads the `cache` table directly and sees nothing in
+  a replay.
+
 ### `run_mcp.py`
 Standalone MCP launcher (at project root). Used as `command` in generated
 `data/mcp-{id}.json` configs. Adds the project root to `sys.path` and runs the
@@ -973,6 +1021,10 @@ BOUNCE_CTX_BUDGET=          # max context-pool calls per investigation (default 
 BOUNCE_CORROBORATE_MAX_TURNS=  # turn budget for the corroboration phase (default 30)
 BRAVE_SEARCH_API_KEY=       # optional web_search backend (1st choice)
 SERPER_API_KEY=             # optional web_search backend (2nd choice); else keyless DuckDuckGo
+
+# Eval fixtures (EVAL_PROTOCOL §4.C) — see backend/fixtures.py. Both off by default.
+BOUNCE_FIXTURE_CAPTURE=     # 1 = record each investigation's source responses into data/fixtures/capture/<inv_id>/
+BOUNCE_FIXTURE_DIR=         # replay from this set (e.g. eval/fixtures/case02), network off; dev instance only
 
 CLAUDE_BIN=claude      # path to claude CLI if not in PATH
 ADMIN_PIN=             # optional 6-digit PIN; the matching user is promoted to admin on startup (idempotent). No auto-generation if unset.

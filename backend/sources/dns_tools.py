@@ -2,6 +2,8 @@ import asyncio
 import dns.resolver
 import dns.reversename
 
+from .. import fixtures
+
 
 async def _resolve(name: str, rtype: str) -> list[str]:
     def _q():
@@ -14,10 +16,14 @@ async def _resolve(name: str, rtype: str) -> list[str]:
 
 
 async def resolve_all(domain: str) -> dict:
-    out = {}
-    for rt in ("A", "AAAA", "MX", "NS", "TXT", "CNAME", "SOA"):
-        out[rt] = await _resolve(domain, rt)
-    return out
+    async def _live():
+        out = {}
+        for rt in ("A", "AAAA", "MX", "NS", "TXT", "CNAME", "SOA"):
+            out[rt] = await _resolve(domain, rt)
+        return out
+    # DNS keeps no cache entry, so it is the one source that needs its own
+    # fixture hook (EVAL_PROTOCOL §4.C). Outside capture/replay this is _live().
+    return await fixtures.through(f"dns|all|{domain}", _live)
 
 
 async def reverse_dns(ip: str) -> list[str]:
@@ -28,4 +34,7 @@ async def reverse_dns(ip: str) -> list[str]:
             return [r.to_text().rstrip(".") for r in ans]
         except Exception:
             return []
-    return await asyncio.get_event_loop().run_in_executor(None, _q)
+
+    async def _live():
+        return await asyncio.get_event_loop().run_in_executor(None, _q)
+    return await fixtures.through(f"dns|ptr|{ip}", _live)

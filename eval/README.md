@@ -53,3 +53,30 @@ Notes for one-by-one discipline:
   the VPS, which burns the 5-hour Anthropic budget.
 - A `quota_exceeded` case is resumed in place via `POST /resume` (no graph
   reset); a fresh-iteration `FORCE_NEW=1` run submits new instead.
+
+## Fixture sets (deterministic replay, EVAL_PROTOCOL §4.C)
+
+Capture a case's source responses once, then replay them offline as often as
+needed (mechanism: `backend/fixtures.py`).
+
+```bash
+# In the deployed checkout the eval runs against: capture one case, then switch it off.
+echo 'BOUNCE_FIXTURE_CAPTURE=1' >> /opt/bounce-cti/.env   # read per investigation, no restart
+cd /tmp/eval_run && FORCE_NEW=1 python3 sequential_runner.py 2
+sed -i '/^BOUNCE_FIXTURE_CAPTURE=/d' /opt/bounce-cti/.env
+
+# From a WORKING checkout (files left untracked in the deployed one block its
+# next git pull): promote that capture to the committed set, and check it.
+python eval/fixture_tool.py promote <inv_id> case02 \
+  --capture-root /opt/bounce-cti/data/fixtures/capture --dotenv /opt/bounce-cti/.env
+python eval/fixture_tool.py stats case02
+
+# Replay (dev instance only): every source answers from the set, network off.
+BOUNCE_FIXTURE_DIR=eval/fixtures/case02 uvicorn backend.main:app --port 8001
+wc -l data/fixtures/replay-misses/<inv_id>.jsonl      # report this next to the CAP
+```
+
+`verify` exits 1 if a value from this checkout's `.env` secrets, or a credential
+shape inside a cache key, appears in a fixture. A credential shape inside a
+response is only a warning: phishing URLs carry tokens. Read them before you
+commit.

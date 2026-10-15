@@ -148,6 +148,19 @@ backend/
                         #   tier_restricted / quota_exhausted / zero_balance)
                         #   backed by the cache table so both MCP processes see
                         #   it; auto-enqueue skips pivots needing a dead source
+  fixtures.py           # EVAL_PROTOCOL §4.C fixture capture + OFFLINE replay of
+                        #   source responses. Hooks graph_store.cache_get/
+                        #   cache_set (every source memoises there) + dns_tools
+                        #   (the one uncached source, via through()). Capture:
+                        #   BOUNCE_FIXTURE_CAPTURE_DIR (set per investigation by
+                        #   agent_runner from BOUNCE_FIXTURE_CAPTURE=1). Replay:
+                        #   BOUNCE_FIXTURE_DIR, served whatever the TTL, never
+                        #   written to the DB, network refused in the MCP
+                        #   process (install_offline_guard), misses logged per
+                        #   investigation. Secrets redacted to <secret:SOURCE>
+                        #   in key AND value before any write. Bookkeeping keys
+                        #   (BOOKKEEPING_PREFIXES: counter|, source_health|, …)
+                        #   are never captured. Stdlib only; off by default
   pivot_mapping.py      # Per-node-type pivot rules + fan-out caps + global
                         #   pending-queue ceiling (MAX_PENDING_QUEUE) + cloud
                         #   ASN list + discriminating_marker() for convergence
@@ -311,6 +324,8 @@ data/                   # Runtime data (gitignored)
   secret.key            # HMAC key for PIN auth
   mcp-{id}.json         # Per-investigation MCP configs (temporary)
   mcp-launcher-*.log    # Per-server launcher trace logs (debug)
+  fixtures/             # capture/<inv_id>/ (BOUNCE_FIXTURE_CAPTURE=1) and
+                        #   replay-misses/<inv_id>.jsonl (BOUNCE_FIXTURE_DIR)
 runs/                   # Archived eval-protocol scorecards (one folder per run)
 eval/results_digest.py  # Renders EVAL_RESULTS.md from runs/*/scorecard.md (stdlib,
                         #   offline). Like-for-like trend on the fresh subset only;
@@ -324,6 +339,11 @@ run_mcp.py              # MCP server launcher (referenced by generated mcp.json 
 mcp.json                # Template MCP config (rendered per investigation at runtime)
 EVAL_PROTOCOL.md        # Active eval protocol (run on every non-trivial agent change)
 PIVOT_MAPPING.md        # Architecture spec for the autonomy engine refactor
+eval/fixture_tool.py    # promote <inv_id> <case> (a capture → eval/fixtures/<case>/
+                        #   + MANIFEST.md), verify (integrity + no secret: .env
+                        #   values and credential shapes; exit 1), stats
+eval/fixtures/<case>/   # Committed fixture sets, one per eval case, one JSON
+                        #   file per source response (name = sha256 of the key)
 ```
 
 ## Development
@@ -579,6 +599,26 @@ A red gate must be fixed before merge. Pair this with branch protection on
   investigation. The native `WebSearch` / `WebFetch` stay in `_DISALLOWED_TOOLS`
   even when the pool is on — they would bypass the cache (eval determinism), the
   budget, the SSRF guard and the lead tier.
+- **Fixture capture / replay (EVAL_PROTOCOL §4.C)** (`backend/fixtures.py`): the
+  `cache` table is the one place every source's answer passes through, so that
+  is where it hooks. `BOUNCE_FIXTURE_CAPTURE=1` (env or `.env`; `.env` is re-read
+  per investigation, so no restart) records every source response an
+  investigation reads, cache hits included, into `data/fixtures/capture/<inv_id>/`;
+  `python eval/fixture_tool.py promote <inv_id> case02` turns that into the
+  committed set `eval/fixtures/case02/`. `BOUNCE_FIXTURE_DIR=eval/fixtures/case02`
+  replays it: source keys are served from the set whatever the TTL, nothing is
+  written to the DB, the MCP processes refuse DNS and outbound sockets, and a
+  request the capture never made fails as `fixture replay: no recorded response
+  for …` and is appended to `data/fixtures/replay-misses/<inv_id>.jsonl` (the
+  miss count is how far the replayed agent strayed). Replay pins the **data**,
+  not the model's sampling. A replay box needs no API key: the names of the keys
+  present at capture are recorded (`_env.json`, names only) and stood in with
+  placeholders, which redact to the same `<secret:SOURCE>` as the real keys did.
+  Run replay on a dev instance, never on the production service (the main
+  process is not network-guarded). **A new kind of bookkeeping key in the cache**
+  (anything that is not a source's answer) must be added to
+  `fixtures.BOOKKEEPING_PREFIXES`; `test_every_cache_user_outside_sources_is_classified`
+  fails until it is.
 - **Key rotation**: `backend/key_pool.py` lets each source accept either
   `<SRC>_API_KEY=k1` (single) or `<SRC>_API_KEYS=k1,k2,k3` (multi, takes precedence).
   Cooldown on 429 (60s default), full-day cooldown on quota exhausted. Sources call
