@@ -6,17 +6,25 @@ UA = "bounce-cti/0.1 (+research)"
 
 # Paramètres de requête qui portent un secret : ils ne doivent jamais entrer dans une clé de cache
 # (la table `cache` est copiée avec la base ; une clé qui tourne invaliderait aussi tout le cache).
+# `signature`, `sig`, `pass` en sont absents exprès : ce sont aussi des paramètres métier (MalwareBazaar
+# `get_siginfo` passe `signature=<famille>`), les retirer ferait collisionner des requêtes différentes.
 _SECRET_PARAMS = frozenset({
-    "key", "apikey", "api_key", "api-key", "token", "access_token", "auth", "secret",
-    "password", "pass", "signature", "sig",
+    "key", "apikey", "api_key", "api-key", "x-api-key", "token", "api_token", "apitoken",
+    "access_token", "auth", "secret", "client_secret", "password",
 })
 
 
-def cache_params(params: dict | None) -> dict | None:
-    """`params` sans les paramètres d'authentification, pour fabriquer une clé de cache."""
+def cache_params(params):
+    """`params` sans les paramètres d'authentification, pour fabriquer une clé de cache.
+    Accepte un dict ou une liste de tuples (httpx accepte les deux)."""
     if not params:
         return params
-    return {k: v for k, v in params.items() if str(k).lower() not in _SECRET_PARAMS}
+    if isinstance(params, dict):
+        return {k: v for k, v in params.items() if str(k).lower() not in _SECRET_PARAMS}
+    try:
+        return [(k, v) for k, v in params if str(k).lower() not in _SECRET_PARAMS]
+    except (TypeError, ValueError):
+        return params
 
 
 def _replay_miss(key: str) -> None:

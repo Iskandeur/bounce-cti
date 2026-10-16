@@ -16,6 +16,16 @@ def test_cache_params_none_and_empty():
     assert http_client.cache_params({}) == {}
 
 
+def test_cache_params_list_of_tuples():
+    assert http_client.cache_params([("key", SECRET), ("q", "a")]) == [("q", "a")]
+
+
+def test_business_params_named_signature_stay_distinct():
+    a = http_client.cache_params({"query": "get_siginfo", "signature": "FamilyA"})
+    b = http_client.cache_params({"query": "get_siginfo", "signature": "FamilyB"})
+    assert a != b
+
+
 def test_get_json_cache_key_has_no_secret(monkeypatch):
     seen = []
     monkeypatch.setattr(http_client, "cache_get", lambda k, ttl=None: seen.append(k) or {"ok": 1})
