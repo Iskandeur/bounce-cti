@@ -70,5 +70,8 @@ spec-conformant", pull request #56), accepted under the previous version of this
 Agreement. Every other commit was authored by the Maintainer or made on the
 Maintainer's behalf. That earlier version let the Maintainer relicense the
 contribution under any terms, and the Project is now relicensed under Apache-2.0
-on that basis. From this version on, the Maintainer holds no such right over
-any Contribution.
+on that basis. The patent license for that contribution is the one granted in
+section 3 of that earlier version, to the Maintainer and to recipients of the
+software the Maintainer distributes, on terms comparable to section 3 of
+Apache-2.0. From this version on, the Maintainer holds no such right over any
+Contribution.
