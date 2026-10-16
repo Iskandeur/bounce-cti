@@ -1402,13 +1402,19 @@ def reset_fixture_capture(inv_id: str) -> bool:
     """Drop an investigation's capture, before a rerun or with the investigation
     itself. A capture belongs to one run: the rerun clears that run's graph and
     events, and responses it left on disk would end up in the rerun's fixture
-    set, mixing two data windows. Returns True when a capture was removed."""
+    set, mixing two data windows. Returns True when a capture was removed.
+    Never raises: the caller has already cleared or deleted the investigation,
+    and a 500 at that point would leave a rerun cleared but never started."""
     if not re.fullmatch(r"[A-Za-z0-9_-]+", inv_id or ""):
         return False  # never let an id like ".." point rmtree at a parent
     d = fixture_capture_dir(inv_id)
     if not d.is_dir():
         return False
-    shutil.rmtree(d)
+    try:
+        shutil.rmtree(d)
+    except OSError as e:
+        print(f"[fixtures] could not remove the capture of {inv_id}: {e}", file=sys.stderr)
+        return False
     return True
 
 

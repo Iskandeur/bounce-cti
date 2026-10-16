@@ -108,6 +108,15 @@ def test_reset_removes_only_that_investigations_capture(runner):
     assert runner.reset_fixture_capture("inv-a") is False  # nothing left
 
 
+def test_reset_never_raises_on_a_capture_it_cannot_remove(runner, monkeypatch):
+    (runner.ROOT / "data" / "fixtures" / "capture" / "inv-a").mkdir(parents=True)
+
+    def refuse(path, *a, **k):
+        raise PermissionError(13, "Permission denied", str(path))
+    monkeypatch.setattr(runner.shutil, "rmtree", refuse)
+    assert runner.reset_fixture_capture("inv-a") is False
+
+
 def test_reset_refuses_an_id_that_leaves_the_capture_root(runner):
     root = runner.ROOT / "data" / "fixtures" / "capture"
     (root / "inv-a").mkdir(parents=True)
