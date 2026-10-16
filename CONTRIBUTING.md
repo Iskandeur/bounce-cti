@@ -4,14 +4,17 @@ Thanks for your interest in improving Bounce-CTI! This guide covers how to
 contribute and the few rules that keep the project safe to deploy.
 
 > **License note.** Bounce-CTI is licensed under the **Apache License 2.0**
-> (see [LICENSE](./LICENSE)). Contributions are welcome, but before your first
+> (see [LICENSE](./LICENSE)). Contributions are welcome and enter the Project
+> under that same license (inbound = outbound). Before your first
 > contribution can be merged you must sign the
 > **[Contributor License Agreement](./CLA.md)**. See "CLA" below.
 
 ## CLA — required before your first merge
 
-We use **CLA-Assistant**. On your first pull request, a bot comments with a
-link to sign the [CLA](./CLA.md). Sign once and it covers all your future PRs.
+The [CLA](./CLA.md) confirms that your contribution is yours to give and is
+licensed under Apache-2.0, no more: it grants the maintainer no right to
+relicense it. We use **CLA-Assistant**. On your first pull request, a bot
+comments with a link to sign it. Sign once and it covers all your future PRs.
 **A PR cannot be merged until the CLA check is green.** If you contribute on
 behalf of an employer, make sure you're authorized to sign.
 
@@ -63,7 +66,7 @@ full architecture, conventions, and project layout.
 5. **Don't include third-party code without flagging it.** If you copy or adapt
    code/data from another project, note its source and license in your PR so it
    can be tracked in `THIRD_PARTY_LICENSES` / `NOTICE`. Avoid copyleft
-   (GPL/AGPL) code — see [CLA.md](./CLA.md) §4.
+   (GPL/AGPL) code — see [CLA.md](./CLA.md) §3.
 
 ## Pull-request checklist
 
@@ -76,7 +79,9 @@ full architecture, conventions, and project layout.
 
 ## Reporting security issues
 
-Please do **not** open a public issue for security vulnerabilities. Email
-**alexandre.pinoteau@protonmail.com** directly.
+Please do **not** open a public issue for security vulnerabilities. Use GitHub's
+private vulnerability reporting (the repository's Security tab, "Report a
+vulnerability"), or open an issue asking for a private channel without giving
+details.
 
-Thanks for contributing! — Alexandre
+Thanks for contributing!
