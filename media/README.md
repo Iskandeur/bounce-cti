@@ -37,6 +37,5 @@ render service. 82 s of wall clock for 600 frames on a 2-core VPS.
 - **Typefaces** (rendered, not embedded) — Inter and JetBrains Mono, **SIL OFL 1.1**.
 
 These licenses were checked before adding the file because this repository is
-source-available and separately licensable for commercial use
-([COMMERCIAL.md](../COMMERCIAL.md)): a demo video must not drag an unclear
+Apache-2.0 ([LICENSE](../LICENSE)): a demo video must not drag an unclear
 third-party right into that grant.
