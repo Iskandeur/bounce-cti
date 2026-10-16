@@ -153,7 +153,9 @@ backend/
                         #   cache_set (every source memoises there) + dns_tools
                         #   (the one uncached source, via through()). Capture:
                         #   BOUNCE_FIXTURE_CAPTURE_DIR (set per investigation by
-                        #   agent_runner from BOUNCE_FIXTURE_CAPTURE=1). Replay:
+                        #   agent_runner from BOUNCE_FIXTURE_CAPTURE=1, or from
+                        #   investigations.fixture_capture = an admin's
+                        #   "capture": true at creation). Replay:
                         #   BOUNCE_FIXTURE_DIR, served whatever the TTL, never
                         #   written to the DB, network refused in the MCP
                         #   process (install_offline_guard), misses logged per
@@ -324,7 +326,7 @@ data/                   # Runtime data (gitignored)
   secret.key            # HMAC key for PIN auth
   mcp-{id}.json         # Per-investigation MCP configs (temporary)
   mcp-launcher-*.log    # Per-server launcher trace logs (debug)
-  fixtures/             # capture/<inv_id>/ (BOUNCE_FIXTURE_CAPTURE=1) and
+  fixtures/             # capture/<inv_id>/ (BOUNCE_FIXTURE_CAPTURE=1 or capture: true) and
                         #   replay-misses/<inv_id>.jsonl (BOUNCE_FIXTURE_DIR)
 runs/                   # Archived eval-protocol scorecards (one folder per run)
 eval/results_digest.py  # Renders EVAL_RESULTS.md from runs/*/scorecard.md (stdlib,
@@ -618,8 +620,14 @@ A red gate must be fixed before merge. Pair this with branch protection on
   `cache` table is the one place every source's answer passes through, so that
   is where it hooks. `BOUNCE_FIXTURE_CAPTURE=1` (env or `.env`; `.env` is re-read
   per investigation, so no restart) records every source response an
-  investigation reads, cache hits included, into `data/fixtures/capture/<inv_id>/`;
-  `python eval/fixture_tool.py promote <inv_id> case02` turns that into the
+  investigation reads, cache hits included, into `data/fixtures/capture/<inv_id>/`.
+  To capture ONE investigation without touching `.env`, an admin creates it with
+  `"capture": true` on `POST /api/investigations` (stored in
+  `investigations.fixture_capture`, read on every spawn, so resume/pivot/add-seed
+  keep capturing; a non-admin gets 403 before anything starts; a rerun deletes
+  the previous capture). `eval/sequential_runner.py` asks for it with
+  `BOUNCE_EVAL_CAPTURE=1` and stops any run the server did not acknowledge as
+  captured. `python eval/fixture_tool.py promote <inv_id> case02` turns that into the
   committed set `eval/fixtures/case02/`. `BOUNCE_FIXTURE_DIR=eval/fixtures/case02`
   replays it: source keys are served from the set whatever the TTL, nothing is
   written to the DB, the MCP processes refuse DNS and outbound sockets, and a

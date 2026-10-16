@@ -1374,8 +1374,12 @@ def _fixture_env(inv_id: str, env: dict) -> dict:
     investigation's own, ``data/fixtures/capture/<inv_id>/``, so two
     investigations captured in the same window never mix their responses.
     Both are read from the environment or ``.env``; ``.env`` is re-read for every
-    investigation, so flipping capture on needs no restart. Replay wins when
-    both are set. Neither set → ``{}``: the generated config is unchanged.
+    investigation, so flipping capture on needs no restart. An investigation
+    created with ``capture: true`` (admin only, stored in
+    ``investigations.fixture_capture``) captures the same way without touching
+    ``.env``, and keeps doing so on resume, pivot, add-seed and custom prompts.
+    Replay wins when both are set. Neither set → ``{}``: the generated config
+    is unchanged.
     """
     replay = (env.get("BOUNCE_FIXTURE_DIR") or "").strip()
     if replay:
@@ -1383,10 +1387,29 @@ def _fixture_env(inv_id: str, env: dict) -> dict:
         return {"BOUNCE_FIXTURE_DIR": str(p if p.is_absolute() else ROOT / p),
                 "BOUNCE_FIXTURE_MISSES":
                 str(ROOT / "data" / "fixtures" / "replay-misses" / f"{inv_id}.jsonl")}
-    if (env.get("BOUNCE_FIXTURE_CAPTURE") or "").strip().lower() in _FIXTURE_TRUTHY:
-        return {"BOUNCE_FIXTURE_CAPTURE_DIR":
-                str(ROOT / "data" / "fixtures" / "capture" / inv_id)}
+    if ((env.get("BOUNCE_FIXTURE_CAPTURE") or "").strip().lower() in _FIXTURE_TRUTHY
+            or gs.get_fixture_capture(inv_id)):
+        return {"BOUNCE_FIXTURE_CAPTURE_DIR": str(fixture_capture_dir(inv_id))}
     return {}
+
+
+def fixture_capture_dir(inv_id: str) -> Path:
+    """Where an investigation's fixture capture is recorded."""
+    return ROOT / "data" / "fixtures" / "capture" / inv_id
+
+
+def reset_fixture_capture(inv_id: str) -> bool:
+    """Drop an investigation's capture before a rerun. A capture belongs to one
+    run: the rerun clears that run's graph and events, and responses it left on
+    disk would end up in the rerun's fixture set, mixing two data windows.
+    Returns True when a capture was removed."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", inv_id or ""):
+        return False  # never let an id like ".." point rmtree at a parent
+    d = fixture_capture_dir(inv_id)
+    if not d.is_dir():
+        return False
+    shutil.rmtree(d)
+    return True
 
 
 def _write_mcp_config(inv_id: str) -> Path:
