@@ -1,1 +1,1 @@
-Apache-2.0, aucune offre commerciale. / Apache-2.0, no commercial offer. See [LICENSE](./LICENSE).
+Bounce-CTI is released under the Apache License 2.0 and has no commercial offer. For any question, open an issue on GitHub. / Bounce-CTI est sous licence Apache-2.0, sans offre commerciale ; pour toute question, ouvrez une issue GitHub. See [LICENSE](./LICENSE).
