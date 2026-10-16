@@ -293,7 +293,7 @@ SQLite-backed store. Tables:
 | `nodes`          | `id`, `investigation_id`, `type`, `value`, `metadata` (JSON), `tags` (JSON), `confidence`, `source`, `created_at`, UNIQUE(inv,type,value) |
 | `edges`          | `id`, `investigation_id`, `src`, `dst`, `relation`, `evidence`, `source`, `confidence`, `created_at`, UNIQUE(inv,src,dst,relation) |
 | `events`         | `id` AUTOINCREMENT, `investigation_id`, `kind`, `payload` (JSON), `created_at` — full agent stream + state changes            |
-| `cache`          | `key`, `value` (JSON), `created_at` — HTTP response cache (TTL per source). Auth parameters (`key`, `apikey`, `token`…) never enter a key (`http_client.cache_params`); rows written before that are deleted at backend startup by `purge_secret_cache_keys` (pure SQL, logs the count only) |
+| `cache`          | `key`, `value` (JSON), `created_at` — HTTP response cache (TTL per source). Auth parameters (`key`, `apikey`, `token`…) never enter a key (`http_client.cache_params`); rows written before that are deleted at backend startup by `purge_secret_cache_keys` (pure SQL with `secure_delete`, then a one-off `VACUUM` when rows were removed so no copy survives in the file; logs the count only) |
 | `users`          | `id`, `pin_hmac` (UNIQUE), `created_at`, `is_admin`, `allowed_models` (JSON or NULL), `label`                                 |
 | `sessions`       | `token` (PK), `user_id`, `expires_at`                                                                                         |
 | `shares`         | `token` (PK), `investigation_id`, `created_by`, `created_at`, `sections` (JSON), `expires_at`, `revoked`, `label`             |

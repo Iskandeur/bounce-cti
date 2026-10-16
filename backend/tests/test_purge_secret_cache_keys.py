@@ -46,6 +46,30 @@ def test_purge_removes_only_legacy_secret_keys(tmp_path, monkeypatch, capsys):
     assert SECRET not in capsys.readouterr().out
 
 
+
+def test_purge_overwrites_freed_bytes(tmp_path, monkeypatch):
+    """Le secret ne reste pas dans les pages libres, même si le SQLite de l'hôte
+    n'active pas secure_delete par défaut (certaines distributions l'activent)."""
+    db = tmp_path / "t.db"
+    monkeypatch.setattr(gs, "DB_PATH", str(db))
+    real_connect = gs.sqlite3.connect
+
+    def connect_insecure(*a, **kw):
+        c = real_connect(*a, **kw)
+        c.execute("PRAGMA secure_delete = OFF")
+        return c
+
+    monkeypatch.setattr(gs.sqlite3, "connect", connect_insecure)
+    gs.init_db()
+    for i in range(300):
+        gs.cache_set(f"GET|https://example.test/{i}|{ {'key': SECRET} }", "x" * 200)
+    gs.cache_set("GET|https://example.test/keep|None", {"ok": True})
+    assert SECRET.encode() in db.read_bytes()
+
+    assert gs.purge_secret_cache_keys() == 300
+    assert SECRET.encode() not in db.read_bytes()
+
+
 def test_purge_covers_keys_that_http_client_used_to_write(tmp_path, monkeypatch):
     """La clé d'avant #68 (params bruts) est purgée ; celle d'aujourd'hui survit."""
     monkeypatch.setattr(gs, "DB_PATH", str(tmp_path / "t.db"))

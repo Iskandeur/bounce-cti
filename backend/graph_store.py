@@ -909,8 +909,19 @@ def purge_secret_cache_keys() -> int:
     param_sql = " OR ".join("key LIKE ? ESCAPE '\\'" for _ in patterns)
     args = [esc(p) + "%" for p in _HTTP_CACHE_PREFIXES] + patterns
     with conn() as c:
-        cur = c.execute(f"DELETE FROM cache WHERE ({prefix_sql}) AND ({param_sql})", args)
-        return cur.rowcount
+        # Sans secure_delete, les octets supprimés restent lisibles dans les pages libres du fichier.
+        c.execute("PRAGMA secure_delete = ON")
+        n = c.execute(f"DELETE FROM cache WHERE ({prefix_sql}) AND ({param_sql})", args).rowcount
+    if n:
+        # secure_delete ne suffit pas : une clé supprimée peut survivre comme séparateur
+        # dans un nœud interne de l'index de clé primaire. Seul VACUUM réécrit le fichier.
+        # Une seule fois : au démarrage suivant n == 0.
+        c = sqlite3.connect(DB_PATH)
+        try:
+            c.execute("VACUUM")
+        finally:
+            c.close()
+    return n
 
 
 # ── Per-investigation counters ────────────────────────────────────────────
