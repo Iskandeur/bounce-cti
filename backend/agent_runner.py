@@ -1399,10 +1399,10 @@ def fixture_capture_dir(inv_id: str) -> Path:
 
 
 def reset_fixture_capture(inv_id: str) -> bool:
-    """Drop an investigation's capture before a rerun. A capture belongs to one
-    run: the rerun clears that run's graph and events, and responses it left on
-    disk would end up in the rerun's fixture set, mixing two data windows.
-    Returns True when a capture was removed."""
+    """Drop an investigation's capture, before a rerun or with the investigation
+    itself. A capture belongs to one run: the rerun clears that run's graph and
+    events, and responses it left on disk would end up in the rerun's fixture
+    set, mixing two data windows. Returns True when a capture was removed."""
     if not re.fullmatch(r"[A-Za-z0-9_-]+", inv_id or ""):
         return False  # never let an id like ".." point rmtree at a parent
     d = fixture_capture_dir(inv_id)

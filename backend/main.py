@@ -797,6 +797,7 @@ def delete_inv(inv_id: str, user_id: int = Depends(current_user)):
     _require_owner(inv_id, user_id)
     stop_investigation(inv_id)  # kill agent if running before deleting
     gs.delete_investigation(inv_id)
+    reset_fixture_capture(inv_id)  # its capture would be left with no owner
     return {"ok": True}
 
 

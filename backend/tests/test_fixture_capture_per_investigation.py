@@ -189,6 +189,18 @@ def test_a_rerun_starts_from_an_empty_capture(api, db, runner):
     assert api.started == [inv]
 
 
+def test_deleting_an_investigation_deletes_its_capture(api, db, runner):
+    uid, token = api.session(is_admin=True)
+    inv = db.create_investigation("hash", "3df9" * 8, user_id=uid, fixture_capture=True)
+    other = db.create_investigation("hash", "3df9" * 8, user_id=uid, fixture_capture=True)
+    for i in (inv, other):
+        runner.fixture_capture_dir(i).mkdir(parents=True)
+    api.client.cookies.set("session", token)
+    assert api.client.delete(f"/api/investigations/{inv}").status_code == 200
+    assert not runner.fixture_capture_dir(inv).exists()
+    assert runner.fixture_capture_dir(other).is_dir()
+
+
 # ── eval/sequential_runner.py ──────────────────────────────────────────────
 
 @pytest.fixture

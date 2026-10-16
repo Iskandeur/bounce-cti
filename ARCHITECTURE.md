@@ -94,7 +94,7 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   hierarchy, officers / PSC, provenance, with the estimated-ownership +
   candidate-match disclaimers (`backend/dd_export.py`).
 - `POST   /api/investigations/{id}/stop` — kill the running agent
-- `DELETE /api/investigations/{id}`
+- `DELETE /api/investigations/{id}` — stops the agent, deletes the investigation and its fixture capture, if any
 - `PATCH  /api/investigations/{id}` — rename (`{title}`); empty/omitted title clears it, falling back to the seed value in the UI
 - `POST   /api/investigations/{id}/rerun` — clears the graph and runs again; an existing fixture capture of the investigation is deleted with it (a fixture set holds one run)
 - `POST   /api/investigations/{id}/resume` — pick up an investigation halted by a Claude-subscription quota error (425 while still in cooldown)
@@ -867,7 +867,8 @@ code see the same data. Stdlib only, imported by `graph_store` and set up by
   writes. A capture error is logged and swallowed: it never breaks the live run.
   The per-investigation flag is read on every spawn, so resume, pivot, add-seed
   and custom prompts keep recording into the same directory; a rerun deletes
-  the previous run's capture first (`agent_runner.reset_fixture_capture`).
+  the previous run's capture first, and deleting the investigation deletes its
+  capture (`agent_runner.reset_fixture_capture`).
 - **Replay** (`BOUNCE_FIXTURE_DIR`): a source key is answered from the set
   whatever the TTL; `cache_set` of a source key is a no-op; a miss makes
   `http_client` raise `httpx.ConnectError("fixture replay: no recorded response

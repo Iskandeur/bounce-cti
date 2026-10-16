@@ -61,9 +61,10 @@ needed (mechanism: `backend/fixtures.py`).
 
 ```bash
 # Capture one case, for that investigation only (no .env change). Capture is
-# admin-only, so this run's cookie jar logs in with the ADMIN PIN.
-curl -s -c /tmp/cookies.txt -X POST -H 'Content-Type: application/json' \
-  -d "{\"pin\":\"$BOUNCE_ADMIN_PIN\"}" https://bounce.alexandre-pinoteau.fr/api/auth/login
+# admin-only, so this run's cookie jar logs in with the ADMIN PIN (sent on stdin,
+# so it stays out of the process list and the shell history).
+printf '{"pin":"%s"}' "$BOUNCE_ADMIN_PIN" | curl -s -c /tmp/cookies.txt -X POST \
+  -H 'Content-Type: application/json' -d @- https://bounce.alexandre-pinoteau.fr/api/auth/login
 cd /tmp/eval_run && FORCE_NEW=1 BOUNCE_EVAL_CAPTURE=1 python3 sequential_runner.py 2
 # The runner gives up on a 403 and stops a run the server did not acknowledge
 # as captured. The investigation list shows "fixture_capture": 1 on it.

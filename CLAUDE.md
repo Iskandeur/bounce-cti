@@ -625,7 +625,7 @@ A red gate must be fixed before merge. Pair this with branch protection on
   `"capture": true` on `POST /api/investigations` (stored in
   `investigations.fixture_capture`, read on every spawn, so resume/pivot/add-seed
   keep capturing; a non-admin gets 403 before anything starts; a rerun deletes
-  the previous capture). `eval/sequential_runner.py` asks for it with
+  the previous capture, and so does deleting the investigation). `eval/sequential_runner.py` asks for it with
   `BOUNCE_EVAL_CAPTURE=1` and stops any run the server did not acknowledge as
   captured. `python eval/fixture_tool.py promote <inv_id> case02` turns that into the
   committed set `eval/fixtures/case02/`. `BOUNCE_FIXTURE_DIR=eval/fixtures/case02`
