@@ -113,7 +113,12 @@ def check(text: str, secrets: list[tuple[str, str]],
     """(problems, warnings) for a serialised snapshot. A problem blocks it.
     Messages name a secret, never print its value. PURE."""
     problems, warnings = [], []
-    for name in sorted({name for name, value in secrets if value in text}):
+
+    def present(value: str) -> bool:
+        # `text` is JSON: a secret holding `"` or `\` sits there escaped.
+        return value in text or json.dumps(value, ensure_ascii=False)[1:-1] in text
+
+    for name in sorted({name for name, value in secrets if present(value)}):
         problems.append(f"contains the value of the secret {name}")
     low = text.lower()
     for word in forbid or []:

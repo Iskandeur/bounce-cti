@@ -141,6 +141,14 @@ def test_check_names_a_secret_and_never_prints_it():
     assert len(warnings) == 1 and "ZZZZ" not in warnings[0] and "'apikey='" in warnings[0]
 
 
+def test_a_secret_escaped_by_json_is_still_seen():
+    secret = 'ab"cd\\efghij'
+    text = demo_snapshot.serialise({"a": secret})
+    assert secret not in text  # it sits there escaped
+    problems, _ = demo_snapshot.check(text, [("WEIRD_TOKEN", secret)])
+    assert problems == ["contains the value of the secret WEIRD_TOKEN"]
+
+
 def test_known_secrets_reads_the_dotenv_and_the_environment(tmp_path, monkeypatch):
     for k in list(os.environ):
         if fixtures.is_secret_name(k):
@@ -274,6 +282,25 @@ def test_the_route_refuses_a_server_secret_without_printing_it(api, db, monkeypa
     assert r.status_code == 422
     assert SECRET not in r.text
     assert r.json()["detail"]["problems"] == ["contains the value of the secret <secret:ONYPHE>"]
+
+
+def test_the_route_will_not_check_against_an_unreadable_env(api, db, monkeypatch):
+    from pathlib import Path
+    uid, token = api.session()
+    inv = _investigation(db, user_id=uid)
+    target = fixtures.PROJECT_ROOT / ".env"
+    real_exists, real_read = Path.exists, Path.read_bytes
+
+    def read(self):
+        if self == target:
+            raise PermissionError(13, "Permission denied")
+        return real_read(self)
+
+    monkeypatch.setattr(Path, "exists", lambda self: True if self == target else real_exists(self))
+    monkeypatch.setattr(Path, "read_bytes", read)
+    r = _get(api, token, f"/api/investigations/{inv}/demo_snapshot")
+    assert r.status_code == 503
+    assert "snapshot" not in r.json()
 
 
 def test_the_route_refuses_a_forbidden_word(api, db):

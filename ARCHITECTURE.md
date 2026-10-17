@@ -142,7 +142,8 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 - `GET    /api/investigations/{id}/demo_snapshot?label=…&forbid=…` — owner only —
   the investigation frozen as a static demo snapshot (`backend/demo_snapshot.py`),
   checked against the server's own secrets and the `forbid` words: 422 with the
-  problems (a secret is named, never printed), else `{snapshot, warnings, checked_secrets}`
+  problems (a secret is named, never printed), 503 if the server's `.env` exists
+  but can't be read, else `{snapshot, warnings, checked_secrets}`
 
 **Live events**
 

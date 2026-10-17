@@ -1561,7 +1561,16 @@ def get_demo_snapshot(inv_id: str, label: Optional[str] = None,
     if view is None:
         raise HTTPException(status_code=404, detail="not found")
     snap = demo_snapshot.from_view(view, gs.get_investigation_model(inv_id), label)
-    secrets = demo_snapshot.known_secrets(Path(__file__).resolve().parent.parent / ".env")
+    dotenv = Path(__file__).resolve().parent.parent / ".env"
+    # A .env that exists but can't be read would leave its secrets unchecked
+    # (eval/demo_export.py refuses the same case). No .env at all is fine: the
+    # secrets are then all in the environment, which is checked.
+    if dotenv.exists():
+        try:
+            dotenv.read_bytes()
+        except OSError:
+            raise HTTPException(status_code=503, detail="cannot read the server .env to check for secrets")
+    secrets = demo_snapshot.known_secrets(dotenv)
     problems, warnings = demo_snapshot.check(demo_snapshot.serialise(snap), secrets, forbid)
     if problems:
         raise HTTPException(status_code=422, detail={"problems": problems, "warnings": warnings})
