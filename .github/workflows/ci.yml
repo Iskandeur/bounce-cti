@@ -56,3 +56,6 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+      - name: Build the static demo
+        working-directory: frontend
+        run: npm run build:demo

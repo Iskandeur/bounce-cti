@@ -331,6 +331,12 @@ def get_investigation_owner(inv_id: str) -> Optional[int]:
     return row["user_id"] if row else None
 
 
+def get_investigation_model(inv_id: str) -> Optional[str]:
+    with conn() as c:
+        row = c.execute("SELECT model FROM investigations WHERE id=?", (inv_id,)).fetchone()
+    return row["model"] if row else None
+
+
 def find_node_across_investigations(type_: str, value: str,
                                      user_id: Optional[int] = None,
                                      exclude_inv: Optional[str] = None,
@@ -1444,8 +1450,29 @@ def get_share_payload(token: str) -> Optional[dict]:
         return None
     if s["expires_at"] and s["expires_at"] < time.time():
         return None
-    inv_id = s["investigation_id"]
-    sections = s["sections"]
+    view = share_view(s["investigation_id"], s["sections"])
+    if view is None:
+        return None
+    return {
+        "share": {
+            "token": s["token"],
+            "sections": s["sections"],
+            "created_at": s["created_at"],
+            "expires_at": s["expires_at"],
+            "label": s["label"],
+        },
+        **view,
+    }
+
+
+def share_view(inv_id: str, sections: list[str]) -> Optional[dict]:
+    """What a share link shows of one investigation, filtered by `sections`:
+    the investigation summary, the graph and, with 'timeline', the
+    agent-visible events. None if the investigation does not exist.
+
+    `get_share_payload` wraps it with the share's own metadata;
+    `eval/demo_export.py` freezes it into a static demo snapshot, so the demo
+    shows exactly what a share link would."""
     with conn() as c:
         inv_row = c.execute(
             "SELECT id, seed_type, seed_value, status, created_at, model FROM investigations WHERE id=?",
@@ -1466,13 +1493,6 @@ def get_share_payload(token: str) -> Optional[dict]:
     seeds = get_investigation_seeds(inv_id)
 
     payload = {
-        "share": {
-            "token": s["token"],
-            "sections": sections,
-            "created_at": s["created_at"],
-            "expires_at": s["expires_at"],
-            "label": s["label"],
-        },
         "investigation": {
             "id": inv["id"],
             "seed_type": inv["seed_type"],

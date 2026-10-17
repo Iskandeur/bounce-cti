@@ -139,6 +139,11 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 - `POST   /api/shares/{token}/revoke`
 - `GET    /api/share/{token}` — **public** (no auth) — filtered investigation payload
 - `POST   /api/share/{token}/import` — clone the share, or merge it into one of the caller's investigations
+- `GET    /api/investigations/{id}/demo_snapshot?label=…&forbid=…` — owner only —
+  the investigation frozen as a static demo snapshot (`backend/demo_snapshot.py`),
+  checked against the server's own secrets and the `forbid` words: 422 with the
+  problems (a secret is named, never printed), 503 if the server's `.env` exists
+  but can't be read, else `{snapshot, warnings, checked_secrets}`
 
 **Live events**
 
@@ -919,6 +924,36 @@ running service. `--check` returns 1 when `EVAL_RESULTS.md` is stale, and
 `backend/tests/test_eval_results_digest.py` calls it, so CI fails if a run is
 archived without regenerating the page.
 
+### Static demo: `backend/demo_snapshot.py`, `eval/demo_export.py`, `frontend/demo/`
+One investigation frozen into a JSON snapshot that a static page renders with
+`SharedView`, so a reader clicks through a real run with no backend, no PIN and
+no API key (roadmap J3).
+
+- **What a snapshot holds** (`demo_snapshot.from_view`): exactly what a share
+  link with `graph` + `report` + `timeline` shows (`graph_store.share_view`,
+  the function `get_share_payload` now wraps), minus agent session/request ids,
+  token usage, the MCP config path and working directory, thinking blocks, and
+  everything but the text and tool calls of an assistant message. Report chats
+  never go in. Plus `share.demo`: format, label, model, export time.
+- **Checks** (`demo_snapshot.check`): the value of any secret of the instance
+  that ran the investigation, or a caller-forbidden word, refuses the snapshot;
+  a credential shape (`key=…`, `Bearer …`) is a warning that shows only the part
+  before the value.
+- **Two ways to make one**: the owner route
+  `GET /api/investigations/{id}/demo_snapshot` (server's `.env` + environment),
+  or `python eval/demo_export.py <inv_id> <name> --db … --dotenv …`, which opens
+  the database read-only, copies the investigation's rows into a throwaway
+  database, and refuses to run when it cannot read the `.env` it must check
+  against (exit 2: checking against nothing would pass on nothing). Snapshots
+  live in `eval/demo/<name>.json` (see `eval/demo/README.md`).
+- **The page**: `frontend/vite.demo.config.js` (`npm run build:demo` →
+  `frontend/dist-demo/`, relative base, any static host) builds
+  `frontend/demo/index.html` → `src/demo.jsx` → `SharedView` with `demoSrc`,
+  and copies `eval/demo/*.json` to `dist-demo/data/` (`?case=<name>` picks one).
+  The app build (`vite.config.js`, served by FastAPI) is unchanged.
+  `.github/workflows/demo-pages.yml` publishes it to GitHub Pages, **by hand
+  only** (`workflow_dispatch`), and refuses a build with no snapshot.
+
 ### `frontend/`
 React 18 + Vite + Cytoscape.js (cose-bilkent layout). No router — view
 switching is local state.
@@ -930,7 +965,8 @@ switching is local state.
 | `Login.jsx`       | PIN login                                                                                 |
 | `AdminPanel.jsx`  | Admin dashboard: users, allowed-models per user, impersonation                            |
 | `ShareModal.jsx`  | Build a share link (section opt-in + expiry + label)                                      |
-| `SharedView.jsx`  | Public viewer for a `/?share=<token>` link, with import-into-account button               |
+| `SharedView.jsx`  | Public viewer for a `/?share=<token>` link, with import-into-account button; with `demoSrc`, the static demo viewer (no backend, no import) |
+| `demo.jsx`        | Entry of the static demo build (`frontend/demo/index.html`, `vite.demo.config.js`)        |
 | `styles.css`      | All styling                                                                               |
 
 Key in-app helpers:
@@ -1080,6 +1116,7 @@ GitHub Actions (.github/workflows/ci.yml)
   ├─ backend-tests  : pip install -r requirements-dev.txt
   │                   → pytest backend/tests   (golden/regression tests)
   └─ frontend-build : npm ci → npm run build
+                      → npm run build:demo   (static demo, frontend/dist-demo/)
 ```
 
 A failing gate must be fixed before merge. Combine with branch protection on

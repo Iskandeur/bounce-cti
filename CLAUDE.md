@@ -163,6 +163,14 @@ backend/
                         #   in key AND value before any write. Bookkeeping keys
                         #   (BOOKKEEPING_PREFIXES: counter|, source_health|, …)
                         #   are never captured. Stdlib only; off by default
+  demo_snapshot.py      # Static demo snapshots (roadmap J3): from_view() turns
+                        #   graph_store.share_view(inv, graph+report+timeline)
+                        #   into the JSON the static demo renders, minus agent
+                        #   session/request ids, usage, local paths, thinking
+                        #   blocks, report chats; check() refuses a secret value
+                        #   or a forbidden word (named, never printed). Used by
+                        #   GET /api/investigations/{id}/demo_snapshot (owner)
+                        #   and eval/demo_export.py. Stdlib only
   pivot_mapping.py      # Per-node-type pivot rules + fan-out caps + global
                         #   pending-queue ceiling (MAX_PENDING_QUEUE) + cloud
                         #   ASN list + discriminating_marker() for convergence
@@ -318,9 +326,15 @@ frontend/
     Login.jsx           # PIN login screen
     AdminPanel.jsx      # Admin dashboard (users, models, impersonation)
     ShareModal.jsx      # Build a share link (sections + expiry)
-    SharedView.jsx      # Public/share-link viewer (read-only graph + import button)
+    SharedView.jsx      # Public/share-link viewer (read-only graph + import button);
+                        #   with demoSrc, the static demo viewer (no backend)
+    demo.jsx            # Entry of the static demo build
     styles.css
+  demo/index.html       # Static demo page (vite.demo.config.js)
   vite.config.js        # Dev proxy: /api→:8001, /ws→ws://:8001
+  vite.demo.config.js   # `npm run build:demo` → dist-demo/: SharedView + every
+                        #   eval/demo/*.json copied to data/, relative base (any
+                        #   static host). The app build is untouched by it
 data/                   # Runtime data (gitignored)
   bounce.db             # SQLite database
   secret.key            # HMAC key for PIN auth
@@ -346,6 +360,14 @@ eval/fixture_tool.py    # promote <inv_id> <case> (a capture → eval/fixtures/<
                         #   values and credential shapes; exit 1), stats
 eval/fixtures/<case>/   # Committed fixture sets, one per eval case, one JSON
                         #   file per source response (name = sha256 of the key)
+eval/demo_export.py     # <inv_id> <name> --db … --dotenv …: one investigation →
+                        #   eval/demo/<name>.json (backend/demo_snapshot.py rules).
+                        #   Source DB opened read-only, rows copied to a throwaway
+                        #   DB; exit 1 on a secret or --forbid word (nothing
+                        #   written), 2 if the --dotenv can't be read
+eval/demo/              # Committed demo snapshots + README (how to make one, which
+                        #   run to pick). PUBLIC repo: check before committing
+.github/workflows/demo-pages.yml  # Publishes dist-demo/ to GitHub Pages, by hand only
 ```
 
 ## Development
@@ -384,7 +406,8 @@ Because `main` deploys straight to prod, a merge-gate runs on every PR to `main`
   and imports `backend.main` (catches syntax errors and broken imports).
 - **`backend-tests`** — installs `requirements-dev.txt` and runs
   `pytest backend/tests` (golden/regression tests, e.g. the seed-registry lock).
-- **`frontend-build`** — `npm ci` + `npm run build` (catches a broken frontend).
+- **`frontend-build`** — `npm ci` + `npm run build` (catches a broken frontend),
+  then `npm run build:demo` (the static demo still builds, snapshots or not).
 
 A red gate must be fixed before merge. Pair this with branch protection on
 `main` (PR + passing checks required) so a broken commit cannot reach prod.
@@ -645,6 +668,16 @@ A red gate must be fixed before merge. Pair this with branch protection on
   (anything that is not a source's answer) must be added to
   `fixtures.BOOKKEEPING_PREFIXES`; `test_every_cache_user_outside_sources_is_classified`
   fails until it is.
+- **Demo snapshots** (`backend/demo_snapshot.py`, roadmap J3): a static,
+  read-only page of real investigations (`npm run build:demo`), for readers
+  with no PIN. A snapshot is exactly what a share link with graph + report +
+  timeline shows (`graph_store.share_view`, which `get_share_payload` wraps:
+  change one, you change both), minus agent session ids, usage and local paths.
+  It is refused when it holds a secret of the instance that ran the
+  investigation, so it is made where those secrets are readable: the owner
+  route `GET /api/investigations/{id}/demo_snapshot` (server env) or
+  `eval/demo_export.py --dotenv <that .env>`, which will not run against a
+  `.env` it can't read. The repo is public: a committed snapshot is published.
 - **Key rotation**: `backend/key_pool.py` lets each source accept either
   `<SRC>_API_KEY=k1` (single) or `<SRC>_API_KEYS=k1,k2,k3` (multi, takes precedence).
   Cooldown on 429 (60s default), full-day cooldown on quota exhausted. Sources call

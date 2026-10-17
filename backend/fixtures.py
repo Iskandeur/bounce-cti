@@ -197,6 +197,39 @@ def leaked_secret(text: str) -> Optional[str]:
     return None
 
 
+def dotenv_secrets(path: Path) -> list[tuple[str, str]]:
+    """(name, value) for the secret-looking entries of a .env file; [] if it
+    does not exist. Used before publishing anything built from a run made with
+    that .env (fixture sets, demo snapshots)."""
+    out = []
+    if not path.exists():
+        return out
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, raw = line.partition("=")
+        name = name.strip()
+        if not is_secret_name(name):
+            continue
+        for value in raw.strip().strip("\"'").split(","):
+            value = value.strip()
+            if len(value) >= _MIN_SECRET_LEN:
+                out.append((name, value))
+    return out
+
+
+# Text that looks like a credential whatever its value: in a key built by our
+# own code it is a leak; in a source's answer it is usually threat data (a
+# phishing URL carrying its token), so callers only warn there.
+CREDENTIAL_SHAPES = [
+    re.compile(r"(?i)\b(?:api_?key|apikey|key|token|access_token|auth|secret)"
+               r"=(?!<secret:)[^&\s\"'<>]{12,}"),
+    re.compile(r"(?i)\bbearer\s+(?!<secret:)[A-Za-z0-9._~+/-]{20,}"),
+    re.compile(r"\bflgrn_octi_tkn_[A-Za-z0-9]+"),
+]
+
+
 # ── Files ─────────────────────────────────────────────────────────────────
 
 def fixture_name(redacted_key: str) -> str:

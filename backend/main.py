@@ -10,7 +10,7 @@ import asyncio
 import os
 import time
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, Response, Cookie, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, Response, Cookie, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -18,6 +18,7 @@ from typing import Optional
 
 from . import graph_store as gs
 from . import auth
+from . import demo_snapshot
 from . import seeds
 from . import verticals
 from .agent_runner import (
@@ -1541,6 +1542,40 @@ def revoke_share(token: str, user_id: int = Depends(current_user)):
     if not ok:
         raise HTTPException(status_code=404, detail="not found")
     return {"ok": True}
+
+
+@app.get("/api/investigations/{inv_id}/demo_snapshot")
+def get_demo_snapshot(inv_id: str, label: Optional[str] = None,
+                      forbid: Optional[list[str]] = Query(default=None),
+                      user_id: int = Depends(current_user)):
+    """The investigation frozen as a static demo snapshot (backend/demo_snapshot.py):
+    what a share link with graph + report + timeline shows, minus agent
+    session ids, token usage and local paths. Owner only, like a share link.
+
+    Checked against the server's own secrets (its .env and environment) and
+    the `forbid` words: a hit answers 422 with the problems, which name a
+    secret but never print it. 200 → {snapshot, warnings, checked_secrets};
+    save `.snapshot` as eval/demo/<name>.json."""
+    _require_owner(inv_id, user_id)
+    view = gs.share_view(inv_id, demo_snapshot.SECTIONS)
+    if view is None:
+        raise HTTPException(status_code=404, detail="not found")
+    snap = demo_snapshot.from_view(view, gs.get_investigation_model(inv_id), label)
+    dotenv = Path(__file__).resolve().parent.parent / ".env"
+    # A .env that exists but can't be read would leave its secrets unchecked
+    # (eval/demo_export.py refuses the same case). No .env at all is fine: the
+    # secrets are then all in the environment, which is checked.
+    if dotenv.exists():
+        try:
+            dotenv.read_bytes()
+        except OSError:
+            raise HTTPException(status_code=503, detail="cannot read the server .env to check for secrets")
+    secrets = demo_snapshot.known_secrets(dotenv)
+    problems, warnings = demo_snapshot.check(demo_snapshot.serialise(snap), secrets, forbid)
+    if problems:
+        raise HTTPException(status_code=422, detail={"problems": problems, "warnings": warnings})
+    return {"snapshot": snap, "warnings": warnings,
+            "checked_secrets": len({v for _, v in secrets})}
 
 
 @app.get("/api/share/{token}")
