@@ -99,3 +99,11 @@ deploy that touches the stream reader, add `--prove-fix` with the deploy time:
 it also needs one line of 64 KiB or more logged in full before it says 0. Every run under
 `runs/` predates the 2026-10-15 fix: 62 of their 99 scored investigations still
 in the database are cut this way (EVAL_PROTOCOL §4.A note).
+
+## Demo snapshots (static demo, roadmap J3)
+
+A scored investigation can also become a page anyone opens with no PIN:
+`python3 eval/demo_export.py <inv_id> case02 --db data/bounce.db --dotenv .env`
+writes `eval/demo/case02.json`, and `npm run build:demo` (in `frontend/`) builds
+the static viewer. How to make one, which run to pick, and what to check before
+committing to this public repo: [`demo/README.md`](demo/README.md).

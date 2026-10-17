@@ -24,6 +24,11 @@ parked nameservers defused before the pivot, and a lead promoted to a finding
 only once a source corroborates it. Asset provenance and licenses:
 [`media/README.md`](media/README.md).
 
+**A whole investigation to click through, with no login.** `npm run build:demo`
+(in `frontend/`) builds a static, read-only page from the investigations frozen
+in [`eval/demo/`](eval/demo/README.md): the graph, the report and the agent's
+timeline, exactly as a share link shows them, with no backend and no API key.
+
 ## Features
 
 - **Live graph**: Cytoscape canvas updated over WebSocket as the agent pivots.

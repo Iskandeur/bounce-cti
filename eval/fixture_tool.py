@@ -42,36 +42,13 @@ FIXTURES_DIR = ROOT / "eval" / "fixtures"
 CAPTURE_DIR = ROOT / "data" / "fixtures" / "capture"
 MANIFEST = "MANIFEST.md"
 
-_CREDENTIAL_SHAPES = [
-    re.compile(r"(?i)\b(?:api_?key|apikey|key|token|access_token|auth|secret)"
-               r"=(?!<secret:)[^&\s\"'<>]{12,}"),
-    re.compile(r"(?i)\bbearer\s+(?!<secret:)[A-Za-z0-9._~+/-]{20,}"),
-    re.compile(r"\bflgrn_octi_tkn_[A-Za-z0-9]+"),
-]
+# Shared with eval/demo_export.py and the demo snapshot route (backend/demo_snapshot.py).
+_CREDENTIAL_SHAPES = fixtures.CREDENTIAL_SHAPES
+_dotenv_secrets = fixtures.dotenv_secrets
 
 
 def _fixture_files(directory: Path) -> list[Path]:
     return sorted(p for p in directory.glob("*.json") if p.name != fixtures.ENV_FILE)
-
-
-def _dotenv_secrets(path: Path) -> list[tuple[str, str]]:
-    """(name, value) for the secret-looking entries of a .env file."""
-    out = []
-    if not path.exists():
-        return out
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name, _, raw = line.partition("=")
-        name = name.strip()
-        if not fixtures.is_secret_name(name):
-            continue
-        for value in raw.strip().strip("\"'").split(","):
-            value = value.strip()
-            if len(value) >= 8:
-                out.append((name, value))
-    return out
 
 
 def verify(directory: Path, dotenv: Path | None = None,
