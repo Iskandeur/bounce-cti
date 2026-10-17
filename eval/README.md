@@ -88,11 +88,14 @@ commit.
 Before scoring, check that the event log is whole (on the VPS, read-only):
 
 ```bash
-python3 eval/stream_audit.py --db data/bounce.db --since <first day of the run>
+python3 eval/stream_audit.py --db data/bounce.db --since <start of the run, e.g. 2026-10-20T08:00Z>
 ```
 
 Exit 1 means a phase exited without its `result` event in the log, or the
 reader logged `agent_stream_error` / `agent_stdout_oversize`: the transcript
-the scorer reads is cut and `cti_calls` undercounts. Every run under
+the scorer reads is cut and `cti_calls` undercounts. Exit 3 means no phase ran
+in the window (wrong `--since`?): an empty window is never green. After a
+deploy that touches the stream reader, add `--prove-fix` with the deploy time:
+it also needs one line of 64 KiB or more logged in full before it says 0. Every run under
 `runs/` predates the 2026-10-15 fix: 62 of their 99 scored investigations still
 in the database are cut this way (EVAL_PROTOCOL §4.A note).

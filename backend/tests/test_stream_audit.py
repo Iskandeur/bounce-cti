@@ -5,6 +5,8 @@ import sqlite3
 import time
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location("stream_audit", ROOT / "eval" / "stream_audit.py")
 audit = importlib.util.module_from_spec(_spec)
@@ -100,3 +102,63 @@ def test_runs_are_matched_to_their_scored_investigations(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "2026-06-17_abc1234: 1 of 2 scored investigations cut" in out
     assert "scored investigations in the database: 2; with a cut phase: 1" in out
+
+
+# ── The post-deploy canary (--since with a time, --prove-fix) ─────────────
+
+def _utc(s):
+    return audit.parse_since(s)
+
+
+def _long_line(inv, ts):
+    big = {"type": "user", "message": {"content": [{"type": "tool_result", "content": "v" * 70_000}]}}
+    return (inv, "agent_user", big, ts)
+
+
+def test_since_accepts_a_day_or_a_utc_time():
+    assert _utc("2026-10-15") == _utc("2026-10-15T00:00Z")
+    assert _utc("2026-10-15T21:41Z") == _utc("2026-10-15 21:41") == _utc("2026-10-15T23:41+02:00")
+    assert _utc("2026-10-15T21:41Z") - _utc("2026-10-15") == (21 * 60 + 41) * 60
+
+
+def test_an_empty_window_is_undetermined_never_green(tmp_path):
+    old = _utc("2026-10-15T10:00Z")
+    path = _db(tmp_path, [_exit("inv_ok", "main", 0, True, old)])
+    for extra in ([], ["--prove-fix"]):
+        assert audit.main(["--db", str(path), "--since", "2026-10-15T21:41Z", *extra]) == 3
+
+
+def test_the_deploy_time_keeps_the_old_codes_cuts_out(tmp_path, capsys):
+    """Deployed 21:41 UTC: a cut at 10:00 the same day is the old code's."""
+    path = _db(tmp_path, [
+        _exit("inv_cut", "main", 0, False, _utc("2026-10-15T10:00Z")),
+        _long_line("inv_ok", _utc("2026-10-15T22:00Z")),
+        _exit("inv_ok", "main", 0, True, _utc("2026-10-15T22:05Z")),
+    ])
+    assert audit.main(["--db", str(path), "--since", "2026-10-15"]) == 1
+    capsys.readouterr()
+    assert audit.main(["--db", str(path), "--since", "2026-10-15T21:41Z", "--prove-fix"]) == 0
+    assert "1 line(s) of 64 KiB or more logged in full" in capsys.readouterr().out
+
+
+def test_prove_fix_needs_a_long_line_in_the_window(tmp_path):
+    path = _db(tmp_path, [_exit("inv_ok", "main", 0, True, _utc("2026-10-16T08:00Z"))])
+    since = ["--since", "2026-10-15T21:41Z"]
+    assert audit.main(["--db", str(path), *since]) == 0                 # nothing was at risk
+    assert audit.main(["--db", str(path), *since, "--prove-fix"]) == 3  # but nothing is proven
+
+
+def test_a_cut_after_the_deploy_still_fails_the_canary(tmp_path):
+    path = _db(tmp_path, [
+        _long_line("inv_ok", _utc("2026-10-16T08:00Z")),
+        _exit("inv_cut", "main", 0, False, _utc("2026-10-16T08:01Z")),
+    ])
+    assert audit.main(["--db", str(path), "--since", "2026-10-15T21:41Z", "--prove-fix"]) == 1
+
+
+def test_usage_errors_do_not_look_like_an_empty_window(tmp_path):
+    path = _db(tmp_path, [])
+    for argv in (["--since", "15/10/2026"], ["--prove-fix"]):
+        with pytest.raises(SystemExit) as e:
+            audit.main(["--db", str(path), *argv])
+        assert e.value.code == 2

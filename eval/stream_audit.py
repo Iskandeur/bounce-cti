@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """How much of the agent's stream did the event log lose? (EVAL_PROTOCOL §4.A note)
 
-    python eval/stream_audit.py [--db data/bounce.db] [--since 2026-10-15] [--runs runs]
+    python eval/stream_audit.py [--db data/bounce.db] [--since 2026-10-15T21:41Z]
+                                [--prove-fix] [--runs runs]
 
 Until 2026-10-15 the backend read the agent's stream-json through asyncio's
 64 KiB line limit: the first longer line (a big tool result) ended the log of
@@ -18,10 +19,25 @@ its phase, silently. This script measures that from the database alone, read-onl
 * **loss events of the fixed code**: ``agent_stream_error`` (a pump died) and
   ``agent_stdout_oversize`` (a line past 8 MiB, logged by size and head only).
 
-Exit 1 when a cut phase or a loss event is found at or after ``--since``: run
-it after a deploy of the fix, with ``--since`` set to the deploy date, and it
-should exit 0. A phase cut then killed (``rc != 0``) is not counted, so 0 is
-the floor of the damage, never its measure. Stdlib only.
+With ``--since`` (a day, ``2026-10-15``, or a UTC time, ``2026-10-15T21:41Z``;
+a time with no zone is read as UTC) the exit code is a verdict on that window:
+
+* **1**: a cut phase or a loss event at or after ``--since``.
+* **3, undetermined**: no phase exited in the window, so there is nothing to
+  judge. An empty window is never green. (2 stays argparse's usage error, so a
+  typo in ``--since`` never reads as an empty window.)
+* **0**: phases ran and none was cut.
+
+``--prove-fix`` is the check to run after deploying the fix, with ``--since``
+set to the deploy TIME: a whole day would count the old code's cuts from
+earlier that day. It also needs a positive proof, at least one line of 64 KiB
+or more logged in full in the window, since the old reader could log none.
+Phases that ran clean without one exit 3: the fix has not been exercised yet.
+Before scoring a run, plain ``--since <start of the run>`` is enough: a run
+with no long line had nothing to lose.
+
+A phase cut then killed (``rc != 0``) is not counted, so 0 is the floor of the
+damage, never its measure. Stdlib only.
 """
 from __future__ import annotations
 
@@ -35,6 +51,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OLD_LIMIT = 64 * 1024
+UNDETERMINED = 3  # exit code of a --since window with nothing to judge
 
 
 def _connect(db: Path) -> sqlite3.Connection:
@@ -115,16 +132,51 @@ def scored_investigations(runs: Path) -> dict[str, list[str]]:
     return out
 
 
+def parse_since(raw: str) -> float:
+    """``2026-10-15`` (00:00 UTC) or an ISO time such as ``2026-10-15T21:41Z``
+    or ``2026-10-15 21:41:00+02:00``; a time without a zone is UTC."""
+    raw = raw.strip()
+    if raw.endswith(("Z", "z")):
+        raw = raw[:-1] + "+00:00"
+    when = dt.datetime.fromisoformat(raw)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return when.timestamp()
+
+
+def verdict(cut: dict, losses: dict, lines: dict, prove_fix: bool) -> tuple[int, str]:
+    """Exit code and its reason for a ``--since`` window."""
+    if cut["cut"] or losses:
+        return 1, "FAIL: the log lost part of the agent stream in this window"
+    if not cut["phases"]:
+        return UNDETERMINED, "UNDETERMINED: no phase exited in this window, nothing to judge"
+    if prove_fix and not lines["past_old_limit"]:
+        return UNDETERMINED, ("UNDETERMINED: no line of 64 KiB or more was logged in this window, "
+                   "so the fix has not been exercised yet")
+    if prove_fix:
+        return 0, (f"OK: {lines['past_old_limit']:,} line(s) of 64 KiB or more logged in full, "
+                   f"no phase cut out of {cut['phases']:,}")
+    return 0, f"OK: no phase cut out of {cut['phases']:,}"
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--db", type=Path, default=ROOT / "data" / "bounce.db")
-    ap.add_argument("--since", help="only events at or after this date (YYYY-MM-DD, UTC)")
+    ap.add_argument("--since", help="only events at or after this UTC day or time "
+                    "(2026-10-15 or 2026-10-15T21:41Z)")
+    ap.add_argument("--prove-fix", action="store_true",
+                    help="after a deploy: exit 0 only if a line of 64 KiB or more was "
+                    "logged in full since --since")
     ap.add_argument("--runs", type=Path, help="archived eval runs folder (e.g. runs)")
     args = ap.parse_args(argv)
+    if args.prove_fix and not args.since:
+        ap.error("--prove-fix needs --since <deploy time>")
     since = 0.0
     if args.since:
-        since = dt.datetime.strptime(args.since, "%Y-%m-%d").replace(
-            tzinfo=dt.timezone.utc).timestamp()
+        try:
+            since = parse_since(args.since)
+        except ValueError:
+            ap.error(f"--since: not a day or an ISO time: {args.since!r}")
     c = _connect(args.db)
 
     lines = longest_lines(c, since)
@@ -154,7 +206,12 @@ def main(argv: list[str] | None = None) -> int:
             n_all, n_cut = n_all + len(ids), n_cut + len(hit)
             print(f"  {run}: {len(hit)} of {len(ids)} scored investigations cut")
         print(f"scored investigations in the database: {n_all}; with a cut phase: {n_cut}")
-    return 1 if (args.since and (cut["cut"] or losses)) else 0
+    if not args.since:
+        return 0  # report only
+    code, reason = verdict(cut, losses, lines, args.prove_fix)
+    start = dt.datetime.fromtimestamp(since, dt.timezone.utc)
+    print(f"since {start:%Y-%m-%d %H:%M} UTC: {reason}")
+    return code
 
 
 if __name__ == "__main__":
