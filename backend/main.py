@@ -23,6 +23,7 @@ from . import verticals
 from .agent_runner import (
     run_investigation, run_pivot, run_add_seed, run_custom_prompt,
     stop_investigation, resume_investigation, quota_block_active,
+    reset_fixture_capture,
 )
 from .refang import refang
 
@@ -498,6 +499,21 @@ class StartReq(BaseModel):
     model: str = "opus"
     effort: Optional[str] = None
     vertical: str = "cti"
+    # Record every source response this investigation reads into
+    # data/fixtures/capture/<id>/ (EVAL_PROTOCOL §4.C). Admin only.
+    capture: bool = False
+
+
+def _check_capture(user_id: int, requested: bool) -> bool:
+    """Fixture capture writes the investigation's source responses to the
+    server's disk, so only an admin may ask for it. Refused loudly (403): a
+    caller that asked for a capture must never get a run without one."""
+    if not requested:
+        return False
+    u = auth.get_user(user_id)
+    if not u or not u["is_admin"]:
+        raise HTTPException(status_code=403, detail="capture requires an admin session")
+    return True
 
 
 @app.post("/api/investigations")
@@ -505,6 +521,7 @@ async def start(req: StartReq, user_id: int = Depends(current_user)):
     _require_quota_available()
     model = _check_model(user_id, req.model)
     effort = _check_effort(req.effort)
+    capture = _check_capture(user_id, req.capture)
     vertical = verticals.normalise(req.vertical)
     seed_type = req.seed_type
     if seed_type == "auto":
@@ -515,9 +532,11 @@ async def start(req: StartReq, user_id: int = Depends(current_user)):
     if not sv:
         raise HTTPException(status_code=400, detail="seed_value required")
     inv_id = gs.create_investigation(seed_type, sv, user_id=user_id, model=model,
-                                     effort=effort, vertical=vertical)
+                                     effort=effort, vertical=vertical,
+                                     fixture_capture=capture)
     asyncio.create_task(run_investigation(inv_id, seed_type, sv, model=model))
-    return {"id": inv_id, "seed_type": seed_type, "vertical": vertical}
+    return {"id": inv_id, "seed_type": seed_type, "vertical": vertical,
+            "fixture_capture": capture}
 
 
 class BatchItem(BaseModel):
@@ -786,6 +805,7 @@ def delete_inv(inv_id: str, user_id: int = Depends(current_user)):
     _require_owner(inv_id, user_id)
     stop_investigation(inv_id)  # kill agent if running before deleting
     gs.delete_investigation(inv_id)
+    reset_fixture_capture(inv_id)  # its capture would be left with no owner
     return {"ok": True}
 
 
@@ -866,6 +886,8 @@ async def rerun(inv_id: str, req: RerunReq = RerunReq(), user_id: int = Depends(
     # applies the new choice to every phase of the fresh run.
     gs.set_effort(inv_id, _check_effort(req.effort))
     gs.clear_investigation(inv_id)
+    # The previous run's capture goes with its graph: a fixture set holds one run.
+    reset_fixture_capture(inv_id)
     with gs.conn() as c:
         c.execute("UPDATE investigations SET status='running' WHERE id=?", (inv_id,))
     asyncio.create_task(run_investigation(inv_id, row["seed_type"], row["seed_value"], model=model))

@@ -60,10 +60,14 @@ Capture a case's source responses once, then replay them offline as often as
 needed (mechanism: `backend/fixtures.py`).
 
 ```bash
-# In the deployed checkout the eval runs against: capture one case, then switch it off.
-echo 'BOUNCE_FIXTURE_CAPTURE=1' >> /opt/bounce-cti/.env   # read per investigation, no restart
-cd /tmp/eval_run && FORCE_NEW=1 python3 sequential_runner.py 2
-sed -i '/^BOUNCE_FIXTURE_CAPTURE=/d' /opt/bounce-cti/.env
+# Capture one case, for that investigation only (no .env change). Capture is
+# admin-only, so this run's cookie jar logs in with the ADMIN PIN (sent on stdin,
+# so it stays out of the process list and the shell history).
+printf '{"pin":"%s"}' "$BOUNCE_ADMIN_PIN" | curl -s -c /tmp/cookies.txt -X POST \
+  -H 'Content-Type: application/json' -d @- https://bounce.alexandre-pinoteau.fr/api/auth/login
+cd /tmp/eval_run && FORCE_NEW=1 BOUNCE_EVAL_CAPTURE=1 python3 sequential_runner.py 2
+# The runner gives up on a 403 and stops a run the server did not acknowledge
+# as captured. The investigation list shows "fixture_capture": 1 on it.
 
 # From a WORKING checkout (files left untracked in the deployed one block its
 # next git pull): promote that capture to the committed set, and check it.

@@ -56,7 +56,7 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 > optional `effort` (extended-thinking level). The chosen `effort` is persisted
 > on the investigation row and reused by `resume` / subsequent phases.
 
-- `POST   /api/investigations` — start (auto-detects seed type from value if `seed_type=auto`; supported types: `domain`, `ip`, `hash`, `url`, `jarm`, `asn`, `command_line`, `executable_name` — the last being a bare filename of a malicious binary such as `dropper.exe`, pivoted via MalwareBazaar's `get_filename` — and `email` / `wallet_address` / `username` for actor-level seeds: an email triggers Whoxy reverse-WHOIS + EmailRep + Pulsedive + OpenCTI; a wallet (ETH `0x…`, BTC bech32 / legacy, XMR — auto-detected by address format) cross-references ThreatFox + Pulsedive + OpenCTI; a forum / Telegram handle is graphed as an opaque identifier and probed against ThreatFox / Pulsedive / OpenCTI / URLScan). Optional `vertical` field (default `cti`; normalised via `backend/verticals.py`, unknown → `cti`) stored on the investigation.
+- `POST   /api/investigations` — start (auto-detects seed type from value if `seed_type=auto`; supported types: `domain`, `ip`, `hash`, `url`, `jarm`, `asn`, `command_line`, `executable_name` — the last being a bare filename of a malicious binary such as `dropper.exe`, pivoted via MalwareBazaar's `get_filename` — and `email` / `wallet_address` / `username` for actor-level seeds: an email triggers Whoxy reverse-WHOIS + EmailRep + Pulsedive + OpenCTI; a wallet (ETH `0x…`, BTC bech32 / legacy, XMR — auto-detected by address format) cross-references ThreatFox + Pulsedive + OpenCTI; a forum / Telegram handle is graphed as an opaque identifier and probed against ThreatFox / Pulsedive / OpenCTI / URLScan). Optional `vertical` field (default `cti`; normalised via `backend/verticals.py`, unknown → `cti`) stored on the investigation. Optional `capture` field (default `false`, **admin only**: 403 for anyone else, before anything starts) records every source response the investigation reads into `data/fixtures/capture/<id>/` (EVAL_PROTOCOL §4.C); the response echoes it as `fixture_capture`.
 - `POST   /api/investigations/batch` — start many at once; `combined=true` chains them on one graph. Accepts the same optional `vertical` field (applied to every investigation in the batch)
 - `GET    /api/investigations` — list (caller-owned only)
 - `GET    /api/verticals` — selectable verticals for the new-investigation form (`[{name, label, seed_types}]`, from `backend/verticals.py`). Drives the frontend vertical selector + per-vertical seed-type hints so the UI stays in sync with the registry
@@ -94,9 +94,9 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   hierarchy, officers / PSC, provenance, with the estimated-ownership +
   candidate-match disclaimers (`backend/dd_export.py`).
 - `POST   /api/investigations/{id}/stop` — kill the running agent
-- `DELETE /api/investigations/{id}`
+- `DELETE /api/investigations/{id}` — stops the agent, deletes the investigation and its fixture capture, if any
 - `PATCH  /api/investigations/{id}` — rename (`{title}`); empty/omitted title clears it, falling back to the seed value in the UI
-- `POST   /api/investigations/{id}/rerun`
+- `POST   /api/investigations/{id}/rerun` — clears the graph and runs again; an existing fixture capture of the investigation is deleted with it (a fixture set holds one run)
 - `POST   /api/investigations/{id}/resume` — pick up an investigation halted by a Claude-subscription quota error (425 while still in cooldown)
 - `GET    /api/quota` — Claude-subscription quota state for the host account (`{exhausted, exhausted_until, message, last_seen}`); the frontend polls it to render a global banner + per-investigation Resume button
 - `POST   /api/investigations/{src}/merge_into/{dst}` — merge `src` into `dst`
@@ -289,7 +289,7 @@ SQLite-backed store. Tables:
 
 | Table            | Columns (essentials)                                                                                                          |
 |------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `effort` (extended-thinking level, or NULL = model default), `quota_reset_at` (epoch when a Claude-subscription cooldown lifts), `title` (optional analyst-supplied rename; falls back to `seed_value` in the UI), `vertical` (`cti`\|`osint`\|`dd`, default `cti` — which product vertical the investigation belongs to) |
+| `investigations` | `id`, `seed_type`, `seed_value`, `created_at`, `status`, `user_id`, `model`, `effort` (extended-thinking level, or NULL = model default), `quota_reset_at` (epoch when a Claude-subscription cooldown lifts), `title` (optional analyst-supplied rename; falls back to `seed_value` in the UI), `vertical` (`cti`\|`osint`\|`dd`, default `cti` — which product vertical the investigation belongs to), `fixture_capture` (0/1, default 0: record this investigation's source responses, EVAL_PROTOCOL §4.C) |
 | `nodes`          | `id`, `investigation_id`, `type`, `value`, `metadata` (JSON), `tags` (JSON), `confidence`, `source`, `created_at`, UNIQUE(inv,type,value) |
 | `edges`          | `id`, `investigation_id`, `src`, `dst`, `relation`, `evidence`, `source`, `confidence`, `created_at`, UNIQUE(inv,src,dst,relation) |
 | `events`         | `id` AUTOINCREMENT, `investigation_id`, `kind`, `payload` (JSON), `created_at` — full agent stream + state changes            |
@@ -314,7 +314,7 @@ land on the corrected node id instead of a phantom `jarm` one. JARM is never
 inferred merely because a value is a TLS fingerprint.
 
 `init_db()` runs idempotent migrations: it `_ensure_column`s `user_id`/`model`/
-`effort`/`quota_reset_at`/`title`/`vertical` on `investigations` and
+`effort`/`quota_reset_at`/`title`/`vertical`/`fixture_capture` on `investigations` and
 `is_admin`/`allowed_models`/`label` on `users` for upgrades from earlier
 schemas. `vertical` defaults to `'cti'`, so legacy rows and any caller that
 doesn't pass one keep the original CTI behaviour (`graph_store.get_vertical()`
@@ -859,10 +859,16 @@ code see the same data. Stdlib only, imported by `graph_store` and set up by
   (`counter|`, `source_health|`, `pdf_source:`, `sample_source:`): budgets,
   dead-source marks and uploaded context are recomputed by the replayed run.
 - **Capture** (`BOUNCE_FIXTURE_CAPTURE_DIR`, set by `agent_runner._fixture_env`
-  to `data/fixtures/capture/<inv_id>/` when `BOUNCE_FIXTURE_CAPTURE=1`): one
+  to `data/fixtures/capture/<inv_id>/` when `BOUNCE_FIXTURE_CAPTURE=1` is in the
+  env or `.env`, or when the investigation was created with `capture: true`,
+  stored in `investigations.fixture_capture`): one
   file per key, `<sha256(key)[:24]>.json` = `{key, source, value}`, canonical
   text (same response → same bytes), the response's own key order kept, atomic
   writes. A capture error is logged and swallowed: it never breaks the live run.
+  The per-investigation flag is read on every spawn, so resume, pivot, add-seed
+  and custom prompts keep recording into the same directory; a rerun deletes
+  the previous run's capture first, and deleting the investigation deletes its
+  capture (`agent_runner.reset_fixture_capture`).
 - **Replay** (`BOUNCE_FIXTURE_DIR`): a source key is answered from the set
   whatever the TTL; `cache_set` of a source key is a no-op; a miss makes
   `http_client` raise `httpx.ConnectError("fixture replay: no recorded response
