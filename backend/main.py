@@ -81,6 +81,14 @@ def _bootstrap():
             print(f"[startup] reconciled {n} orphaned 'running' investigation(s)")
     except Exception as e:
         print(f"[startup] orphan reconciliation failed: {e}")
+    # ALV-1773: cache rows written before http_client.cache_params kept an API key
+    # in their key. Purge them; log the count only, never a key (it holds the secret).
+    try:
+        n = gs.purge_secret_cache_keys()
+        if n:
+            print(f"[startup] purged {n} cache row(s) whose key held an auth parameter")
+    except Exception as e:
+        print(f"[startup] cache secret purge failed: {type(e).__name__}")
 
 
 # ── Live WebSocket registry (for shutdown broadcast) ───────────────────────

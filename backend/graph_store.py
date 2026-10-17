@@ -898,6 +898,48 @@ def cache_set(key: str, value: Any):
         fixtures.record(key, value)
 
 
+# Préfixes des clés fabriquées par sources/http_client.py (f"GET|{url}|{params}"…).
+_HTTP_CACHE_PREFIXES = ("GET|", "POST|", "TXT|", "FORM|")
+
+
+def purge_secret_cache_keys() -> int:
+    """ALV-1773 : supprime les entrées de cache dont la clé porte un paramètre
+    d'authentification, écrites avant que `http_client.cache_params` ne les retire.
+
+    Ces lignes sont orphelines (la clé actuelle ne contient plus le paramètre) et
+    gardent le secret en clair dans `cache.key`. Le filtre tourne entièrement en
+    SQL : aucune clé n'est lue côté Python, donc aucune ne peut être journalisée.
+    Idempotent : une fois purgées, plus rien ne correspond. Renvoie le nombre de
+    lignes supprimées."""
+    from .sources.http_client import _SECRET_PARAMS  # import tardif : http_client importe ce module
+
+    def esc(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    # repr d'un dict ('key': …) ou d'une liste de tuples (('key', …)). LIKE ignore
+    # la casse ASCII, comme la comparaison en minuscules de cache_params.
+    patterns = []
+    for p in sorted(_SECRET_PARAMS):
+        patterns += [f"%'{esc(p)}': %", f"%('{esc(p)}', %"]
+    prefix_sql = " OR ".join("key LIKE ? ESCAPE '\\'" for _ in _HTTP_CACHE_PREFIXES)
+    param_sql = " OR ".join("key LIKE ? ESCAPE '\\'" for _ in patterns)
+    args = [esc(p) + "%" for p in _HTTP_CACHE_PREFIXES] + patterns
+    with conn() as c:
+        # Sans secure_delete, les octets supprimés restent lisibles dans les pages libres du fichier.
+        c.execute("PRAGMA secure_delete = ON")
+        n = c.execute(f"DELETE FROM cache WHERE ({prefix_sql}) AND ({param_sql})", args).rowcount
+    if n:
+        # secure_delete ne suffit pas : une clé supprimée peut survivre comme séparateur
+        # dans un nœud interne de l'index de clé primaire. Seul VACUUM réécrit le fichier.
+        # Une seule fois : au démarrage suivant n == 0.
+        c = sqlite3.connect(DB_PATH)
+        try:
+            c.execute("VACUUM")
+        finally:
+            c.close()
+    return n
+
+
 # ── Per-investigation counters ────────────────────────────────────────────
 # Backed by the `cache` table (same trick as backend/source_health.py) so a
 # counter survives across the several `claude -p` phase spawns of one run — each
