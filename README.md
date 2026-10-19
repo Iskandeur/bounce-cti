@@ -28,9 +28,10 @@ DOM fingerprints) building a live infrastructure graph in your browser.
   re-run after agent changes and published with what the numbers do not show
   ([`EVAL_RESULTS.md`](./EVAL_RESULTS.md)); source answers can be recorded
   and replayed offline (EVAL_PROTOCOL §4.C).
-- **Deliverables an analyst can use.** PDF report, STIX 2.1, blocklists
-  (hosts / RPZ / Palo Alto EDL / Cisco ACL…), Sigma / Snort / YARA stubs and
-  per-host takedown emails, all with defused and unverified indicators left out.
+- **Deliverables an analyst can use.** PDF report and STIX 2.1, plus
+  blocklists (hosts / RPZ / Palo Alto EDL / Cisco ACL…), Sigma / Snort / YARA
+  stubs and per-host takedown emails. Unverified leads never enter the
+  actionable ones, and defused indicators stay out of them by default.
 
 > **Status:** the OSINT and Due-Diligence (DD) verticals are experimental and
 > frozen: no further development is planned on them. Active work is on CTI.
