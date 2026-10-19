@@ -1,5 +1,8 @@
 # bounce-cti
 
+[![CI merge-gate](https://github.com/Iskandeur/bounce-cti/actions/workflows/ci.yml/badge.svg)](https://github.com/Iskandeur/bounce-cti/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+
 > **Copyright (c) 2026 Alexandre Pinoteau · Licensed under the
 > [Apache License 2.0](./LICENSE).**
 
@@ -11,6 +14,23 @@ tools (DNS / RDAP, crt.sh, CertSpotter, VirusTotal, URLScan, Onyphe, Shodan,
 Netlas, ZoomEye, CriminalIP, OTX, ThreatFox, AbuseIPDB, abuse.ch URLhaus &
 MalwareBazaar, Mnemonic pDNS, ip-api, Wayback, Whoxy reverse-WHOIS, OpenPhish,
 DOM fingerprints) building a live infrastructure graph in your browser.
+
+**At a glance**
+
+- **An agent that pivots, under rules it cannot talk its way out of.** Noise
+  (CDN ranges, parking, sinkholes) must be defused before a pivot; a global
+  call budget caps each run; the agent writes findings to the graph through
+  MCP tools only, never through prose.
+- **Facts and guesses kept apart.** What the model remembers or reads on the
+  web becomes a capped, dashed *lead* that a primary source must corroborate
+  before it counts, and that never reaches a blocklist or a STIX bundle.
+- **Measured, with its limits stated.** The same five real-world cases,
+  re-run after agent changes and published with what the numbers do not show
+  ([`EVAL_RESULTS.md`](./EVAL_RESULTS.md)); source answers can be recorded
+  and replayed offline (EVAL_PROTOCOL §4.C).
+- **Deliverables an analyst can use.** PDF report, STIX 2.1, blocklists
+  (hosts / RPZ / Palo Alto EDL / Cisco ACL…), Sigma / Snort / YARA stubs and
+  per-host takedown emails, all with defused and unverified indicators left out.
 
 > **Status:** the OSINT and Due-Diligence (DD) verticals are experimental and
 > frozen: no further development is planned on them. Active work is on CTI.
@@ -35,10 +55,12 @@ timeline, exactly as a share link shows them, with no backend and no API key.
 - **PIN auth + admin dashboard**: per-user model whitelist, account labels,
   one-click impersonation. Admin PIN is bootstrapped from `ADMIN_PIN` env var
   on first start (see "First login" below).
-- **Model + thinking-effort selection**: pick the Claude model (Sonnet 4.6,
-  Opus 4.6 / 4.7 / 4.8, Haiku 4.5) and an extended-thinking effort level
-  (low → max, or the model default) per investigation. Admins gate which
-  models each user may spawn.
+- **Model + thinking-effort selection**: pick the Claude model (the latest
+  Sonnet / Opus / Haiku, or a pinned Sonnet 5, Opus 5, Fable 5, Opus 4.8 or
+  Opus 4.7) and an extended-thinking effort level (low → max, or the model
+  default) per investigation. Admins gate which models each user may spawn.
+  Fable 5's safety classifiers target offensive-cyber content, so
+  malware-heavy investigations may be refused on it; Opus 5 is the safer pick.
 - **Investigation vertical**: choose the lens for a new investigation — **CTI**
   (threat-infrastructure attribution, the default), **OSINT** (identity /
   entity footprint correlation), or **Due Diligence / KYB** (company identity +
