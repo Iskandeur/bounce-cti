@@ -327,7 +327,8 @@ frontend/
     AdminPanel.jsx      # Admin dashboard (users, models, impersonation)
     ShareModal.jsx      # Build a share link (sections + expiry)
     SharedView.jsx      # Public/share-link viewer (read-only graph + import button);
-                        #   with demoSrc, the static demo viewer (no backend)
+                        #   with demoSrc, the static demo viewer (no backend;
+                        #   demoCases adds a case picker when >1 snapshot)
     demo.jsx            # Entry of the static demo build
     styles.css
   demo/index.html       # Static demo page (vite.demo.config.js)

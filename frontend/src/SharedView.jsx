@@ -56,8 +56,10 @@ const REPO_URL = 'https://github.com/Iskandeur/bounce-cti'
 //
 // With `demoSrc` instead of `token` it is the static demo (frontend/demo/,
 // `npm run build:demo`): it loads a snapshot file written by
-// eval/demo_export.py, with no backend, no login and no import.
-export default function SharedView({ token, demoSrc }) {
+// eval/demo_export.py, with no backend, no login and no import. `demoCases`
+// (every snapshot name of the build) and `demoCase` (the one shown) add a
+// case picker to the top bar when there is more than one.
+export default function SharedView({ token, demoSrc, demoCases = [], demoCase = '' }) {
   const demo = Boolean(demoSrc)
   const [data, setData] = useState(null)
   const [err, setErr] = useState('')
@@ -323,6 +325,17 @@ export default function SharedView({ token, demoSrc }) {
           </div>
         </div>
         <div className="shared-topbar-right">
+          {demo && demoCases.length > 1 && (
+            <select
+              className="shared-import-target"
+              value={demoCase}
+              onChange={e => { window.location.search = `?case=${encodeURIComponent(e.target.value)}` }}
+              title="Pick another frozen investigation"
+              aria-label="Demo case"
+            >
+              {demoCases.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
           {demo && (
             <a className="auth-btn shared-import-btn" href={REPO_URL} style={{ textDecoration: 'none' }}>
               Code on GitHub
@@ -333,7 +346,7 @@ export default function SharedView({ token, demoSrc }) {
             onClick={() => setPanelOpen(v => !v)}
             title="Toggle the side panel"
           >
-            {panelOpen ? '▶ panneau' : '◀ panneau'}
+            {demo ? (panelOpen ? '▶ panel' : '◀ panel') : (panelOpen ? '▶ panneau' : '◀ panneau')}
           </button>
           {!demo && me && myInvs.length > 0 && (
             <select

@@ -965,7 +965,7 @@ switching is local state.
 | `Login.jsx`       | PIN login                                                                                 |
 | `AdminPanel.jsx`  | Admin dashboard: users, allowed-models per user, impersonation                            |
 | `ShareModal.jsx`  | Build a share link (section opt-in + expiry + label)                                      |
-| `SharedView.jsx`  | Public viewer for a `/?share=<token>` link, with import-into-account button; with `demoSrc`, the static demo viewer (no backend, no import) |
+| `SharedView.jsx`  | Public viewer for a `/?share=<token>` link, with import-into-account button; with `demoSrc`, the static demo viewer (no backend, no import; a case picker in the top bar when the build holds more than one snapshot) |
 | `demo.jsx`        | Entry of the static demo build (`frontend/demo/index.html`, `vite.demo.config.js`)        |
 | `styles.css`      | All styling                                                                               |
 

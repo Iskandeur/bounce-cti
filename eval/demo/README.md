@@ -39,5 +39,9 @@ an older run has holes. `python3 eval/stream_audit.py --db data/bounce.db
 ## Publishing
 
 This repository is public: a committed snapshot is readable by anyone, so run
-the checks above before committing, not after. The page itself goes up only
+the checks above before committing, not after. CI re-checks every committed
+file (`backend/tests/test_committed_demo_snapshots.py`): a name the demo build
+would skip, a field `from_view` strips, an event not in its reduced form, an
+edge pointing outside the graph, or a secret of the CI environment fails the
+gate. With several snapshots, the page shows a case picker. The page itself goes up only
 when `.github/workflows/demo-pages.yml` is run by hand (GitHub Pages).
