@@ -113,10 +113,28 @@ def test_runtime_runs_the_app_as_a_non_root_user():
 
 
 def test_compose_publishes_on_loopback_only():
-    ports = re.findall(r'(?m)^\s*-\s*"?([0-9.:]+)"?\s*(?:#.*)?$', COMPOSE.split("ports:", 1)[1].split("volumes:", 1)[0])
-    assert ports, "no published port found"
-    for p in ports:
+    lines = [l.split("#", 1)[0].rstrip() for l in COMPOSE.splitlines()]
+    # Every `ports:` block, whatever service it belongs to, up to the next key at its own indentation or less.
+    entries = []
+    for i, line in enumerate(lines):
+        m = re.match(r"^(\s*)ports:\s*(?:!override)?\s*$", line)
+        if not m:
+            continue
+        indent = len(m.group(1))
+        for nxt in lines[i + 1:]:
+            if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= indent and not nxt.lstrip().startswith("-"):
+                break
+            if nxt.strip():
+                entries.append(nxt.strip())
+    assert entries, "no published port found"
+    # Long syntax (`target:` / `published:`) binds every interface unless it names host_ip.
+    assert not any(e.lstrip("- ").startswith(("target:", "published:", "host_ip:")) for e in entries), (
+        "long-syntax ports: keep the short form \"127.0.0.1:HOST:CONTAINER\" this guard can read")
+    for e in entries:
+        p = e.lstrip("- ").strip("\"'")
         assert p.count(":") == 2 and p.startswith("127.0.0.1:"), f"{p} is reachable beyond localhost"
+    # Host networking would skip the port mapping altogether.
+    assert not re.search(r"(?m)^\s*network_mode:\s*[\"']?host", COMPOSE), "network_mode: host bypasses the port mapping"
 
 
 def test_compose_mounts_env_read_only_and_never_creates_it():

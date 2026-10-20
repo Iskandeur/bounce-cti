@@ -1,4 +1,4 @@
-# One-command local run (README "Run with Docker"):
+# One-command local run (README, Setup > "With Docker (one command)"):
 #   cp .env.example .env    # set ADMIN_PIN and Claude auth (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)
 #   docker compose up -d --build
 #   open http://localhost:8001

@@ -1,6 +1,7 @@
 # bounce-cti in one container: the FastAPI backend, the built frontend it serves, and the
 # `claude` CLI it spawns for every investigation phase. Run it with docker-compose.yml
-# (README "Run with Docker"); the guard on this file is backend/tests/test_docker_packaging.py.
+# (README, Setup > "With Docker (one command)"); the guard on this file is
+# backend/tests/test_docker_packaging.py.
 
 # ── Stage 1: build the frontend (Vite) ──────────────────────────────────────────────────
 FROM node:22-slim AS frontend
