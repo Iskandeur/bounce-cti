@@ -126,6 +126,31 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full breakdown and
 
 ## Setup
 
+### With Docker (one command)
+
+```bash
+cp .env.example .env   # set ADMIN_PIN and Claude auth; API keys optional (see below)
+docker compose up -d --build
+```
+
+Open **http://localhost:8001** and sign in with your `ADMIN_PIN`. The image
+builds the frontend, installs the backend and the `claude` CLI, and runs them
+as a non-root user. Claude auth inside the container comes from `.env`:
+`CLAUDE_CODE_OAUTH_TOKEN` (run `claude setup-token` wherever you are logged in
+to a Pro/Max plan) or `ANTHROPIC_API_KEY`.
+
+- `.env` is mounted read-only and never copied into the image; without it the
+  stack refuses to start. The database, cache and logs live in the
+  `bounce-data` volume (`docker compose down -v` deletes them).
+- The port is published on `127.0.0.1` only. The session cookie is `Secure`:
+  browsers accept it over `http://localhost`, not over plain HTTP on any other
+  address. To reach it from elsewhere, put HTTPS in front, as production does
+  (see [Deployment](#deployment)).
+- `CLAUDE_CODE_VERSION` (build argument, default `stable`) picks the CLI:
+  `docker compose build --build-arg CLAUDE_CODE_VERSION=latest`.
+
+### From source
+
 ```bash
 python -m venv .venv
 # Windows:  .venv\Scripts\activate

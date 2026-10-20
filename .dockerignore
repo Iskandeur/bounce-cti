@@ -1,0 +1,23 @@
+# Secrets and state never enter an image: .env is bind-mounted read-only at run time
+# (docker-compose.yml), data/ is a volume. Guarded by backend/tests/test_docker_packaging.py.
+.env
+.env.*
+!.env.example
+data/
+*.db
+
+# Rebuilt inside the image, or not needed to run it.
+.git/
+.github/
+.venv/
+venv/
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+frontend/dist/
+frontend/dist-demo/
+.vite/
+.claude/
+media/
+runs/
+eval_iter*.py

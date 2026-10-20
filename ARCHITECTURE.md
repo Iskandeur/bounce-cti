@@ -1095,6 +1095,27 @@ npm run dev     # dev server with HMR on :5173, proxies /api + /ws to :8001
 # OR: npm run build  # for production, served by FastAPI at :8001
 ```
 
+### Docker (local run, not the production path)
+
+`docker compose up -d --build` builds one image in two stages: `node:22-slim`
+runs `npm ci && npm run build`, then `python:3.12-slim` gets `requirements.txt`,
+the `claude` CLI from Anthropic's native installer (`~/.local/bin`, one of the
+paths `_resolve_claude_bin()` probes) and the built `frontend/dist`. Everything
+runs as the non-root user `bounce` (uid 10001), because `claude -p
+--permission-mode bypassPermissions` refuses root. uvicorn listens on
+`0.0.0.0:8001` inside the container; compose publishes it on the host's
+`127.0.0.1:8001` only.
+
+Configuration is the same `.env` as a source checkout, bind-mounted read-only
+at `/app/.env` (`create_host_path: false`: a missing file stops the stack
+instead of mounting an empty directory), so `backend/config.py` and the
+per-investigation MCP config read it exactly as they do outside Docker. `data/`
+(SQLite, cache, `secret.key`, launcher logs, captures) is the `bounce-data`
+volume. `init: true` reaps the claude and MCP-server processes of each phase.
+`backend/tests/test_docker_packaging.py` pins the three properties: no secret or
+database in the build context or the image history, loopback-only publishing,
+non-root runtime.
+
 ## Deployment (CI/CD)
 
 The project uses **GitHub Actions** for continuous deployment. Every push to
