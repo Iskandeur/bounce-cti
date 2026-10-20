@@ -1,0 +1,28 @@
+# One-command local run (README "Run with Docker"):
+#   cp .env.example .env    # set ADMIN_PIN and Claude auth (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)
+#   docker compose up -d --build
+#   open http://localhost:8001
+services:
+  bounce:
+    build: .
+    image: bounce-cti:local
+    init: true                  # reaps the claude and MCP-server subprocesses of each phase
+    ports:
+      # Host loopback only. The session cookie is Secure: browsers accept it over
+      # http://localhost, not over plain http on any other address.
+      - "127.0.0.1:8001:8001"
+    volumes:
+      # Read by the backend exactly as in a source checkout (backend/config.py, and the
+      # per-investigation MCP config). Read-only, and never created if missing:
+      # without .env the stack refuses to start instead of mounting an empty directory.
+      - type: bind
+        source: ./.env
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - bounce-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  bounce-data:

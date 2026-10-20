@@ -352,6 +352,12 @@ eval/results_digest.py  # Renders EVAL_RESULTS.md from runs/*/scorecard.md (stdl
 EVAL_RESULTS.md         # GENERATED published eval digest — re-run the script after
                         #   adding a run under runs/, never edit by hand
 deploy.sh               # Auto-deploy script (callable on the VPS)
+Dockerfile              # Local one-image run (not used by prod): frontend build
+                        #   stage, then backend + claude CLI as non-root `bounce`
+docker-compose.yml      # `docker compose up -d --build`: .env bind-mounted read-only
+                        #   (never created), data/ in a volume, 127.0.0.1:8001 only
+.dockerignore           # .env, data/, .git stay out of every image. These three
+                        #   promises are pinned by backend/tests/test_docker_packaging.py
 run_mcp.py              # MCP server launcher (referenced by generated mcp.json configs)
 mcp.json                # Template MCP config (rendered per investigation at runtime)
 EVAL_PROTOCOL.md        # Active eval protocol (run on every non-trivial agent change)
