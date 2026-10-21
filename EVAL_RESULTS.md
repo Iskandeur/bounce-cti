@@ -7,15 +7,18 @@
 
 ## Headline
 
-- **Like-for-like trend (v2 Overall, same 5 cases 2, 3, 8, 9, 12):** 49.7 on 2026-04-19 (`20ba0ef`) → 74.4 on 2026-06-17 (`71e5fb1`), over 10 comparable runs.
-- **Capability (v3 CAP, fresh subset):** 92.9, 94.0, 96.0 across the 3 v3 runs (target ≥ 75, stretch ≥ 85).
-- **Runs archived:** 14 (1 marked `RUN STATUS: BLOCKED`, documented in its scorecard rather than scored).
+- **Like-for-like trend (v2 Overall, same 5 cases 2, 3, 8, 9, 12):** 49.7 on 2026-04-19 (`20ba0ef`) → 75.4 on 2026-10-21 (`46dc9b0`), over 11 comparable runs.
+- **Capability (v3 CAP, fresh subset):** 92.9, 94.0, 96.0, 91.9 across the 4 v3 runs (target ≥ 75, stretch ≥ 85).
+- **Runs archived:** 15 (1 marked `RUN STATUS: BLOCKED`, documented in its scorecard rather than scored).
+- **Against the same model without the tool** (NR mean, cases 2, 3, 8, 9, 12): Bounce-CTI 55.5 · same model + web search 83.0 · same model, no tool 14.7. Read the caveats in the baseline section before quoting it.
 
 ## What these numbers are — and are not
 
 - **Self-graded.** Scores come from this project's own mechanical scorer
   (`eval/scorer.py`) plus a hand audit for hallucinations. There is no
-  external baseline and no comparison against another tool.
+  comparison against another tool; the only external reference is the
+  bare-model baseline below (same model, no Bounce-CTI), scored by the
+  same scorer, which makes it a reference point, not an independent judge.
 - **The rubric moved.** v2 Overall (recall against vendor ground truth +
   process) and v3 CAP (decay-proof capability) measure different things and
   are never averaged together. The scorer itself was tightened along the way
@@ -27,8 +30,9 @@
 - **The live internet decays.** Ground truth comes from public vendor
   write-ups; infrastructure that has since been taken down cannot be
   re-observed. v3 marks such cases `DECAY` and skips their recall.
-- **The model changed** (`opus-4.7` until 2026-05-31, `opus-4.8` after), so
-  part of any later gain may be the model's, not the code's.
+- **The model changed** (`opus-4.7` until 2026-05-31, `opus-4.8` after,
+  `opus-5` (`claude-opus-5`) on 2026-10-21), so part of any later gain may
+  be the model's, not the code's.
 - **The transcripts were cut.** Until 2026-10-15 the backend stopped logging
   a phase at its first tool result longer than 64 KiB (fixed in #63; see
   EVAL_PROTOCOL §4.A). Measured that day on the production database: 62 of
@@ -42,6 +46,23 @@
   co-residency) and every later scorecard that audits it reports 0 (the
   targeted two-case run of 2026-05-04 `hypofirst` does not report it). The
   per-run audit lives in each scorecard.
+
+## Against the same model without the tool (baseline)
+
+Run of 2026-10-21, by [`eval/baseline.py`](eval/baseline.py): each seed given to the same model with nothing of Bounce-CTI around it, once with no tool and once with web search, and scored by the same `eval/scorer.py` against the same ground truth. Per-case table: [`eval/baseline/2026-10-21/results.md`](eval/baseline/2026-10-21/results.md).
+
+| Side | Model | NR mean | REC mean | Actor named | Untraceable attributions | Restraint (benign seeds) |
+|---|---|---:|---:|---:|---:|---:|
+| Bounce-CTI | `claude-opus-5` | 55.5 | 65.5 | 5/5 | 0 | 66.7 (n=3) |
+| same model + web search | `claude-opus-5` | 83.0 | 79.1 | 5/5 | 0 | 66.7 (n=3) |
+| same model, no tool | `claude-opus-5` | 14.7 | 13.4 | 0/5 | 0 | 100.0 (n=3) |
+
+Positive cases compared: 2, 3, 8, 9, 12 (the ones every side scored).
+How to read it:
+
+- **Recall only.** CAP scores pivoting through Bounce-CTI's own tools, which a bare model does not have: it is left out rather than scored 0. REC here is ungated (mean of NR, COV, ER, MK even on decayed data) so every side is averaged over the same dimensions.
+- **The web arm can read the answer key.** The ground truth comes from public vendor write-ups: the web arm fetched the write-up of 3 of the 5 cases, and met it in search results only on 0 more (per case in the run's results). Where it found the write-up, its recall measures search, not investigation: these cases favour it, and a fair comparison needs seeds whose infrastructure no write-up lists.
+- **Untraceable is not wrong.** The no-tool arm has no source to cite, so each attribution it makes is untraceable by construction. The baseline's provenance is judged on what the web returned only, never on its own text or search queries, which is stricter than the scorer is with Bounce-CTI.
 
 ## Like-for-like trend — fresh subset (2, 3, 8, 9, 12)
 
@@ -59,6 +80,7 @@ v2 Overall per case, for every run that completed all five.
 | 2026-06-01 `de5a31b` | `opus-4.8` | 77.8 | 75.1 | 67.2 | 85.3 | 65.8 | **74.2** |
 | 2026-06-17 `69fc13c` | `opus-4.8` | 77.8 | 65.3 | 75.6 | 77.5 | 82.5 | **75.7** |
 | 2026-06-17 `71e5fb1` | `opus-4.8` | 77.8 | 75.1 | 75.6 | 77.5 | 65.8 | **74.4** |
+| 2026-10-21 `46dc9b0` | `opus-5` | 73.7 | 80.6 | 71.4 | 85.3 | 65.8 | **75.4** |
 
 ## Capability track (v3 CAP)
 
@@ -69,6 +91,7 @@ Positive cases are scored on CAP; negative (benign) cases on restraint only.
 | 2026-06-01 `de5a31b` | 100.0 | 100.0 | 84.5 | 90.0 | 90.0 | **92.9** | 100.0 | 50.0 | 50.0 |
 | 2026-06-17 `69fc13c` | 100.0 | 90.0 | 100.0 | 90.0 | 90.0 | **94.0** | 100.0 | 50.0 | 50.0 |
 | 2026-06-17 `71e5fb1` | 100.0 | 100.0 | 100.0 | 90.0 | 90.0 | **96.0** | 100.0 | 100.0 | 100.0 |
+| 2026-10-21 `46dc9b0` | 90.0 | 100.0 | 89.6 | 89.9 | 90.0 | **91.9** | 100.0 | 0.0 | 100.0 |
 
 ## Every archived run
 
@@ -88,6 +111,7 @@ Positive cases are scored on CAP; negative (benign) cases on restraint only.
 | 2026-06-17 `69fc13c` | `opus-4.8` | 5/12 | 75.7 | 94.0 | [scorecard](runs/2026-06-17_69fc13c/scorecard.md) |
 | 2026-06-17 `71e5fb1` | `opus-4.8` | 5/12 | 74.4 | 96.0 | [scorecard](runs/2026-06-17_71e5fb1/scorecard.md) |
 | 2026-06-17 `90c516b` | `opus-4.8` | 0 | – | – | [blocked — see scorecard](runs/2026-06-17_90c516b/scorecard.md) |
+| 2026-10-21 `46dc9b0` | `opus-5` | 5/5 | 75.4 | 91.9 | [scorecard](runs/2026-10-21_46dc9b0/scorecard.md) |
 
 The v2 mean in this table is over whatever cases each run completed (a
 three-case smoke run and a twelve-case full run are not comparable); use the

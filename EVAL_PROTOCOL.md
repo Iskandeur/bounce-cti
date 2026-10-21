@@ -916,6 +916,8 @@ Carried forward from the research phase, reviewed for V2.
 
 - **Case 11 seed must be refreshed per run** — Smishing Triad domains burn in < 30 days. Pre-run selection procedure in §3.
 
+- **The cases favour a model with web search** (found 2026-10-21, §4.D) — every positive case's ground truth comes from a public write-up, so a bare model with WebSearch can read it (it fetched its case's own write-up on 3 of 5). Measuring what the tool adds over search needs cases whose ground truth is infrastructure no write-up lists (siblings found by pivoting after the report, or seeds from a private feed scored by hand).
+
 - **Candidates explicitly cut** — APT28 Nearest Neighbor (LOTL, no pivotable infra); APT28 Car-for-Sale (legit-service noise); Latrodectus (private NetFlow); ClearFake EtherHiding (on-chain, out of scope); Rockstar 2FA (overlaps Case 9); VexTrio Viper (private Infoblox telemetry); LabHost (2 years old); generic AiTM kits (no clean passive chain); crypto drainer infra (on-chain).
 
 ---
