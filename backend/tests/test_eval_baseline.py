@@ -82,6 +82,26 @@ def test_the_prompt_is_the_same_brief_for_both_arms_except_the_tools_line():
         assert value not in mem
 
 
+def test_the_brief_keeps_a_legitimate_operator_out_of_the_attribution():
+    # 2026-10-21, memory arm on www.wikipedia.org: verdict benign, and the Wikimedia
+    # Foundation listed under "attribution" as an actor, which the restraint rule
+    # reads as an attribution (RST 0). The brief now says what attribution is for.
+    assert "a legitimate owner or operator is not an attribution" in bl.build_prompt(CASE2, "memory")
+
+
+def test_results_are_not_written_from_runs_on_another_brief(tmp_path):
+    out = tmp_path / "run"
+    d = _write(out / "memory" / "c02", bl.to_graph(CASE2, ANSWER_CASE2), {"entries": []})
+    (d / "run.json").write_text(json.dumps({"prompt_sha": "000000000000"}))
+    assert bl.main(["compare", "--out", str(out), "--write", "2"]) == 1
+    assert not (out / "results.json").exists()
+    good = bl.prompt_sha(bl.build_prompt(CASE2, "memory"))
+    (d / "run.json").write_text(json.dumps({"prompt_sha": good}))
+    assert bl.main(["compare", "--out", str(out), "--write", "2"]) == 0
+    doc = json.loads((out / "results.json").read_text())
+    assert doc["sides"]["memory"]["2"]["run"]["stale_brief"] is False
+
+
 def test_extract_answer_reads_a_fence_or_a_trailing_object_and_survives_braces_in_strings():
     obj = {"verdict": "benign", "summary": "a {weird} value", "indicators": [], "attribution": []}
     fenced = "Here is my answer.\n```json\n" + json.dumps(obj) + "\n```"

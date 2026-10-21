@@ -48,6 +48,7 @@ Stdlib only.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -107,13 +108,20 @@ def build_prompt(case: dict, arm: str) -> str:
         "Find the infrastructure related to it (domains, IP addresses, file hashes, URLs, "
         "email addresses, certificates, ASNs) and say who or what is behind it (threat "
         "actor, malware family, phishing kit, campaign) when you can support it. If it looks "
-        "benign, say so: do not invent a cluster.\n\n"
+        "benign, say so: do not invent a cluster. \"attribution\" is for threats only: a "
+        "legitimate owner or operator is not an attribution, name it in the summary.\n\n"
         f"{_TOOLS_LINE[arm]}\n\n"
         "When you are done, answer with ONE JSON object of this shape and nothing after it:\n"
         f"{ANSWER_SHAPE}\n"
         "List only indicators you can stand behind, and write each IOC in full in \"value\" "
         "(not defanged)."
     )
+
+
+def prompt_sha(prompt: str) -> str:
+    """Short fingerprint of the brief a run got: compare() flags a run whose
+    brief is not the one this checkout would send."""
+    return hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:12]
 
 
 def build_cmd(claude_bin: str, arm: str, model: str, prompt: str) -> list[str]:
@@ -420,7 +428,8 @@ def run_case(label: str, arm: str, model: str, out: Path, claude_bin: str) -> di
     case, negative, dname = case_for(label)
     d = out / arm / dname
     d.mkdir(parents=True, exist_ok=True)
-    cmd = build_cmd(claude_bin, arm, model, build_prompt(case, arm))
+    prompt = build_prompt(case, arm)
+    cmd = build_cmd(claude_bin, arm, model, prompt)
     started = time.time()
     timed_out = False
     with tempfile.TemporaryDirectory(prefix="bounce-baseline-") as cwd, \
@@ -441,6 +450,7 @@ def run_case(label: str, arm: str, model: str, out: Path, claude_bin: str) -> di
     (d / "transcript.json").write_text(json.dumps(to_transcript(parsed)), encoding="utf-8")
     meta = {
         "case": label, "arm": arm, "model_requested": model, "model": parsed["model"],
+        "prompt_sha": prompt_sha(prompt),
         "cli": parsed["cli"], "tools_offered": parsed["tools"], "rc": proc.returncode,
         "timed_out": timed_out, "wall_s": round(time.time() - started, 1),
         "num_turns": parsed["num_turns"], "result_subtype": parsed["result_subtype"],
@@ -465,7 +475,7 @@ def _rec_ungated(r: dict) -> float | None:
     return round(sum(dims) / len(dims), 1) if dims else None
 
 
-def score_dir(label: str, d: Path) -> dict | None:
+def score_dir(label: str, d: Path, arm: str | None = None) -> dict | None:
     case, negative, _ = case_for(label)
     if not (d / "graph.json").exists():
         return None
@@ -490,6 +500,9 @@ def score_dir(label: str, d: Path) -> dict | None:
                                          "hosts_seen": hosts_seen(parsed),
                                          "permission_denials": permission_denials(parsed)})
     run = r.get("run") or {}
+    if arm in ARMS:
+        # A run without a fingerprint predates it: its brief is unknown, so stale.
+        r.setdefault("run", {})["stale_brief"] = run.get("prompt_sha") != prompt_sha(build_prompt(case, arm))
     if not negative and ("hosts_read" in run or "hosts_seen" in run):
         r["run"]["answer_key"] = answer_key(case["case_id"], run.get("hosts_read") or [],
                                             run.get("hosts_seen") or [])
@@ -516,7 +529,7 @@ def compare(out: Path, bounce: Path | None, labels: list[str]) -> dict:
             sides[arm] = {}
             for label in labels:
                 _, _, dname = case_for(label)
-                r = score_dir(label, out / arm / dname)
+                r = score_dir(label, out / arm / dname, arm)
                 if r is not None:
                     sides[arm][label] = r
     if bounce is not None:
@@ -550,8 +563,9 @@ def render_md(sides: dict, labels: list[str], title: str, notes: list[str]) -> s
                 continue
             calls = r["cti_calls"] if s == "bounce" else len((r.get("run") or {}).get("tool_calls") or [])
             n_att = r.get("n_attribution")
+            flag = " ⚠️ other brief" if (r.get("run") or {}).get("stale_brief") else ""
             out.append(
-                f"| {l} | {name[s]} | {_fmt(r['nr'])} | {_fmt(r['er'])} | {_fmt(r['mk'])} | "
+                f"| {l} | {name[s]}{flag} | {_fmt(r['nr'])} | {_fmt(r['er'])} | {_fmt(r['mk'])} | "
                 f"{_fmt((r.get('rq_meta') or {}).get('node_pct'))} | {_fmt(r['rec_ungated'])} | "
                 f"{_fmt(r['actor_hit'])} | {_fmt(n_att)} | {len(r['hallucinations'])} | {calls} |")
     out += ["", "| Side | NR mean | REC mean | Cases with the actor named | Untraceable attributions |",
@@ -602,7 +616,8 @@ def _slim(sides: dict) -> dict:
             run = r.get("run") or {}
             row["run"] = {k: run.get(k) for k in ("model", "cli", "wall_s", "num_turns", "timed_out",
                                                   "answer_parsed", "tool_calls", "hosts_read",
-                                                  "hosts_seen", "permission_denials", "answer_key")
+                                                  "hosts_seen", "permission_denials", "answer_key",
+                                                  "prompt_sha", "stale_brief")
                           if k in run}
             slim[s][l] = row
     return slim
@@ -637,6 +652,13 @@ def main(argv=None) -> int:
         return 0
     sides = compare(args.out, args.bounce, args.cases)
     md = render_md(sides, args.cases, args.title, args.note)
+    stale = sorted(f"{s}/{l}" for s, rows in sides.items() for l, r in rows.items()
+                   if (r.get("run") or {}).get("stale_brief"))
+    if args.write and stale:
+        print(md)
+        print(f"refusing to write results: {', '.join(stale)} ran on another brief than this "
+              "checkout's (re-run them)", file=sys.stderr)
+        return 1
     if args.write:
         models = {s: sorted({(r.get("run") or {}).get("model") for r in rows.values()} - {None})
                   for s, rows in sides.items() if s != "bounce"}
