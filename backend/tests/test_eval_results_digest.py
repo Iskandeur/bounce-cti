@@ -123,6 +123,57 @@ def test_render_never_puts_a_partial_run_in_the_trend_table():
     assert "blocked — see scorecard" in page
 
 
+BASELINE_DOC = {
+    "meta": {"date": "2026-10-21", "models": {"bounce": ["claude-opus-5"],
+                                              "web": ["claude-opus-5"], "memory": ["claude-opus-5"]}},
+    "sides": {
+        "bounce": {"2": {"nr": 60.0, "rec_ungated": 55.0, "actor_hit": True, "hallucinations": []},
+                   "3": {"nr": 40.0, "rec_ungated": 45.0, "actor_hit": True, "hallucinations": []},
+                   "N1": {"rst": 100}},
+        "web": {"2": {"nr": 80.0, "rec_ungated": 70.0, "actor_hit": True, "hallucinations": [],
+                      "run": {"hosts_read": ["www.rapid7.com"]}},
+                "3": {"nr": 20.0, "rec_ungated": 25.0, "actor_hit": False, "hallucinations": [],
+                      "run": {"hosts_read": []}},
+                "N1": {"rst": 100}},
+        # case 3 missing on this side: the summary must only average what all sides scored
+        "memory": {"2": {"nr": 9.1, "rec_ungated": 5.0, "actor_hit": False,
+                         "hallucinations": [["actor", "X"]]},
+                   "N1": {"rst": 0}},
+    },
+}
+
+
+def test_baseline_summary_only_averages_the_cases_every_side_scored():
+    rows = {r["side"]: r for r in rd.baseline_rows(BASELINE_DOC)}
+    assert rows["bounce"]["cases"] == ["2"]
+    assert rows["bounce"]["nr"] == 60.0 and rows["web"]["nr"] == 80.0
+    assert rows["memory"]["untraceable"] == 1
+    assert rows["web"]["read_pages"] == 1 and rows["memory"]["rst"] == 0
+
+
+def test_baseline_section_names_the_answer_key_caveat_and_drops_the_no_baseline_claim():
+    runs = [rd.parse_scorecard("2026-06-17_71e5fb1", V3_CARD)]
+    without = rd.render(runs)
+    assert "There is no\n  external baseline" in without and "(baseline)" not in without
+    page = rd.render(runs, ("2026-10-21", BASELINE_DOC))
+    section = page.split("## Against the same model without the tool (baseline)")[1]
+    assert "can read the answer key" in section and "Untraceable is not wrong" in section
+    assert "eval/baseline/2026-10-21/results.md" in section
+    assert "external baseline and no comparison" not in page
+    assert "Against the same model without the tool** (NR mean, cases 2)" in page
+
+
+def test_load_baseline_takes_the_latest_results(tmp_path):
+    assert rd.load_baseline(tmp_path / "absent") is None
+    for name, nr in (("2026-10-01", 1.0), ("2026-10-21", 2.0)):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "results.json").write_text(
+            '{"meta": {}, "sides": {"web": {"2": {"nr": %s}}}}' % nr)
+    (tmp_path / "2026-12-31").mkdir()   # a directory without results is not a run
+    name, doc = rd.load_baseline(tmp_path)
+    assert name == "2026-10-21" and doc["sides"]["web"]["2"]["nr"] == 2.0
+
+
 def test_published_page_matches_the_archived_runs():
     """EVAL_RESULTS.md must be regenerated whenever runs/ changes."""
     assert rd.main(["--check"]) == 0, (
