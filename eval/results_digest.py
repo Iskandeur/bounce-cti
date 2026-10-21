@@ -212,6 +212,7 @@ def baseline_rows(doc: dict) -> list[dict]:
                                if (r.get("run") or {}).get("answer_key") == "fetched"),
             "key_seen": sum(1 for r in pos
                             if (r.get("run") or {}).get("answer_key") == "in search results"),
+            "key_known": sum(1 for r in pos if (r.get("run") or {}).get("answer_key")),
             "models": (doc.get("meta") or {}).get("models", {}).get(s) or [],
         })
     return rows
@@ -266,10 +267,13 @@ def render_baseline(name: str, doc: dict) -> list[str]:
                "the same dimensions.")
     if "web" in by:
         w_ = by["web"]
+        # No case keyed (a run that predates answer_key): "–", not a false 0.
+        fetched, seen = ((w_["key_fetched"], w_["key_seen"]) if w_.get("key_known")
+                         else ("–", "–"))
         out.append(f"- **The web arm can read the answer key.** The ground truth comes from public "
-                   f"vendor write-ups: the web arm fetched the write-up of {w_['key_fetched']} of "
+                   f"vendor write-ups: the web arm fetched the write-up of {fetched} of "
                    f"the {len(cases)} cases, and met it in search results only on "
-                   f"{w_['key_seen']} more (per case in the run's results). Where it found the "
+                   f"{seen} more (per case in the run's results). Where it found the "
                    "write-up, its recall measures search, not investigation: these cases favour "
                    "it, and a fair comparison needs seeds whose infrastructure no write-up lists.")
     if "memory" in by:
@@ -341,8 +345,9 @@ def render(runs: list[Run], baseline: tuple[str, dict] | None = None) -> str:
     w("- **The live internet decays.** Ground truth comes from public vendor")
     w("  write-ups; infrastructure that has since been taken down cannot be")
     w("  re-observed. v3 marks such cases `DECAY` and skips their recall.")
-    w("- **The model changed** (`opus-4.7` until 2026-05-31, `opus-4.8` after), so")
-    w("  part of any later gain may be the model's, not the code's.")
+    w("- **The model changed** (`opus-4.7` until 2026-05-31, `opus-4.8` after,")
+    w("  `opus-5` (`claude-opus-5`) on 2026-10-21), so part of any later gain may")
+    w("  be the model's, not the code's.")
     w("- **The transcripts were cut.** Until 2026-10-15 the backend stopped logging")
     w("  a phase at its first tool result longer than 64 KiB (fixed in #63; see")
     w("  EVAL_PROTOCOL §4.A). Measured that day on the production database: 62 of")

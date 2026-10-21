@@ -66,10 +66,9 @@ sys.path.insert(0, str(HERE))
 # scorer gets this checkout's ground truth.
 from cases import CASES, NEGATIVE_CASES  # noqa: E402
 import scorer  # noqa: E402
-try:
-    from cases import GT_SOURCE_HOSTS  # noqa: E402
-except ImportError:
-    GT_SOURCE_HOSTS = {}
+# No fallback: a copy of cases.py without the table would silently report every
+# web run as "answer key not reached". Fail loudly instead.
+from cases import GT_SOURCE_HOSTS  # noqa: E402
 
 ARMS = {"memory": "", "web": "WebSearch,WebFetch"}
 FRESH_SUBSET = (2, 3, 8, 9, 12)
@@ -489,6 +488,7 @@ def score_dir(label: str, d: Path, arm: str | None = None) -> dict | None:
                                  if n["type"] in ("actor", "malware", "ransomware", "framework",
                                                   "phishing_kit", "kit", "tool", "campaign"))
     run = d / "run.json"
+    r["has_run_json"] = run.exists()
     if run.exists():
         r["run"] = json.loads(run.read_text())
     stream = d / "stream.jsonl"
@@ -656,8 +656,14 @@ def main(argv=None) -> int:
                    if (r.get("run") or {}).get("stale_brief"))
     if args.write and stale:
         print(md)
-        print(f"refusing to write results: {', '.join(stale)} ran on another brief than this "
-              "checkout's (re-run them)", file=sys.stderr)
+        no_meta = [k for k in stale if not sides[k.split("/")[0]][k.split("/", 1)[1]].get("has_run_json")]
+        other = [k for k in stale if k not in no_meta]
+        if no_meta:
+            print(f"refusing to write results: {', '.join(no_meta)} have no run.json, so the brief "
+                  "they ran on is unknown (re-run them)", file=sys.stderr)
+        if other:
+            print(f"refusing to write results: {', '.join(other)} ran on another brief than this "
+                  "checkout's (re-run them)", file=sys.stderr)
         return 1
     if args.write:
         models = {s: sorted({(r.get("run") or {}).get("model") for r in rows.values()} - {None})

@@ -165,6 +165,18 @@ def test_baseline_section_names_the_answer_key_caveat_and_drops_the_no_baseline_
     assert "Against the same model without the tool** (NR mean, cases 2)" in page
 
 
+def test_the_answer_key_line_shows_a_dash_when_no_case_was_keyed():
+    import copy
+    doc = copy.deepcopy(BASELINE_DOC)
+    for r in doc["sides"]["web"].values():
+        r.pop("run", None)
+    section = "\n".join(rd.render_baseline("2026-10-21", doc))
+    assert "fetched the write-up of – of the 1 cases" in section
+    assert "search results only on – more" in section
+    keyed = "\n".join(rd.render_baseline("2026-10-21", BASELINE_DOC))
+    assert "fetched the write-up of 1 of the 1 cases" in keyed
+
+
 def test_load_baseline_takes_the_latest_results(tmp_path):
     assert rd.load_baseline(tmp_path / "absent") is None
     for name, nr in (("2026-10-01", 1.0), ("2026-10-21", 2.0)):

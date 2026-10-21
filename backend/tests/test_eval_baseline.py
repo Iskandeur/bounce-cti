@@ -102,6 +102,18 @@ def test_results_are_not_written_from_runs_on_another_brief(tmp_path):
     assert doc["sides"]["memory"]["2"]["run"]["stale_brief"] is False
 
 
+def test_the_refusal_says_whether_run_json_is_missing_or_the_brief_differs(tmp_path, capsys):
+    out = tmp_path / "run"
+    d = _write(out / "memory" / "c02", bl.to_graph(CASE2, ANSWER_CASE2), {"entries": []})
+    assert bl.main(["compare", "--out", str(out), "--write", "2"]) == 1
+    err = capsys.readouterr().err
+    assert "memory/2 have no run.json" in err and "another brief" not in err
+    (d / "run.json").write_text(json.dumps({"prompt_sha": "000000000000"}))
+    assert bl.main(["compare", "--out", str(out), "--write", "2"]) == 1
+    err = capsys.readouterr().err
+    assert "memory/2 ran on another brief" in err and "no run.json" not in err
+
+
 def test_extract_answer_reads_a_fence_or_a_trailing_object_and_survives_braces_in_strings():
     obj = {"verdict": "benign", "summary": "a {weird} value", "indicators": [], "attribution": []}
     fenced = "Here is my answer.\n```json\n" + json.dumps(obj) + "\n```"
