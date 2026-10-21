@@ -932,7 +932,8 @@ the CLI's WebSearch/WebFetch, from an empty temp directory (no `CLAUDE.md`), no
 MCP server and a filtered environment; it keeps `stream.jsonl`, the parsed
 `answer.json`, and a `graph.json` + `transcript.json` in the shapes
 `eval/fetch.py` writes, with run facts in `run.json` (model from the init
-event, hosts fetched, refused tool calls). `compare` scores every side with
+event, hosts fetched, hosts linked from search results, refused tool calls;
+`compare` re-derives the last three from `stream.jsonl`). It scores every side with
 `scorer.score_case(case, out_dir)` / `score_negative(neg, out_dir)` and, with
 `--write`, leaves `results.json` (scores only) and `results.md`. A citation the
 model writes is kept as `claimed_*` metadata, never as provenance; the

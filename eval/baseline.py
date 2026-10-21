@@ -132,7 +132,9 @@ def build_cmd(claude_bin: str, arm: str, model: str, prompt: str) -> list[str]:
     return cmd
 
 
-_DENIED_RE = re.compile(r"requested permissions|haven't granted|permission denied", re.I)
+# The CLI's own refusal, at the start of the tool result. Matched there only: a
+# fetched page that talks about "permission denied" is a page that was read.
+_DENIED_RE = re.compile(r"^\s*Claude requested permissions to use \w+, but you haven't granted it")
 
 
 def permission_denials(parsed: dict) -> int:
@@ -373,17 +375,34 @@ def hosts_read(parsed: dict) -> list[str]:
     return sorted(h for h in hosts if h)
 
 
+_URL_RE = re.compile(r"https?://[^\s\"'<>)\]}]+")
+
+
+def hosts_seen(parsed: dict) -> list[str]:
+    """Hosts linked from what WebSearch returned. A search result's snippet can
+    already carry the write-up's content, page fetched or not."""
+    search_ids = {c["id"] for c in parsed["tool_calls"] if c.get("name") == "WebSearch"}
+    hosts = set()
+    for r in parsed["tool_results"]:
+        if r["id"] in search_ids and not _DENIED_RE.search(r["text"] or ""):
+            for url in _URL_RE.findall(r["text"] or ""):
+                h = urlparse(url).hostname
+                if h:
+                    hosts.add(h)
+    return sorted(hosts)
+
+
 # ── running ────────────────────────────────────────────────────────────────
 
 def run_case(label: str, arm: str, model: str, out: Path, claude_bin: str) -> dict:
     case, negative, dname = case_for(label)
     d = out / arm / dname
     d.mkdir(parents=True, exist_ok=True)
-    cwd = tempfile.mkdtemp(prefix="bounce-baseline-")
     cmd = build_cmd(claude_bin, arm, model, build_prompt(case, arm))
     started = time.time()
     timed_out = False
-    with open(d / "stream.jsonl", "w", encoding="utf-8") as f:
+    with tempfile.TemporaryDirectory(prefix="bounce-baseline-") as cwd, \
+            open(d / "stream.jsonl", "w", encoding="utf-8") as f:
         proc = subprocess.Popen(cmd, cwd=cwd, env=child_env(os.environ), stdout=f,
                                 stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True)
         try:
@@ -405,7 +424,7 @@ def run_case(label: str, arm: str, model: str, out: Path, claude_bin: str) -> di
         "num_turns": parsed["num_turns"], "result_subtype": parsed["result_subtype"],
         "is_error": parsed["is_error"], "answer_parsed": answer is not None,
         "tool_calls": [c["name"] for c in parsed["tool_calls"]], "hosts_read": hosts_read(parsed),
-        "permission_denials": permission_denials(parsed),
+        "hosts_seen": hosts_seen(parsed), "permission_denials": permission_denials(parsed),
         "stderr_tail": (stderr or "")[-300:],
     }
     (d / "run.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
@@ -440,6 +459,14 @@ def score_dir(label: str, d: Path) -> dict | None:
     run = d / "run.json"
     if run.exists():
         r["run"] = json.loads(run.read_text())
+    stream = d / "stream.jsonl"
+    if stream.exists():
+        # The stream is the record; run.json may come from an older version of
+        # this script. Re-derive what was read from it.
+        parsed = parse_stream(stream.read_text(encoding="utf-8").splitlines())
+        r.setdefault("run", {}).update({"hosts_read": hosts_read(parsed),
+                                         "hosts_seen": hosts_seen(parsed),
+                                         "permission_denials": permission_denials(parsed)})
     return r
 
 
@@ -520,12 +547,16 @@ def render_md(sides: dict, labels: list[str], title: str, notes: list[str]) -> s
     if web:
         out += ["", "## What the web arm read", "",
                 "The ground truth comes from public write-ups; a host below that published one "
-                "means the web arm could read the answer key.", ""]
+                "means the web arm could read the answer key, in a fetched page or already in a "
+                "search result's snippet.", ""]
         for l in pos + neg:
             run = (web.get(l) or {}).get("run") or {}
             hosts = run.get("hosts_read") or []
+            seen = [h for h in run.get("hosts_seen") or [] if h not in hosts]
+            more = f" (+{len(seen) - 12} more in results.json)" if len(seen) > 12 else ""
             denied = run.get("permission_denials") or 0
-            out.append(f"- **{l}**: {', '.join(hosts) if hosts else '(no page fetched)'}"
+            out.append(f"- **{l}**: fetched {', '.join(hosts) if hosts else '(nothing)'}"
+                       + (f"; in search results also {', '.join(seen[:12])}{more}" if seen else "")
                        + (f" ⚠️ {denied} tool call(s) refused by the CLI" if denied else ""))
     out.append("")
     return "\n".join(out)
@@ -543,7 +574,7 @@ def _slim(sides: dict) -> dict:
             run = r.get("run") or {}
             row["run"] = {k: run.get(k) for k in ("model", "cli", "wall_s", "num_turns", "timed_out",
                                                   "answer_parsed", "tool_calls", "hosts_read",
-                                                  "permission_denials")
+                                                  "hosts_seen", "permission_denials")
                           if k in run}
             slim[s][l] = row
     return slim

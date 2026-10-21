@@ -208,7 +208,8 @@ def baseline_rows(doc: dict) -> list[dict]:
             "actor": sum(1 for r in pos if r.get("actor_hit")),
             "untraceable": sum(len(r.get("hallucinations") or []) for r in pos),
             "rst": _mean(neg), "n_neg": len(neg),
-            "read_pages": sum(1 for r in pos if (r.get("run") or {}).get("hosts_read")),
+            "read_pages": sum(1 for r in pos if (r.get("run") or {}).get("hosts_read")
+                              or (r.get("run") or {}).get("hosts_seen")),
             "models": (doc.get("meta") or {}).get("models", {}).get(s) or [],
         })
     return rows
@@ -263,8 +264,9 @@ def render_baseline(name: str, doc: dict) -> list[str]:
                "the same dimensions.")
     if "web" in by:
         out.append(f"- **The web arm can read the answer key.** The ground truth comes from public "
-                   f"vendor write-ups, and the web arm fetched pages on {by['web']['read_pages']} of "
-                   f"the {len(cases)} cases (hosts listed per case in the run's results). Where it "
+                   f"vendor write-ups, and the web arm fetched pages or got search results on "
+                   f"{by['web']['read_pages']} of the {len(cases)} cases (hosts listed per case in "
+                   "the run's results). Where it "
                    "found the write-up, its recall measures search, not investigation: these cases "
                    "favour it, and a fair comparison needs seeds whose infrastructure no write-up "
                    "lists.")

@@ -123,6 +123,21 @@ def test_a_refused_tool_call_is_counted_and_reads_no_page():
     assert bl.hosts_read(p) == ["bazaar.abuse.ch"]
 
 
+def test_a_page_about_permissions_is_a_page_read_not_a_refusal():
+    p = {"tool_calls": [{"id": "a", "name": "WebFetch", "input": {"url": "https://blog.example/x"}}],
+         "tool_results": [{"id": "a", "text": "The dropper exits with 'permission denied' when..."}]}
+    assert bl.permission_denials(p) == 0
+    assert bl.hosts_read(p) == ["blog.example"]
+
+
+def test_search_results_count_as_seen_even_with_no_page_fetched():
+    p = {"tool_calls": [{"id": "s", "name": "WebSearch", "input": {"query": "3df9dcc45d2a"}}],
+         "tool_results": [{"id": "s", "text": 'Links: [{"title": "Muddying the Tracks", '
+                                              '"url": "https://www.rapid7.com/blog/post/x"}]'}]}
+    assert bl.hosts_read(p) == []
+    assert bl.hosts_seen(p) == ["www.rapid7.com"]
+
+
 def test_to_graph_has_the_seed_refangs_values_and_links_indicators():
     g = bl.to_graph(CASE2, ANSWER_CASE2)
     by_value = {n["value"]: n for n in g["nodes"]}
