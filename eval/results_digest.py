@@ -208,8 +208,10 @@ def baseline_rows(doc: dict) -> list[dict]:
             "actor": sum(1 for r in pos if r.get("actor_hit")),
             "untraceable": sum(len(r.get("hallucinations") or []) for r in pos),
             "rst": _mean(neg), "n_neg": len(neg),
-            "read_pages": sum(1 for r in pos if (r.get("run") or {}).get("hosts_read")
-                              or (r.get("run") or {}).get("hosts_seen")),
+            "key_fetched": sum(1 for r in pos
+                               if (r.get("run") or {}).get("answer_key") == "fetched"),
+            "key_seen": sum(1 for r in pos
+                            if (r.get("run") or {}).get("answer_key") == "in search results"),
             "models": (doc.get("meta") or {}).get("models", {}).get(s) or [],
         })
     return rows
@@ -263,13 +265,13 @@ def render_baseline(name: str, doc: dict) -> list[str]:
                "(mean of NR, COV, ER, MK even on decayed data) so every side is averaged over "
                "the same dimensions.")
     if "web" in by:
+        w_ = by["web"]
         out.append(f"- **The web arm can read the answer key.** The ground truth comes from public "
-                   f"vendor write-ups, and the web arm fetched pages or got search results on "
-                   f"{by['web']['read_pages']} of the {len(cases)} cases (hosts listed per case in "
-                   "the run's results). Where it "
-                   "found the write-up, its recall measures search, not investigation: these cases "
-                   "favour it, and a fair comparison needs seeds whose infrastructure no write-up "
-                   "lists.")
+                   f"vendor write-ups: the web arm fetched the write-up of {w_['key_fetched']} of "
+                   f"the {len(cases)} cases, and met it in search results only on "
+                   f"{w_['key_seen']} more (per case in the run's results). Where it found the "
+                   "write-up, its recall measures search, not investigation: these cases favour "
+                   "it, and a fair comparison needs seeds whose infrastructure no write-up lists.")
     if "memory" in by:
         out.append("- **Untraceable is not wrong.** The no-tool arm has no source to cite, so each "
                    "attribution it makes is untraceable by construction. The baseline's provenance "

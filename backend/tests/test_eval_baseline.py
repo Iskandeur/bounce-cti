@@ -138,6 +138,16 @@ def test_search_results_count_as_seen_even_with_no_page_fetched():
     assert bl.hosts_seen(p) == ["www.rapid7.com"]
 
 
+def test_answer_key_is_the_ground_truth_source_not_any_page():
+    # case 3's ground truth comes from The DFIR Report
+    assert bl.answer_key(3, ["thedfirreport.com", "x.org"], []) == "fetched"
+    assert bl.answer_key(3, ["x.org"], ["www.thedfirreport.com"]) == "in search results"
+    assert bl.answer_key(3, ["virustotal.com"], ["notthedfirreport.com"]) == "not reached"
+    assert bl.answer_key(999, ["thedfirreport.com"], []) is None
+    # every positive case has its source declared
+    assert all(c["case_id"] in bl.GT_SOURCE_HOSTS for c in bl.CASES)
+
+
 def test_to_graph_has_the_seed_refangs_values_and_links_indicators():
     g = bl.to_graph(CASE2, ANSWER_CASE2)
     by_value = {n["value"]: n for n in g["nodes"]}

@@ -65,6 +65,10 @@ sys.path.insert(0, str(HERE))
 # scorer gets this checkout's ground truth.
 from cases import CASES, NEGATIVE_CASES  # noqa: E402
 import scorer  # noqa: E402
+try:
+    from cases import GT_SOURCE_HOSTS  # noqa: E402
+except ImportError:
+    GT_SOURCE_HOSTS = {}
 
 ARMS = {"memory": "", "web": "WebSearch,WebFetch"}
 FRESH_SUBSET = (2, 3, 8, 9, 12)
@@ -392,6 +396,24 @@ def hosts_seen(parsed: dict) -> list[str]:
     return sorted(hosts)
 
 
+def _on(host: str, sources: list[str]) -> bool:
+    return any(host == s or host.endswith("." + s) for s in sources)
+
+
+def answer_key(case_id: int, read: list[str], seen: list[str]) -> str | None:
+    """Did the web arm reach the write-up its ground truth comes from?
+    'fetched', 'in search results', 'not reached', or None when the case's
+    source is not known (cases.GT_SOURCE_HOSTS)."""
+    sources = GT_SOURCE_HOSTS.get(case_id)
+    if not sources:
+        return None
+    if any(_on(h, sources) for h in read):
+        return "fetched"
+    if any(_on(h, sources) for h in seen):
+        return "in search results"
+    return "not reached"
+
+
 # ── running ────────────────────────────────────────────────────────────────
 
 def run_case(label: str, arm: str, model: str, out: Path, claude_bin: str) -> dict:
@@ -467,6 +489,10 @@ def score_dir(label: str, d: Path) -> dict | None:
         r.setdefault("run", {}).update({"hosts_read": hosts_read(parsed),
                                          "hosts_seen": hosts_seen(parsed),
                                          "permission_denials": permission_denials(parsed)})
+    run = r.get("run") or {}
+    if not negative and ("hosts_read" in run or "hosts_seen" in run):
+        r["run"]["answer_key"] = answer_key(case["case_id"], run.get("hosts_read") or [],
+                                            run.get("hosts_seen") or [])
     return r
 
 
@@ -546,16 +572,18 @@ def render_md(sides: dict, labels: list[str], title: str, notes: list[str]) -> s
     web = sides.get("web") or {}
     if web:
         out += ["", "## What the web arm read", "",
-                "The ground truth comes from public write-ups; a host below that published one "
-                "means the web arm could read the answer key, in a fetched page or already in a "
-                "search result's snippet.", ""]
+                "The ground truth comes from public write-ups (`cases.GT_SOURCE_HOSTS`). "
+                "\"Answer key\" says whether the web arm fetched that write-up, met it in a search "
+                "result's snippet, or did not reach it.", ""]
         for l in pos + neg:
             run = (web.get(l) or {}).get("run") or {}
             hosts = run.get("hosts_read") or []
             seen = [h for h in run.get("hosts_seen") or [] if h not in hosts]
             more = f" (+{len(seen) - 12} more in results.json)" if len(seen) > 12 else ""
             denied = run.get("permission_denials") or 0
-            out.append(f"- **{l}**: fetched {', '.join(hosts) if hosts else '(nothing)'}"
+            key = run.get("answer_key")
+            out.append(f"- **{l}**" + (f" (answer key: **{key}**)" if key else "")
+                       + f": fetched {', '.join(hosts) if hosts else '(nothing)'}"
                        + (f"; in search results also {', '.join(seen[:12])}{more}" if seen else "")
                        + (f" ⚠️ {denied} tool call(s) refused by the CLI" if denied else ""))
     out.append("")
@@ -574,7 +602,7 @@ def _slim(sides: dict) -> dict:
             run = r.get("run") or {}
             row["run"] = {k: run.get(k) for k in ("model", "cli", "wall_s", "num_turns", "timed_out",
                                                   "answer_parsed", "tool_calls", "hosts_read",
-                                                  "hosts_seen", "permission_denials")
+                                                  "hosts_seen", "permission_denials", "answer_key")
                           if k in run}
             slim[s][l] = row
     return slim

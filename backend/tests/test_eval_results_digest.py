@@ -131,9 +131,9 @@ BASELINE_DOC = {
                    "3": {"nr": 40.0, "rec_ungated": 45.0, "actor_hit": True, "hallucinations": []},
                    "N1": {"rst": 100}},
         "web": {"2": {"nr": 80.0, "rec_ungated": 70.0, "actor_hit": True, "hallucinations": [],
-                      "run": {"hosts_read": ["www.rapid7.com"]}},
+                      "run": {"hosts_read": ["www.rapid7.com"], "answer_key": "fetched"}},
                 "3": {"nr": 20.0, "rec_ungated": 25.0, "actor_hit": False, "hallucinations": [],
-                      "run": {"hosts_read": []}},
+                      "run": {"hosts_read": [], "answer_key": "in search results"}},
                 "N1": {"rst": 100}},
         # case 3 missing on this side: the summary must only average what all sides scored
         "memory": {"2": {"nr": 9.1, "rec_ungated": 5.0, "actor_hit": False,
@@ -148,7 +148,9 @@ def test_baseline_summary_only_averages_the_cases_every_side_scored():
     assert rows["bounce"]["cases"] == ["2"]
     assert rows["bounce"]["nr"] == 60.0 and rows["web"]["nr"] == 80.0
     assert rows["memory"]["untraceable"] == 1
-    assert rows["web"]["read_pages"] == 1 and rows["memory"]["rst"] == 0
+    assert rows["memory"]["rst"] == 0
+    # case 3 is not common to every side: its "in search results" is not counted
+    assert rows["web"]["key_fetched"] == 1 and rows["web"]["key_seen"] == 0
 
 
 def test_baseline_section_names_the_answer_key_caveat_and_drops_the_no_baseline_claim():
