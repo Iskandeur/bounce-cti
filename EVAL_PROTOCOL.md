@@ -869,6 +869,21 @@ malicious; **0 if any threat-actor / malware / kit attribution is asserted.**
 `liveness_probe` is N/A for negatives (they are never gated). Add more N-series
 seeds as new false-positive classes appear in production triage.
 
+**2026-10-22, N2 at RST 0 and why.** On the 2026-10-21 bench (`claude-opus-5`)
+the main and followup phases concluded `legitimate` / `benign` at 31 nodes,
+which `score_negative` scores 100. The autonomous pivot drain then ran
+`urlhaus_host` on the CDN and graphed an ACRStealer / ClearFake cluster from
+its abuse URLs (65 nodes, 8 infra nodes tagged malicious, 3 kit/family nodes):
+RST 0. Read that way, the failure is the drain's, not the investigation's: the
+seed lineage itself stayed `cdn` / `benign` throughout. Fix: a CTI seed the run
+itself concluded legitimate is no longer drained (`agent_runner._concluded_benign`).
+Replayed on the production event log (graph rebuilt as it stood at each drain
+start, 169 drains): 19 skipped, all benign seeds, N1-N3 among them; the five
+positive cases of that bench still drain. A live N2 run on a local instance
+(`claude-sonnet-5-5`, no source API keys) concluded benign and logged
+`phase_pivot_drain_skipped`; a bench re-run of the negatives on the production
+instance is still to do.
+
 ---
 
 ## 10. Known gaps
