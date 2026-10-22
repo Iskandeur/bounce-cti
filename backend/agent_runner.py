@@ -3868,8 +3868,12 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
             if verticals.get_vertical(gs.get_vertical(inv_id)).name == "cti":
                 benign_verdict = _concluded_benign(
                     gs.get_graph(inv_id).get("nodes", []))
-        except Exception:
+        except Exception as e:
+            # Fail open (the drain runs, as before the gate), but say so: a
+            # gate that silently stops working looks exactly like one that
+            # found no benign verdict.
             benign_verdict = None
+            _log(inv_id, "phase_pivot_drain_gate_error", {"error": str(e)[:300]})
         if benign_verdict:
             _log(inv_id, "phase_pivot_drain_skipped",
                  {"reason": "concluded_benign", **benign_verdict})

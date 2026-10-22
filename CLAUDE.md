@@ -374,6 +374,10 @@ eval/demo_export.py     # <inv_id> <name> --db … --dotenv …: one investigati
                         #   written), 2 if the --dotenv can't be read
 eval/demo/              # Committed demo snapshots + README (how to make one, which
                         #   run to pick). PUBLIC repo: check before committing
+eval/drain_gate_replay.py # --db … [--seeds]: replays the pivot-drain gate
+                        #   (_concluded_benign) on every drain of a database, each
+                        #   graph rebuilt from its events as it stood at drain start.
+                        #   Read-only; seed values only with --seeds
 .github/workflows/demo-pages.yml  # Publishes dist-demo/ to GitHub Pages, by hand only
 ```
 

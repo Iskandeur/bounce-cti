@@ -214,7 +214,10 @@ After the main run, additional phases run automatically:
   CTI seed the run concluded legitimate: every `working_hypothesis` says
   `legitimate`, the `investigation_summary` threat_assessment reads as benign
   and no seed node carries a malicious tag (`_concluded_benign`). osint/dd are
-  not gated; `BOUNCE_PIVOT_DRAIN_ON_BENIGN=1` turns the gate off.
+  not gated; `BOUNCE_PIVOT_DRAIN_ON_BENIGN=1` turns the gate off. A gate error
+  fails open (the drain runs) and logs `phase_pivot_drain_gate_error`.
+  `eval/drain_gate_replay.py --db <bounce.db>` replays the gate on every past
+  drain, read-only, and lists what it would skip and what it misses.
 - **Phase 5 — `phase_lessons_learned`**: short retrospective. The agent
   reads the graph + `gaps_report()` + `queue_status()` and writes a
   single hidden `lessons_learned` report node listing blockers, missing

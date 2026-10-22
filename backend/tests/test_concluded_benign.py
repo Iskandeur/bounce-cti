@@ -176,6 +176,15 @@ def test_osint_and_dd_still_drain_a_legitimate_subject(db, monkeypatch, vertical
     assert "phase_pivot_drain_skipped" not in kinds
 
 
+def test_a_gate_that_breaks_fails_open_and_says_so(db, monkeypatch):
+    def broken(nodes):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(ar, "_concluded_benign", broken)
+    phases, kinds = _run(db, monkeypatch)
+    assert "pivot_drain_1" in phases  # the drain runs, as before the gate
+    assert "phase_pivot_drain_gate_error" in kinds
+
+
 def test_the_switch_restores_the_drain_on_benign(db, monkeypatch):
     monkeypatch.setenv("BOUNCE_PIVOT_DRAIN_ON_BENIGN", "1")
     phases, kinds = _run(db, monkeypatch)
