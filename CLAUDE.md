@@ -374,6 +374,10 @@ eval/demo_export.py     # <inv_id> <name> --db … --dotenv …: one investigati
                         #   written), 2 if the --dotenv can't be read
 eval/demo/              # Committed demo snapshots + README (how to make one, which
                         #   run to pick). PUBLIC repo: check before committing
+eval/drain_gate_replay.py # --db … [--seeds]: replays the pivot-drain gate
+                        #   (_concluded_benign) on every drain of a database, each
+                        #   graph rebuilt from its events as it stood at drain start.
+                        #   Read-only; seed values only with --seeds
 .github/workflows/demo-pages.yml  # Publishes dist-demo/ to GitHub Pages, by hand only
 ```
 
@@ -458,7 +462,14 @@ A red gate must be fixed before merge. Pair this with branch protection on
   autonomous pivot-drain loop (`phase_pivot_drain_<N>`, added 2026-05) that
   reads the report's own `pivot_suggestions` and the pivot queue, executes
   them, and recurses for up to `BOUNCE_PIVOT_DRAIN_ROUNDS` rounds (default 3,
-  set to 0 to disable). Each round caps at `BOUNCE_PIVOT_DRAIN_MAX_TURNS`
+  set to 0 to disable). A CTI seed the run itself concluded legitimate is NOT
+  drained (`_concluded_benign`: every `working_hypothesis` says `legitimate`,
+  the summary's `threat_assessment` reads as benign, no seed tag is malicious;
+  logged as `phase_pivot_drain_skipped`). The drain had been chasing the abuse a
+  shared service hosts into unrelated clusters: N2 `cdn.jsdelivr.net` went from
+  a benign verdict at 31 nodes to an ACRStealer/ClearFake graph, RST 100 → 0.
+  osint/dd keep their drain (a legitimate subject is their normal case);
+  `BOUNCE_PIVOT_DRAIN_ON_BENIGN=1` restores it for CTI. Each round caps at `BOUNCE_PIVOT_DRAIN_MAX_TURNS`
   (default 60) and stops early when a round adds fewer than
   `BOUNCE_PIVOT_DRAIN_CONVERGENCE` (default 3) new nodes. A global
   CTI-call ceiling `BOUNCE_TOTAL_CTI_BUDGET` (default 82) caps cumulative

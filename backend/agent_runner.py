@@ -1041,6 +1041,79 @@ def _adaptive_followup_targets(inv_id: str) -> list:
     return targets[:20]
 
 
+# Seed tags that mean the seed itself is malicious. Shared by _is_parked (a
+# malicious seed is never short-circuited as parked) and _concluded_benign (a
+# malicious seed is never treated as a benign verdict). Campaign-specific tags
+# (e.g. clearfake_c2, lummac2) are caught by the substring pass; generic family
+# tags by the set membership.
+_MALICIOUS_SEED_TAGS = {
+    "malicious", "c2", "phishing", "botnet", "ransomware", "dropper",
+    "loader", "stealer", "trojan", "rat", "malware", "dga", "apt",
+}
+_MALICIOUS_SEED_SUBSTR = ("c2", "malware", "phish", "ransom", "botnet",
+                          "dropper", "loader", "stealer", "trojan")
+
+
+def _seed_tags_malicious(stags: list[str]) -> bool:
+    return bool(set(stags) & _MALICIOUS_SEED_TAGS
+                or any(sub in t for t in stags for sub in _MALICIOUS_SEED_SUBSTR))
+
+
+# A threat_assessment that reads as a benign verdict. The schema asks for
+# benign|suspicious|likely_malicious|malicious, but 45 of 262 production
+# summaries are off that list, and the benign ones lead with the verdict:
+# "benign_infrastructure", "likely_benign", "BENIGN — IANA reserved…",
+# "Not malicious. …", "LOW — no malicious indicators…". The malicious ones
+# lead with theirs ("High confidence malicious…", "HIGH — …", "likely_scam"),
+# so the leading words decide; anything else is not a benign verdict.
+_BENIGN_ASSESSMENT = re.compile(r"^(benign|likely[ _-]?benign|not[ _-]?malicious|low)(?![a-z])")
+
+
+def _assessment_is_benign(value) -> bool:
+    return bool(_BENIGN_ASSESSMENT.match(str(value or "").strip().lower()))
+
+
+def _concluded_benign(nodes: list[dict]) -> dict | None:
+    """The investigation's own verdict that its seed is legitimate, or None.
+
+    A verdict only when three statements agree: every `working_hypothesis`
+    says `legitimate`, the `investigation_summary` threat_assessment reads as
+    benign (`_assessment_is_benign`), and no seed node carries a malicious tag.
+    Any of them missing or saying otherwise → None (no verdict, the run goes on
+    as before).
+
+    The system prompt already tells the agent, for `legitimate`: "if all return
+    clean, write benign report and STOP (don't over-investigate)". The
+    autonomous pivot drain is the one phase that did not hear it: on N2
+    (`cdn.jsdelivr.net`, 2026-10-21) main + followup concluded benign at 31
+    nodes, then three drain rounds ran urlhaus_host on the CDN and graphed an
+    unrelated ACRStealer/ClearFake cluster from its 332 abuse URLs (31 → 65
+    nodes, 8 infra nodes tagged malicious, 3 kit/family nodes → RST 0)."""
+    hypotheses = []
+    assessment = None
+    seeds = []
+    for n in nodes:
+        ntype = (n.get("type") or "").lower()
+        value = (n.get("value") or "").lower()
+        md = n.get("metadata") or {}
+        if ntype == "report" and value.startswith("working_hypothesis"):
+            hypotheses.append(str(md.get("category") or md.get("candidate_category") or "").lower())
+        elif ntype == "report" and value == "investigation_summary":
+            assessment = md.get("threat_assessment")
+        if "seed" in [str(t).lower() for t in (n.get("tags") or [])]:
+            seeds.append([str(t).lower() for t in (n.get("tags") or [])])
+    # Every hypothesis node must say legitimate: a second one that disagrees
+    # (re-hypothesized after a surprise) is not a verdict.
+    if not hypotheses or any(h != "legitimate" for h in hypotheses):
+        return None
+    if not _assessment_is_benign(assessment) or not seeds:
+        return None
+    if any(_seed_tags_malicious(st) for st in seeds):
+        return None
+    return {"hypothesis": "legitimate",
+            "threat_assessment": str(assessment).strip()[:120]}
+
+
 def _is_parked(inv_id: str) -> bool:
     """Check if the seed is parked / blackholed / sinkholed in a way that
     short-circuits phase 2 + hypothesis + follow-up.
@@ -1067,12 +1140,6 @@ def _is_parked(inv_id: str) -> bool:
         # clearfake_c2/c2/malicious/dga (VT malicious=15) but
         # ns1/ns2.renewyourname.net were tagged `parking`, so the entire followup
         # phase (incl. the mandatory cert-CN origin unmask) was skipped.
-        MALICIOUS_SEED_TAGS = {
-            "malicious", "c2", "phishing", "botnet", "ransomware", "dropper",
-            "loader", "stealer", "trojan", "rat", "malware", "dga", "apt",
-        }
-        MALICIOUS_SUBSTR = ("c2", "malware", "phish", "ransom", "botnet",
-                            "dropper", "loader", "stealer", "trojan")
         for n in nodes:
             if "seed" not in [t.lower() for t in (n.get("tags") or [])]:
                 continue
@@ -1080,10 +1147,7 @@ def _is_parked(inv_id: str) -> bool:
             smd = n.get("metadata") or {}
             if "le_seized" in stags or (smd.get("sinkhole_kind") or "").lower() == "le_seized":
                 return False
-            # Campaign-specific tags (e.g. clearfake_c2, lummac2) are caught by
-            # the substring pass; generic family tags by the set membership.
-            if (set(stags) & MALICIOUS_SEED_TAGS
-                    or any(sub in t for t in stags for sub in MALICIOUS_SUBSTR)):
+            if _seed_tags_malicious(stags):
                 return False
         for n in nodes:
             # NS parking ≠ seed parking: a domain registrar's parking
@@ -3787,9 +3851,34 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
     # turns to make a meaningful dent, and avoids a multi-call overshoot landing
     # us above 90.
     PIVOT_DRAIN_MIN_HEADROOM = 8
+    # A CTI seed the investigation itself concluded legitimate is not drained:
+    # the drain chases the abuse a shared service hosts (CDN, SaaS) into
+    # clusters that have nothing to do with the seed (see _concluded_benign).
+    # The analyst can still pivot by hand. CTI only: in osint/dd a legitimate
+    # subject is the normal case and the drain is what finds its accounts and
+    # subsidiaries (replayed on production: osint 22→49, dd 37→56 nodes, none
+    # of them malicious). BOUNCE_PIVOT_DRAIN_ON_BENIGN=1 restores the drain.
+    PIVOT_DRAIN_ON_BENIGN = os.environ.get("BOUNCE_PIVOT_DRAIN_ON_BENIGN", "0") == "1"
 
-    if (phase1_ok and not _is_parked(inv_id)
-            and PIVOT_DRAIN_MAX_ROUNDS > 0):
+    drain_eligible = (phase1_ok and not _is_parked(inv_id)
+                      and PIVOT_DRAIN_MAX_ROUNDS > 0)
+    benign_verdict = None
+    if drain_eligible and not PIVOT_DRAIN_ON_BENIGN:
+        try:
+            if verticals.get_vertical(gs.get_vertical(inv_id)).name == "cti":
+                benign_verdict = _concluded_benign(
+                    gs.get_graph(inv_id).get("nodes", []))
+        except Exception as e:
+            # Fail open (the drain runs, as before the gate), but say so: a
+            # gate that silently stops working looks exactly like one that
+            # found no benign verdict.
+            benign_verdict = None
+            _log(inv_id, "phase_pivot_drain_gate_error", {"error": str(e)[:300]})
+        if benign_verdict:
+            _log(inv_id, "phase_pivot_drain_skipped",
+                 {"reason": "concluded_benign", **benign_verdict})
+
+    if drain_eligible and not benign_verdict:
         _log(inv_id, "phase_pivot_drain_starting", {
             "max_rounds": PIVOT_DRAIN_MAX_ROUNDS,
             "max_turns_per_round": PIVOT_DRAIN_MAX_TURNS,
