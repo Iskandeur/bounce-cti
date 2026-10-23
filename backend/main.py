@@ -33,14 +33,16 @@ app = FastAPI(title="Bounce-CTI")
 app.add_middleware(CORSMiddleware, allow_origins=[], allow_methods=["*"], allow_headers=["*"])
 
 
-# Model aliases an analyst can pick. Bare tier names ("sonnet"/"opus"/"haiku")
-# resolve to the latest model of that tier via the Claude CLI's own aliasing;
-# the versioned entries pin an exact model id via agent_runner._MODEL_ALIASES.
+# Model aliases an analyst can pick. Every entry maps to an exact model id in
+# agent_runner._MODEL_ALIASES. The bare tier names ("sonnet"/"opus"/"haiku")
+# are the current model of their tier, pinned there to the newest one the
+# production claude CLI can run (the CLI's own aliasing followed its age, not
+# the label); the versioned entries never move.
 # "fable-5" (Claude Fable 5, the top capability tier) ships safety classifiers
 # aimed at offensive-cyber content — malware-heavy investigations may hit
 # refusals on it, so prefer "opus-5" when that matters.
 ALLOWED_MODELS = [
-    "sonnet", "opus", "haiku",        # latest of each tier (CLI aliasing)
+    "sonnet", "opus", "haiku",        # current of each tier (pinned, moves with the code)
     "sonnet-5", "opus-5", "fable-5",  # Claude 5 family (pinned)
     "opus-4.8", "opus-4.7",           # previous Opus generations (pinned)
 ]

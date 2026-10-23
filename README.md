@@ -56,10 +56,13 @@ timeline, exactly as a share link shows them, with no backend and no API key.
 - **PIN auth + admin dashboard**: per-user model whitelist, account labels,
   one-click impersonation. Admin PIN is bootstrapped from `ADMIN_PIN` env var
   on first start (see "First login" below).
-- **Model + thinking-effort selection**: pick the Claude model (the latest
-  Sonnet / Opus / Haiku, or a pinned Sonnet 5, Opus 5, Fable 5, Opus 4.8 or
+- **Model + thinking-effort selection**: pick the Claude model (the current
+  Sonnet / Opus / Haiku, labelled with the version they run — Sonnet 5.5,
+  Opus 5, Haiku 5.5 — or a pinned Sonnet 5, Opus 5, Fable 5, Opus 4.8 or
   Opus 4.7) and an extended-thinking effort level (low → max, or the model
   default) per investigation. Admins gate which models each user may spawn.
+  A model the server's `claude` CLI is too old to run fails the investigation
+  at once as `error: model`, with what to update.
   Fable 5's safety classifiers target offensive-cyber content, so
   malware-heavy investigations may be refused on it; Opus 5 is the safer pick.
 - **Investigation vertical**: choose the lens for a new investigation — **CTI**

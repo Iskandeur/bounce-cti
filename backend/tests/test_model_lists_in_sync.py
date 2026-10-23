@@ -11,6 +11,12 @@ form but not the API is offered and then refused with a 400; a pinned alias
 (``opus-5``) missing from _MODEL_ALIASES reaches the CLI as a bare string it
 does not know. Nothing failed loudly on any of these before this test.
 
+The tier names (``sonnet``/``opus``/``haiku``) are pinned as well since
+2026-10-23: left to the CLI's own aliasing they ran claude-sonnet-4-6,
+claude-opus-4-7 and claude-haiku-4-5 in production (CLI 2.1.149) under a
+"latest" label. Their labels now name the version they run, and a test below
+fails when the table and the labels part ways.
+
 The Python files are read with ``ast`` instead of imported, so the check runs
 without the backend's dependencies.
 """
@@ -19,7 +25,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-TIER_ALIASES = {"sonnet", "opus", "haiku"}  # resolved by the CLI itself
+TIER_ALIASES = {"sonnet", "opus", "haiku"}  # "current" of each tier, pinned like the rest
 
 
 def _literal(path: Path, name: str):
@@ -51,12 +57,46 @@ def test_allowed_models_have_no_duplicates():
     assert len(ALLOWED_MODELS) == len(set(ALLOWED_MODELS))
 
 
-def test_every_pinned_model_maps_to_a_cli_id():
-    pinned = set(ALLOWED_MODELS) - TIER_ALIASES
-    assert pinned - set(MODEL_ALIASES) == set(), "pinned alias reaches the CLI unmapped"
+def test_every_allowed_model_maps_to_a_cli_id():
+    assert set(ALLOWED_MODELS) - set(MODEL_ALIASES) == set(), "alias reaches the CLI unmapped"
     assert set(MODEL_ALIASES) - set(ALLOWED_MODELS) == set(), "alias the API never accepts"
     for alias, model_id in MODEL_ALIASES.items():
         assert model_id.startswith("claude-"), (alias, model_id)
+
+
+def _tier_and_version(model_id: str) -> tuple[str, tuple[int, ...]]:
+    """claude-opus-4-7 → ("opus", (4, 7)); claude-sonnet-5-5 → ("sonnet", (5, 5))."""
+    m = re.fullmatch(r"claude-([a-z]+)-(\d+(?:-\d+)*)", model_id)
+    assert m, f"unexpected model id shape: {model_id}"
+    return m.group(1), tuple(int(x) for x in m.group(2).split("-"))
+
+
+def _version_label(model_id: str) -> str:
+    return ".".join(str(x) for x in _tier_and_version(model_id)[1])
+
+
+def test_a_tier_name_runs_the_newest_model_of_its_tier_on_offer():
+    for tier in TIER_ALIASES:
+        same_tier = [_tier_and_version(i)[1] for i in MODEL_ALIASES.values()
+                     if _tier_and_version(i)[0] == tier]
+        got_tier, got = _tier_and_version(MODEL_ALIASES[tier])
+        assert got_tier == tier, (tier, MODEL_ALIASES[tier])
+        assert got == max(same_tier), f"{tier} runs {got}, newer {max(same_tier)} is on offer"
+
+
+def test_tier_labels_name_the_version_they_run():
+    """The label is the analyst's only way to know which model "opus" is."""
+    app = (ROOT / "frontend" / "src" / "App.jsx").read_text(encoding="utf-8")
+    admin = (ROOT / "frontend" / "src" / "AdminPanel.jsx").read_text(encoding="utf-8")
+    for tier in TIER_ALIASES:
+        version = re.escape(_version_label(MODEL_ALIASES[tier]))
+        option = re.search(rf'<option value="{tier}">([^<]+)</option>', app)
+        assert option, tier
+        assert re.search(rf"current: {version}(?![.\d])", option.group(1)), option.group(1)
+        assert "latest" not in option.group(1).lower(), option.group(1)
+        label = re.search(rf"^\s*{tier}: '([^']+)'", admin, re.M)
+        assert label, tier
+        assert re.search(rf"current: {version}(?![.\d])", label.group(1)), label.group(1)
 
 
 def test_new_investigation_form_offers_exactly_the_allowed_models():
