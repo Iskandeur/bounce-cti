@@ -142,6 +142,20 @@ Procedure, per case:
 
 What a replay does **not** pin: the model samples, so a replayed agent can ask a question the captured one never asked. That request fails as `fixture replay: no recorded response for …` and is appended to `data/fixtures/replay-misses/<inv_id>.jsonl`. **Report the miss count next to a replayed CAP**: zero misses = the replay saw exactly the captured world; a high count means the comparison partly measured the network-failure path instead.
 
+### 4.D Bare-model baseline — what the tool adds to the model (added 2026-10-21)
+
+Every score above is Bounce-CTI against itself. `eval/baseline.py` gives the same seeds to the **same model** with nothing of Bounce-CTI around it, in two arms: **memory** (`--tools ""`, what the model already knows) and **web** (the CLI's own WebSearch + WebFetch, roughly a chat with web search). Both get one short analyst brief, identical but for the line that names the tools, and answer in a fixed JSON shape (indicators with `linked_to`/`relation`/`malicious`, attribution, verdict). `to_graph` turns the answer into a graph of the shape Bounce-CTI writes, seed node included, and **`eval/scorer.py` scores it** (`score_case`, `score_negative`): same ground truth, same matching.
+
+Rules that keep the comparison honest:
+
+1. **Same model id on every side, pinned**: `--model claude-opus-5` for the baseline, and `opus-5` for the Bounce-CTI run, which `agent_runner._MODEL_ALIASES` maps to the same `claude-opus-5`. A tier alias is not a model: on 2026-10-21 the `system/init` events showed the production CLI (2.1.149) running `opus` as `claude-opus-4-7` (investigation of 2026-10-20 on case 2), while a current CLI (2.1.301) ran it as `claude-opus-5-5`. Read the model from each run's `system/init` event, never from the alias that was asked for.
+2. **Recall only.** CAP scores pivoting through Bounce-CTI's own tools; a bare model has none, so CAP is left out, not scored 0. REC is reported **ungated** (mean of NR, COV, ER, MK whatever the decay verdict) so every side averages the same dimensions.
+3. **Provenance is stricter for the baseline.** Its corpus is what the web returned, never its own text or its own search queries; a citation the model writes goes to `claimed_*` metadata, which `_has_provenance` does not accept. The memory arm has no corpus, so its attributions are all untraceable: report that as traceability, not as error.
+4. **The web arm can read the answer key.** Ground truth comes from public write-ups. Each run records the hosts the web arm actually fetched (`hosts_read`; a refused call reads nothing and is counted in `permission_denials`) and the hosts its search results linked to (`hosts_seen`: a snippet can carry the write-up's content with no page fetched). Against `eval/cases.py`'s `GT_SOURCE_HOSTS` (each case's primary source; case 2's 2026 refresh included), `answer_key` says whether it **fetched** that write-up, met it **in search results**, or did **not reach** it. A web arm that found the write-up measured search, not investigation.
+5. **Isolation.** Empty working directory outside any checkout (no `CLAUDE.md` discovered), `--strict-mcp-config` with an empty config, `--no-session-persistence`, `--disable-slash-commands`, a filtered environment (no effort override, no API key: the CLI's own login). `--tools` offers a tool and `--allowedTools` grants it; in `-p` mode an offered tool that is not granted is refused on every call.
+
+Results land in `eval/baseline/<date>/results.json` (scores, models, hosts read) and `results.md` (per case); `eval/results_digest.py` publishes the latest in `EVAL_RESULTS.md`. Raw answers and streams stay out of the repo (they can quote registrant records).
+
 ---
 
 ## 5. Failure mode taxonomy
@@ -927,6 +941,11 @@ Carried forward from the research phase, reviewed for V2.
   the old "overall mean" tracked data freshness as much as tool quality. No
   positive-case ground truth changed. The runnable nightly routine is
   `eval/NIGHTLY_PROMPT.md`.
+- **v3.1** (2026-10-21) — **Bare-model baseline** (§4.D): the same model without
+  Bounce-CTI, in a no-tool arm and a web-search arm, scored by the same scorer
+  on recall only. `scorer.score_case` / `score_negative` take an optional
+  directory so any run can be scored, not only `/tmp/eval_run`. No case or
+  rubric changed.
 
 ---
 

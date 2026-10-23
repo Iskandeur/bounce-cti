@@ -1,10 +1,12 @@
 """Build EVAL_RESULTS.md — the published digest of every archived eval run.
 
 Each run under ``runs/<date>_<sha>/`` ships a hand-reviewed ``scorecard.md``.
-This script reads those scorecards (and nothing else: no network, no DB, no
-API key) and renders one page that answers the question a reader actually
-asks — *how good is the agent, and is it getting better?* — without hiding
-the parts of the answer that are inconvenient.
+This script reads those scorecards, plus the latest bare-model baseline
+(``eval/baseline/<date>/results.json``, written by ``eval/baseline.py compare
+--write``), and nothing else: no network, no DB, no API key. It renders one
+page that answers the questions a reader actually asks — *how good is the
+agent, is it getting better, and what does it add to the model it runs on?* —
+without hiding the parts of the answer that are inconvenient.
 
 Two rubric generations coexist in ``runs/``:
 
@@ -27,6 +29,7 @@ Stdlib only, so it runs in CI and on any checkout.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from dataclasses import dataclass, field
@@ -34,6 +37,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNS_DIR = REPO_ROOT / "runs"
+BASELINE_DIR = REPO_ROOT / "eval" / "baseline"
 OUTPUT = REPO_ROOT / "EVAL_RESULTS.md"
 
 # The decay-resistant cases scored by every nightly run (EVAL_PROTOCOL §0/§6).
@@ -166,6 +170,53 @@ def load_runs(runs_dir: Path = RUNS_DIR) -> list[Run]:
     return runs
 
 
+def load_baseline(baseline_dir: Path = BASELINE_DIR) -> tuple[str, dict] | None:
+    """The latest ``eval/baseline/<date>/results.json`` (eval/baseline.py
+    compare --write), as (directory name, document); None when there is none."""
+    if not baseline_dir.is_dir():
+        return None
+    found = sorted(p for p in baseline_dir.iterdir() if (p / "results.json").is_file())
+    if not found:
+        return None
+    latest = found[-1]
+    return latest.name, json.loads((latest / "results.json").read_text(encoding="utf-8"))
+
+
+_SIDE_NAMES = {"bounce": "Bounce-CTI", "web": "same model + web search",
+               "memory": "same model, no tool"}
+
+
+def baseline_rows(doc: dict) -> list[dict]:
+    """One summary row per side, over the positive cases every side scored."""
+    sides = doc.get("sides") or {}
+    order = [s for s in ("bounce", "web", "memory") if s in sides]
+    common = None
+    for s in order:
+        scored = {l for l, r in sides[s].items()
+                  if not l.upper().startswith("N") and r.get("nr") is not None}
+        common = scored if common is None else common & scored
+    common = sorted(common or [], key=int)
+    rows = []
+    for s in order:
+        pos = [sides[s][l] for l in common]
+        neg = [r["rst"] for l, r in sides[s].items()
+               if l.upper().startswith("N") and r.get("rst") is not None]
+        rows.append({
+            "side": s, "cases": common,
+            "nr": _mean(r["nr"] for r in pos),
+            "rec": _mean(r["rec_ungated"] for r in pos if r.get("rec_ungated") is not None),
+            "actor": sum(1 for r in pos if r.get("actor_hit")),
+            "untraceable": sum(len(r.get("hallucinations") or []) for r in pos),
+            "rst": _mean(neg), "n_neg": len(neg),
+            "key_fetched": sum(1 for r in pos
+                               if (r.get("run") or {}).get("answer_key") == "fetched"),
+            "key_seen": sum(1 for r in pos
+                            if (r.get("run") or {}).get("answer_key") == "in search results"),
+            "models": (doc.get("meta") or {}).get("models", {}).get(s) or [],
+        })
+    return rows
+
+
 def _mean(values) -> float | None:
     values = list(values)
     return round(sum(values) / len(values), 1) if values else None
@@ -183,7 +234,54 @@ def subset_mean(run: Run) -> float | None:
     return None
 
 
-def render(runs: list[Run]) -> str:
+def render_baseline(name: str, doc: dict) -> list[str]:
+    rows = baseline_rows(doc)
+    if not rows:
+        return []
+    cases = rows[0]["cases"]
+    by = {r["side"]: r for r in rows}
+    out = [
+        "## Against the same model without the tool (baseline)",
+        "",
+        f"Run of {(doc.get('meta') or {}).get('date') or name}, by "
+        "[`eval/baseline.py`](eval/baseline.py): each seed given to the same model with "
+        "nothing of Bounce-CTI around it, once with no tool and once with web search, and "
+        "scored by the same `eval/scorer.py` against the same ground truth. Per-case table: "
+        f"[`eval/baseline/{name}/results.md`](eval/baseline/{name}/results.md).",
+        "",
+        "| Side | Model | NR mean | REC mean | Actor named | Untraceable attributions "
+        "| Restraint (benign seeds) |",
+        "|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for r in rows:
+        rst = f"{_fmt(r['rst'])} (n={r['n_neg']})" if r["n_neg"] else "–"
+        out.append(f"| {_SIDE_NAMES.get(r['side'], r['side'])} | "
+                   f"{', '.join(f'`{m}`' for m in r['models']) or '?'} | {_fmt(r['nr'])} | "
+                   f"{_fmt(r['rec'])} | {r['actor']}/{len(cases)} | {r['untraceable']} | {rst} |")
+    out += ["", f"Positive cases compared: {', '.join(cases) or 'none'} (the ones every side scored).",
+            "How to read it:", ""]
+    out.append("- **Recall only.** CAP scores pivoting through Bounce-CTI's own tools, which a bare "
+               "model does not have: it is left out rather than scored 0. REC here is ungated "
+               "(mean of NR, COV, ER, MK even on decayed data) so every side is averaged over "
+               "the same dimensions.")
+    if "web" in by:
+        w_ = by["web"]
+        out.append(f"- **The web arm can read the answer key.** The ground truth comes from public "
+                   f"vendor write-ups: the web arm fetched the write-up of {w_['key_fetched']} of "
+                   f"the {len(cases)} cases, and met it in search results only on "
+                   f"{w_['key_seen']} more (per case in the run's results). Where it found the "
+                   "write-up, its recall measures search, not investigation: these cases favour "
+                   "it, and a fair comparison needs seeds whose infrastructure no write-up lists.")
+    if "memory" in by:
+        out.append("- **Untraceable is not wrong.** The no-tool arm has no source to cite, so each "
+                   "attribution it makes is untraceable by construction. The baseline's provenance "
+                   "is judged on what the web returned only, never on its own text or search "
+                   "queries, which is stricter than the scorer is with Bounce-CTI.")
+    out.append("")
+    return out
+
+
+def render(runs: list[Run], baseline: tuple[str, dict] | None = None) -> str:
     out: list[str] = []
     w = out.append
     w("# Bounce-CTI — evaluation results")
@@ -213,13 +311,25 @@ def render(runs: list[Run]) -> str:
           f"across the {len(v3_runs)} v3 runs (target ≥ 75, stretch ≥ 85).")
     w(f"- **Runs archived:** {len(runs)} ({len(runs) - len(scored)} marked "
       f"`RUN STATUS: BLOCKED`, documented in its scorecard rather than scored).")
+    base_rows = {r["side"]: r for r in baseline_rows(baseline[1])} if baseline else {}
+    if "bounce" in base_rows and len(base_rows) > 1:
+        parts = [f"{_SIDE_NAMES[s]} {_fmt(base_rows[s]['nr'])}"
+                 for s in ("bounce", "web", "memory") if s in base_rows]
+        w(f"- **Against the same model without the tool** (NR mean, cases "
+          f"{', '.join(base_rows['bounce']['cases'])}): {' · '.join(parts)}. "
+          "Read the caveats in the baseline section before quoting it.")
     w("")
 
     w("## What these numbers are — and are not")
     w("")
     w("- **Self-graded.** Scores come from this project's own mechanical scorer")
     w("  (`eval/scorer.py`) plus a hand audit for hallucinations. There is no")
-    w("  external baseline and no comparison against another tool.")
+    if baseline:
+        w("  comparison against another tool; the only external reference is the")
+        w("  bare-model baseline below (same model, no Bounce-CTI), scored by the")
+        w("  same scorer, which makes it a reference point, not an independent judge.")
+    else:
+        w("  external baseline and no comparison against another tool.")
     w("- **The rubric moved.** v2 Overall (recall against vendor ground truth +")
     w("  process) and v3 CAP (decay-proof capability) measure different things and")
     w("  are never averaged together. The scorer itself was tightened along the way")
@@ -247,6 +357,8 @@ def render(runs: list[Run]) -> str:
     w("  targeted two-case run of 2026-05-04 `hypofirst` does not report it). The")
     w("  per-run audit lives in each scorecard.")
     w("")
+    if baseline:
+        out.extend(render_baseline(*baseline))
 
     w(f"## Like-for-like trend — fresh subset ({', '.join(map(str, FRESH_SUBSET))})")
     w("")
@@ -306,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--check", action="store_true",
                     help="exit 1 if EVAL_RESULTS.md differs from a fresh render")
     args = ap.parse_args(argv)
-    text = render(load_runs())
+    text = render(load_runs(), load_baseline())
     if args.check:
         current = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else ""
         if current != text:

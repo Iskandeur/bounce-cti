@@ -82,17 +82,19 @@ PIVOT_RULES = {
 }
 
 
-def load(case):
+def load(case, out_dir=None):
     cid = case["case_id"]
-    # Sync inv_id from meta.json if available (runner may have re-submitted).
-    try:
-        meta = json.load(open("/tmp/eval_run/meta.json"))
-        recorded = meta.get("cases", {}).get(str(cid), {}).get("inv_id")
-        if recorded:
-            case["inv_id"] = recorded
-    except Exception:
-        pass
-    out_dir = f"/tmp/eval_run/c{cid:02d}"
+    if out_dir is None:
+        out_dir = f"/tmp/eval_run/c{cid:02d}"
+        # Sync inv_id from meta.json if available (runner may have re-submitted).
+        # Only for the runner's own directory: another directory is another run.
+        try:
+            meta = json.load(open("/tmp/eval_run/meta.json"))
+            recorded = meta.get("cases", {}).get(str(cid), {}).get("inv_id")
+            if recorded:
+                case["inv_id"] = recorded
+        except Exception:
+            pass
     try:
         g = json.load(open(f"{out_dir}/graph.json"))
     except Exception:
@@ -516,7 +518,7 @@ def compute_cap_rec(case, *, nr, er, pc, dc, bd, rq_meta, hyp, calls, nodes,
     }
 
 
-def score_negative(neg):
+def score_negative(neg, out_dir=None):
     """RST-only scoring for a §9b negative/restraint case. 100 = correctly
     restrained; −25 per benign INFRASTRUCTURE node in a malicious cluster; 0 if
     any actor/malware attribution asserted. CAP for a negative == its RST.
@@ -530,7 +532,8 @@ def score_negative(neg):
     finding — the restraint floor was being docked on legitimately-malicious hash
     pivots, not on CDN infra, which is verifiably clean)."""
     cid = neg["case_id"]
-    out_dir = f"/tmp/eval_run/{neg.get('dir') or ('n%02d' % cid)}"
+    if out_dir is None:
+        out_dir = f"/tmp/eval_run/{neg.get('dir') or ('n%02d' % cid)}"
     try:
         g = json.load(open(f"{out_dir}/graph.json"))
     except Exception:
@@ -557,12 +560,16 @@ def score_negative(neg):
             "promoted": len(promoted), "rst": rst, "cap": rst}
 
 
-def score_case(case):
+def score_case(case, out_dir=None):
+    """Score one case from <out_dir>/graph.json + transcript.json (default: the
+    runner's /tmp/eval_run/cNN). eval/baseline.py passes its own directories, so
+    the bare-model arms are scored by this same function."""
     cid = case["case_id"]
-    out_dir = f"/tmp/eval_run/c{cid:02d}"
+    if out_dir is None:
+        out_dir = f"/tmp/eval_run/c{cid:02d}"
     if not os.path.exists(f"{out_dir}/graph.json"):
         raise FileNotFoundError(f"c{cid:02d} not in this run's subset (no data)")
-    g, tx = load(case)
+    g, tx = load(case, out_dir)
     nodes = g.get("nodes", [])
     edges = g.get("edges", [])
     tools = extract_tools(tx)

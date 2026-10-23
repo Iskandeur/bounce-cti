@@ -350,7 +350,14 @@ eval/results_digest.py  # Renders EVAL_RESULTS.md from runs/*/scorecard.md (stdl
                         #   `--check` exits 1 when the page is stale (also enforced
                         #   by backend/tests/test_eval_results_digest.py).
 EVAL_RESULTS.md         # GENERATED published eval digest — re-run the script after
-                        #   adding a run under runs/, never edit by hand
+                        #   adding a run under runs/ or eval/baseline/, never edit by hand
+eval/baseline.py        # Bare-model baseline (EVAL_PROTOCOL §4.D): run --arm memory|web
+                        #   gives each seed to the same model with no Bounce-CTI tool
+                        #   (empty cwd, no MCP, filtered env); compare scores every side
+                        #   with eval/scorer.py itself (score_case(case, out_dir)).
+                        #   Stdlib only
+eval/baseline/<date>/   # Committed baseline results: results.json (scores, models,
+                        #   hosts the web arm read) + results.md. No raw answers
 deploy.sh               # Auto-deploy script (callable on the VPS)
 Dockerfile              # Local one-image run (not used by prod): frontend build
                         #   stage, then backend + claude CLI as non-root `bounce`

@@ -381,6 +381,26 @@ CASES = [
     },
 ]
 
+# Hosts that published each positive case's ground truth: EVAL_PROTOCOL §9
+# "Primary source", except case 2, whose ground truth since the 2026-06-01
+# refresh comes from Rapid7 (2026) and ESET (Dec 2025), see its comment above.
+# eval/baseline.py uses them to say when its web arm read the answer key.
+# Case 12's IOC repo lives on github.com, too generic a host to count.
+GT_SOURCE_HOSTS = {
+    1: ["silentpush.com"],
+    2: ["rapid7.com", "welivesecurity.com", "eset.com"],
+    3: ["thedfirreport.com"],
+    4: ["sekoia.io"],
+    5: ["intrinsec.com"],
+    6: ["domaintools.com"],
+    7: ["trendmicro.com"],
+    8: ["trellix.com"],
+    9: ["dnsfilter.com"],
+    10: ["silentpush.com"],
+    11: ["silentpush.com"],
+    12: ["sekoia.io"],
+}
+
 # §9b Negative / restraint cases — benign seeds the tool must NOT cluster or
 # attribute. Scored on RST only (scorer.score_negative): 100 = correctly
 # restrained, -25 per benign node promoted into a malicious cluster, 0 if any

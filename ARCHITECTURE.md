@@ -930,7 +930,24 @@ read as progress; the page also states the measurement's limits (self-graded,
 rubric changes, model change, data decay, Goodhart on CAP). Not part of the
 running service. `--check` returns 1 when `EVAL_RESULTS.md` is stale, and
 `backend/tests/test_eval_results_digest.py` calls it, so CI fails if a run is
-archived without regenerating the page.
+archived without regenerating the page. It also publishes the latest
+bare-model baseline (`eval/baseline/<date>/results.json`, next section).
+
+### `eval/baseline.py` → `eval/baseline/<date>/`
+The same model without Bounce-CTI (EVAL_PROTOCOL §4.D, roadmap J4). `run --arm
+memory|web` gives each case's seed to `claude -p` with no tool, or with only
+the CLI's WebSearch/WebFetch, from an empty temp directory (no `CLAUDE.md`), no
+MCP server and a filtered environment; it keeps `stream.jsonl`, the parsed
+`answer.json`, and a `graph.json` + `transcript.json` in the shapes
+`eval/fetch.py` writes, with run facts in `run.json` (model from the init
+event, hosts fetched, hosts linked from search results, refused tool calls;
+`compare` re-derives the last three from `stream.jsonl`). It scores every side with
+`scorer.score_case(case, out_dir)` / `score_negative(neg, out_dir)` and, with
+`--write`, leaves `results.json` (scores only) and `results.md`. A citation the
+model writes is kept as `claimed_*` metadata, never as provenance; the
+baseline's corpus is the tool results only, not its own text or queries.
+Stdlib only, not part of the running service; locked by
+`backend/tests/test_eval_baseline.py`.
 
 ### Static demo: `backend/demo_snapshot.py`, `eval/demo_export.py`, `frontend/demo/`
 One investigation frozen into a JSON snapshot that a static page renders with
