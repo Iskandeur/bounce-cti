@@ -53,7 +53,11 @@
 
 ## Restraint, read honestly
 
-N2 (jsDelivr) fails: 8 benign infrastructure nodes are tagged malicious and ClearFake, ClickFix and ACRStealer are attributed. The bare model with web search fails the same case (RST 0); the memory-only arm does not.
+N2 (jsDelivr) fails (RST 0): ClearFake, ClickFix and ACRStealer are attributed, which alone sets RST to 0. The failure is not where the score suggests. Replayed phase by phase from the event log, the investigation itself had concluded `legitimate` / benign at 31 nodes (restraint 100 at that point). The autonomous pivot drain then queried URLhaus for the CDN, followed the abuse it hosts into real ACRStealer C2 infrastructure with no link to the seed, and attributed it. The 8 nodes counted above are those C2s, not jsDelivr's own infrastructure: the scorer counts every infrastructure node tagged malicious in a negative case and cannot tell the two apart.
+
+Fixed after this run by [#78](https://github.com/Iskandeur/bounce-cti/pull/78): the drain is skipped on a CTI seed the run itself concluded legitimate. Replayed read-only on the 169 drains of the production database, it skips 19, all on benign seeds, and every positive case of this benchmark still drains. N2 is to be re-run on the fixed code before this row changes.
+
+The bare model with web search fails the same case (RST 0); the memory-only arm does not.
 
 ## Attempts
 
