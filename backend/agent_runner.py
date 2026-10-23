@@ -21,10 +21,21 @@ from . import verticals
 # (the CLI default applies). Mirrored by ALLOWED_EFFORTS in backend/main.py.
 _VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 
-# Map a frontend model alias to the exact CLI model id. Aliases not listed pass
-# through untouched (e.g. "sonnet"/"opus"/"haiku" resolve via the CLI's own
-# latest-version aliasing).
+# Map every model alias the API accepts (main.ALLOWED_MODELS) to the exact CLI
+# model id. The bare tier names are pinned too: left to the CLI's own aliasing
+# they followed the age of the CLI installed on the host, not their "latest"
+# label. Read from the production event log on 2026-10-23, CLI 2.1.149 ran
+# "opus" as claude-opus-4-7, "sonnet" as claude-sonnet-4-6 and "haiku" as
+# claude-haiku-4-5. A tier alias points at the newest model of its tier that
+# the production CLI runs: 2.1.149 refuses claude-opus-5-5 ("version 2.1.280
+# or newer is required"), so "opus" stays on claude-opus-5 until the host CLI
+# is updated. A model newer than the CLI fails the run as `error: model`
+# (_detect_model_unsupported). backend/tests/test_model_lists_in_sync.py keeps
+# this table, the API list and both UI lists in step.
 _MODEL_ALIASES = {
+    "sonnet": "claude-sonnet-5-5",
+    "opus": "claude-opus-5",
+    "haiku": "claude-haiku-5-5",
     "sonnet-5": "claude-sonnet-5",
     "opus-5": "claude-opus-5",
     "fable-5": "claude-fable-5",
@@ -262,6 +273,25 @@ def _detect_auth_error(text: str) -> bool:
     return any(m in low for m in _AUTH_FAIL_MARKERS)
 
 
+# The host's `claude` CLI is older than the model it was asked for. Claude Code
+# answers "API Error: 400 Claude Code 2.1.149 does not support this model;
+# version 2.1.280 or newer is required. Run 'claude update' …", exits 1, and
+# still prints a `result` event (is_error). The phase logic reads that event as
+# "the agent ran", so every later phase spawned and failed the same way in
+# under a second and the run ended `done` with zero nodes (measured with the
+# production CLI version on 2026-10-23, tests/test_model_unsupported.py). Like
+# an auth failure this is an ops fix (update the CLI, or pick another model):
+# the run stops after the phase that saw it and says why. Read only from the
+# CLI's own error (an is_error `result`, stderr), never from a tool result.
+_MODEL_UNSUPPORTED_RE = re.compile(r"does not support this model", re.IGNORECASE)
+# inv_id → message, set during a phase, read by the run functions like _auth_failed.
+_model_unsupported: dict[str, str] = {}
+
+
+def _detect_model_unsupported(text: str) -> bool:
+    return bool(_MODEL_UNSUPPORTED_RE.search(text or ""))
+
+
 # A spawned `claude -p` should emit its first stream-json event (the `system`
 # init) within a few seconds. If it emits *nothing* for this long it is wedged —
 # a misconfigured binary, a broken MCP launch, or a hung handshake — not slow
@@ -383,10 +413,25 @@ def _finalise_auth_halt(inv_id: str, message: str) -> None:
     msg = ("Claude CLI authentication failed (401) on the host — re-authenticate "
            "the claude CLI / refresh its credential, then rerun. Detail: "
            + (message or "")[:200])
-    gs.set_status(inv_id, "error: auth")
+    _finalise_ops_error(inv_id, "error: auth", msg, "investigation_auth_failed")
+
+
+def _finalise_model_halt(inv_id: str, message: str) -> None:
+    """Mark an investigation as failed because the host CLI refused its model
+    (the CLI is older than the model id). Same shape as the auth halt: an
+    actionable message, no global cooldown."""
+    _model_unsupported.pop(inv_id, None)
+    msg = ("The host's claude CLI cannot run this model — update the claude CLI "
+           "of the service user, or rerun with another model. Detail: "
+           + (message or "")[:300])
+    _finalise_ops_error(inv_id, "error: model", msg, "investigation_model_unsupported")
+
+
+def _finalise_ops_error(inv_id: str, status: str, msg: str, log_kind: str) -> None:
+    gs.set_status(inv_id, status)
     try:
         with gs.conn() as c:
-            payload = {"kind": "status_change", "status": "error: auth",
+            payload = {"kind": "status_change", "status": status,
                        "error_message": msg}
             c.execute(
                 "INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
@@ -394,7 +439,25 @@ def _finalise_auth_halt(inv_id: str, message: str) -> None:
             )
     except Exception:
         pass
-    _log(inv_id, "investigation_auth_failed", {"message": msg})
+    _log(inv_id, log_kind, {"message": msg})
+
+
+def _halt_on_ops_error(inv_id: str) -> bool:
+    """End the run if a phase hit an error no further phase can get past (the
+    CLI's credential, or a model the CLI cannot run). True when it did."""
+    if _auth_failed.get(inv_id):
+        _finalise_auth_halt(inv_id, _auth_failed[inv_id])
+        return True
+    if _model_unsupported.get(inv_id):
+        _finalise_model_halt(inv_id, _model_unsupported[inv_id])
+        return True
+    return False
+
+
+def _clear_ops_errors(inv_id: str) -> None:
+    """Drop flags a crashed earlier run may have left behind."""
+    _auth_failed.pop(inv_id, None)
+    _model_unsupported.pop(inv_id, None)
 
 
 async def _dd_sanctions_sweep(inv_id: str) -> None:
@@ -3079,6 +3142,18 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
         except Exception:
             pass
 
+    def _note_model(msg: str, source: str):
+        # No kill: the CLI exits on its own right after this error.
+        if inv_id in _model_unsupported:
+            return
+        cli_model = _MODEL_ALIASES.get(model, model)
+        _model_unsupported[inv_id] = f"model {model!r} ({cli_model}): {(msg or '')[:300]}"
+        _log(inv_id, "agent_model_unsupported", {
+            "phase": phase, "source": source, "model": model, "cli_model": cli_model,
+            "message": (msg or "")[:300],
+            "hint": "the host claude CLI is older than this model — update it, or pick another model",
+        })
+
     async def pump_stderr():
         assert proc.stderr is not None
         async for line, _size in _iter_stream_lines(proc.stderr):
@@ -3089,6 +3164,8 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                 _note_quota(True, reset_at, marker or decoded, "stderr")
             elif _detect_auth_error(decoded):
                 _note_auth(decoded, "stderr")
+            elif _detect_model_unsupported(decoded):
+                _note_model(decoded, "stderr")
 
     saw_result = {"v": False}
     first_event = {"seen": False}
@@ -3116,6 +3193,9 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
                     _note_quota(True, reset_at, marker, "stream")
                 elif _detect_auth_error(text):
                     _note_auth(text[:300], "stream")
+                elif (evt.get("type") == "result" and evt.get("is_error")
+                      and _detect_model_unsupported(str(evt.get("result") or ""))):
+                    _note_model(str(evt.get("result")), "stream")
             except Exception:
                 _log(inv_id, "agent_stdout", text[:2000])
                 hit, reset_at, marker = _detect_quota_error(text)
@@ -3319,7 +3399,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
     ground truth for relationships / attribution and to encode them as
     edges and tags rather than inventing them.
     """
-    _auth_failed.pop(inv_id, None)  # clear any stale auth flag from a prior run
+    _clear_ops_errors(inv_id)  # stale auth / model flags from a prior run
     user_prompt = seeds.investigation_prompt(seed_type, seed_value)
 
     # If we got a CTI report PDF, prepend its text as ground truth context.
@@ -3377,10 +3457,10 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
         _finalise_quota_halt(inv_id, quota)
         return
 
-    # Auth failure (expired/invalid CLI credential): every phase will 401, so
-    # abort now and fail LOUD instead of grinding empty phases to a silent `done`.
-    if _auth_failed.get(inv_id):
-        _finalise_auth_halt(inv_id, _auth_failed[inv_id])
+    # Auth failure (expired/invalid CLI credential) or a model the CLI cannot
+    # run: every phase would fail the same way, so abort now and fail LOUD
+    # instead of grinding empty phases to a silent `done`.
+    if _halt_on_ops_error(inv_id):
         return
 
     phase1_ok = saw_result or has_report or rc == 0
@@ -4080,8 +4160,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
     # ── Final status ──
     # Auth failure can surface in a later phase too — never report a 401-riddled
     # run as `done`.
-    if _auth_failed.get(inv_id):
-        _finalise_auth_halt(inv_id, _auth_failed[inv_id])
+    if _halt_on_ops_error(inv_id):
         return
 
     try:
@@ -4318,6 +4397,7 @@ async def run_add_seed(inv_id: str, seed_type: str, seed_value: str, model: str 
         _finalise_quota_halt(inv_id, {"reset_at": reset_at, "message": msg})
         return
 
+    _clear_ops_errors(inv_id)
     rc, saw_result, has_report, quota = await _run_claude_phase(
         inv_id, user_prompt, _ADD_SEED_SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="add_seed", max_turns=80,
@@ -4325,6 +4405,8 @@ async def run_add_seed(inv_id: str, seed_type: str, seed_value: str, model: str 
 
     if quota["hit"]:
         _finalise_quota_halt(inv_id, quota)
+        return
+    if _halt_on_ops_error(inv_id):
         return
 
     final_status = "done" if (saw_result or rc == 0) else f"error rc={rc}"
@@ -4375,6 +4457,7 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
         _finalise_quota_halt(inv_id, {"reset_at": reset_at, "message": msg})
         return
 
+    _clear_ops_errors(inv_id)
     rc, saw_result, has_report, quota = await _run_claude_phase(
         inv_id, user_prompt, _PIVOT_SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="pivot", max_turns=40
@@ -4382,6 +4465,8 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
 
     if quota["hit"]:
         _finalise_quota_halt(inv_id, quota)
+        return
+    if _halt_on_ops_error(inv_id):
         return
 
     # Final status — pivot is considered successful as long as the agent ran
@@ -4562,6 +4647,7 @@ async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus",
         _finalise_quota_halt(inv_id, {"reset_at": reset_at, "message": msg})
         return
 
+    _clear_ops_errors(inv_id)
     rc, saw_result, has_report, quota = await _run_claude_phase(
         inv_id, user_prompt, _CUSTOM_PROMPT_SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="custom_prompt", max_turns=60,
@@ -4569,6 +4655,8 @@ async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus",
 
     if quota["hit"]:
         _finalise_quota_halt(inv_id, quota)
+        return
+    if _halt_on_ops_error(inv_id):
         return
 
     final_status = "done" if (saw_result or rc == 0) else f"error rc={rc}"

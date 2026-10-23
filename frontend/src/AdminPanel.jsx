@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
 const MODEL_LABELS = {
-  sonnet: 'Sonnet (latest)',
-  opus: 'Opus (latest)',
-  haiku: 'Haiku (latest)',
+  sonnet: 'Sonnet (current: 5.5)',
+  opus: 'Opus (current: 5)',
+  haiku: 'Haiku (current: 5.5)',
   'sonnet-5': 'Sonnet 5',
   'opus-5': 'Opus 5',
   'fable-5': 'Fable 5',

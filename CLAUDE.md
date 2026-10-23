@@ -613,6 +613,17 @@ A red gate must be fixed before merge. Pair this with branch protection on
   `error: auth` with an actionable message + `status_change` event. This is an
   **ops failure** (re-authenticate the CLI), surfaced loud instead of a silent
   empty `done`; unlike quota it sets **no** global cooldown.
+- **Model-refusal detection** (`_detect_model_unsupported`): a CLI older than
+  the model id it is given answers `API Error: 400 Claude Code 2.1.149 does not
+  support this model; version 2.1.280 or newer is required`, exits 1 and still
+  prints a `result` event (`is_error`), which the phase logic read as "the agent
+  ran": all 7 phases spawned and the run ended `done` with zero nodes (real
+  CLI 2.1.149 asked for `claude-opus-5-5`, 2026-10-23). Read only from an
+  is_error `result` event or stderr (never a tool result), it stops the run
+  after that phase as `error: model` with an actionable message
+  (`_finalise_model_halt`). Auth and model halts share `_halt_on_ops_error`,
+  which `run_investigation`, `run_add_seed`, `run_pivot` and
+  `run_custom_prompt` all call before reporting `done`.
 - **Shodan is free-first, credits are guarded**: a Membership grants only 100 query
   credits/month for the whole instance, but nearly the entire API is free — `internetdb_ip`
   (no key at all), `shodan_host`, `shodan_host_count` (count + facets for *any* query,
@@ -723,10 +734,18 @@ A red gate must be fixed before merge. Pair this with branch protection on
   + the reverse proxy route every app subdomain to the same backend; pair with
   `BOUNCE_COOKIE_DOMAIN` for cross-subdomain SSO.
 - **Per-user model whitelist**: Admins can restrict which Claude models a user can spawn
-  (`ALLOWED_MODELS` in `main.py`). Bare tier aliases (`sonnet`/`opus`/`haiku`) resolve to
-  the latest model of that tier via the Claude CLI's own aliasing; pinned aliases map to
-  exact model ids in `agent_runner._MODEL_ALIASES`: the Claude 5 family
-  (`sonnet-5`→`claude-sonnet-5`, `opus-5`→`claude-opus-5`, `fable-5`→`claude-fable-5`)
+  (`ALLOWED_MODELS` in `main.py`). Every alias maps to an exact model id in
+  `agent_runner._MODEL_ALIASES`. The bare tier aliases are the *current* model of their
+  tier, pinned to the newest one the production CLI runs (`sonnet`→`claude-sonnet-5-5`,
+  `opus`→`claude-opus-5`, `haiku`→`claude-haiku-5-5`). They used to be left to the CLI's
+  own aliasing, which follows the age of the installed CLI: on 2026-10-23 production
+  (CLI 2.1.149) ran them as `claude-sonnet-4-6`, `claude-opus-4-7` and `claude-haiku-4-5`
+  under a "latest" label. `claude-opus-5-5` needs CLI ≥ 2.1.280, so `opus` moves to it
+  only after the service user's CLI is updated (a pin newer than the CLI fails as
+  `error: model`, see Model-refusal detection). The labels name the version they run
+  ("Opus (current: 5)"), and `test_model_lists_in_sync.py` fails when the table, the
+  labels or "newest of its tier" part ways. Versioned aliases never move: the Claude 5
+  family (`sonnet-5`→`claude-sonnet-5`, `opus-5`→`claude-opus-5`, `fable-5`→`claude-fable-5`)
   and previous Opus generations (`opus-4.8`→`claude-opus-4-8`, `opus-4.7`→`claude-opus-4-7`).
   NB: Fable 5's safety classifiers target offensive-cyber content, so malware-heavy
   investigations may hit refusals on it — prefer `opus-5` when that matters. Admin
