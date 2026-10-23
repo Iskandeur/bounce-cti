@@ -294,8 +294,13 @@ real-world cases, the v2 overall score went from 49.7 (2026-04-19) to 74.4
 (2026-06-17); the decay-proof capability score (v3 CAP) reads 92.9 → 96.0 over
 its three runs. Hallucination is a hard gate: it fired once, in the first run,
 and the scorecards that audit it report 0 since. The page also says what these
-numbers do not show: they are self-graded, the rubric changed, the model
-changed, and there is no external baseline.
+numbers do not show: they are self-graded, the rubric changed, and the model
+changed. The one external reference is the same model run without the tool
+(2026-10-21, `claude-opus-5` throughout): mean NR on the five positive cases is
+55.5 with Bounce-CTI, 83.0 for the bare model with web search and 14.7 for the
+bare model alone. The web-search figure comes with a caveat: the ground truth
+is built from public write-ups, and the bare model fetched its case's own
+write-up on 3 of the 5 cases, so these cases favour search over investigation.
 
 `EVAL_PROTOCOL.md` is the active scoring rubric for the agent. Re-run it
 against a new commit whenever you touch the agent system prompt, MCP tool set,
