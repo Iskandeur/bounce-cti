@@ -505,6 +505,28 @@ class StartReq(BaseModel):
     # Record every source response this investigation reads into
     # data/fixtures/capture/<id>/ (EVAL_PROTOCOL §4.C). Admin only.
     capture: bool = False
+    # Mount the context pool (model memory + wrapped open web, as capped leads)
+    # for this one investigation, whatever the vertical's .env policy. Admin
+    # only: it is how an eval run measures CTI with the pool on.
+    context_pool: bool = False
+
+
+def _check_context_pool(user_id: int, requested: bool) -> bool:
+    """The context pool changes what the agent can reach (the open web) and what
+    it spends (BOUNCE_CTX_BUDGET calls), so only an admin may force it on. A
+    request the server cannot honour is refused loudly, never downgraded: an
+    eval run that asked for the pool must not get a run without it. 403 for a
+    non-admin, 409 when the kill switch BOUNCE_CTX_ENABLED=0 is set."""
+    if not requested:
+        return False
+    u = auth.get_user(user_id)
+    if not u or not u["is_admin"]:
+        raise HTTPException(status_code=403, detail="context_pool requires an admin session")
+    from . import context_pool
+    if not context_pool.context_pool_enabled("cti", forced=True):
+        raise HTTPException(status_code=409,
+                            detail="context pool disabled on this server (BOUNCE_CTX_ENABLED=0)")
+    return True
 
 
 def _check_capture(user_id: int, requested: bool) -> bool:
@@ -525,6 +547,7 @@ async def start(req: StartReq, user_id: int = Depends(current_user)):
     model = _check_model(user_id, req.model)
     effort = _check_effort(req.effort)
     capture = _check_capture(user_id, req.capture)
+    ctx_forced = _check_context_pool(user_id, req.context_pool)
     vertical = verticals.normalise(req.vertical)
     seed_type = req.seed_type
     if seed_type == "auto":
@@ -536,10 +559,17 @@ async def start(req: StartReq, user_id: int = Depends(current_user)):
         raise HTTPException(status_code=400, detail="seed_value required")
     inv_id = gs.create_investigation(seed_type, sv, user_id=user_id, model=model,
                                      effort=effort, vertical=vertical,
-                                     fixture_capture=capture)
+                                     fixture_capture=capture,
+                                     context_pool=ctx_forced)
     asyncio.create_task(run_investigation(inv_id, seed_type, sv, model=model))
+    from . import context_pool
+    ctx_on = context_pool.context_pool_enabled(vertical, forced=ctx_forced)
     return {"id": inv_id, "seed_type": seed_type, "vertical": vertical,
-            "fixture_capture": capture}
+            "fixture_capture": capture,
+            # What the agent of this investigation will actually mount: the
+            # eval runner checks both before it lets a "with web" run spend.
+            "context_pool": ctx_on,
+            "context_pool_web": ctx_on and context_pool.web_tools_enabled()}
 
 
 class BatchItem(BaseModel):
@@ -1180,7 +1210,8 @@ def investigation_leads(inv_id: str, user_id: int = Depends(current_user)):
     return {
         **stats,
         "vertical": vertical,
-        "context_pool_enabled": context_pool.context_pool_enabled(vertical),
+        "context_pool_enabled": context_pool.context_pool_enabled(
+            vertical, forced=gs.get_context_pool(inv_id)),
         "ctx_calls_used": gs.get_counter(inv_id, "ctx_calls"),
         "ctx_budget": context_pool.ctx_budget(),
         "leads": [

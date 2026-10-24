@@ -693,7 +693,17 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
   **Enablement is deliberately asymmetric** (`BOUNCE_CTX_ENABLED`, default
   `auto`): ON for `osint` + `dd`, **OFF for `cti`**. CTI carries the byte-for-byte
   prompt invariant (roadmap 4.4) and the EVAL §4.5 budget cliff, so enable it
-  there only after an eval run (`BOUNCE_CTX_ENABLED=all`). `BOUNCE_CTX_WEB=0`
+  there only after an eval run (`BOUNCE_CTX_ENABLED=all`). To run that eval
+  without flipping the pool for every user, an admin creates ONE investigation
+  with `"context_pool": true` on `POST /api/investigations` (stored in
+  `investigations.context_pool`, read on every spawn through
+  `agent_runner._context_pool_on`, which the MCP config, the tool whitelist,
+  the system prompt and the corroboration phase all ask, so they never
+  disagree; 403 for a non-admin, 409 under the kill switch, which still wins).
+  `eval/sequential_runner.py` asks for it with `BOUNCE_EVAL_CONTEXT_POOL=1` and
+  stops any run the server did not acknowledge with both `context_pool` and
+  `context_pool_web`. Every other investigation keeps the CTI default, prompt
+  byte-identical. `BOUNCE_CTX_WEB=0`
   keeps the free, network-less `recall_prior_knowledge` while removing the
   injection surface entirely; `BOUNCE_CTX_BUDGET` (default 12) caps calls per
   investigation. The native `WebSearch` / `WebFetch` stay in `_DISALLOWED_TOOLS`

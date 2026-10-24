@@ -1605,7 +1605,7 @@ def _write_mcp_config(inv_id: str) -> Path:
     # budgeted and whitelisted separately from the source-pool budget the
     # EVAL_PROTOCOL §4.5 bands are calibrated on. It needs BOUNCE_INV_ID because
     # it writes lead nodes and enforces the per-investigation ctx budget.
-    if context_pool.context_pool_enabled(vertical.name):
+    if _context_pool_on(inv_id, vertical):
         cfg["mcpServers"][verticals.CONTEXT_POOL_KEY] = {
             "command": python,
             "args": [launcher, verticals.CONTEXT_POOL_MODULE],
@@ -2857,11 +2857,24 @@ _CTX_ALLOWED_TOOLS = (
 )
 
 
-def build_allowed_tools_for(vertical: "verticals.Vertical") -> str:
+def _context_pool_on(inv_id: str, vertical: "verticals.Vertical") -> bool:
+    """Is the context pool mounted for THIS investigation? The vertical's
+    policy (``BOUNCE_CTX_ENABLED``), or the investigation's own admin opt-in
+    (``investigations.context_pool``). The MCP config, the tool whitelist, the
+    system prompt and the corroboration phase all ask here, so they can never
+    disagree about one investigation."""
+    return context_pool.context_pool_enabled(vertical.name,
+                                             forced=gs.get_context_pool(inv_id))
+
+
+def build_allowed_tools_for(vertical: "verticals.Vertical",
+                            ctx: Optional[bool] = None) -> str:
     """Full --allowedTools whitelist for a vertical: its source pool, plus the
-    context pool when enabled for that vertical."""
+    context pool when it is mounted (``ctx``; None = the vertical's policy)."""
     tools = build_allowed_tools(vertical.source_pool)
-    if context_pool.context_pool_enabled(vertical.name):
+    if ctx is None:
+        ctx = context_pool.context_pool_enabled(vertical.name)
+    if ctx:
         tools = tools + "," + _CTX_ALLOWED_TOOLS
     return tools
 
@@ -2975,7 +2988,7 @@ async def _phase_corroborate_leads(inv_id: str, model: str, env: dict,
     """Resolve every outstanding context-pool lead. No-op when the pool is off
     for this vertical or nothing is pending. Returns the phase's quota dict."""
     vertical = verticals.get_vertical(gs.get_vertical(inv_id))
-    if not context_pool.context_pool_enabled(vertical.name):
+    if not _context_pool_on(inv_id, vertical):
         return None
 
     leads = gs.list_nodes_of_type(inv_id, context_pool.LEAD_NODE_TYPE)
@@ -3014,7 +3027,8 @@ async def _phase_corroborate_leads(inv_id: str, model: str, env: dict,
     return quota
 
 
-def build_system_prompt(template: str, vertical: "verticals.Vertical") -> str:
+def build_system_prompt(template: str, vertical: "verticals.Vertical",
+                        ctx: Optional[bool] = None) -> str:
     """Compose a phase system prompt from the shared {core} template and the
     {vertical}: substitute the agent identity name and append the vertical's
     prompt block.
@@ -3027,14 +3041,18 @@ def build_system_prompt(template: str, vertical: "verticals.Vertical") -> str:
     arrive together with the tools that produce it, and are absent when they
     aren't mounted.
 
-    For CTI (agent_name='Bounce-CTI', prompt_block='', context pool off by
-    default) this returns the template byte-for-byte (roadmap invariant 4.4)."""
+    ``ctx`` says whether the pool is mounted for this investigation (None = the
+    vertical's policy). For CTI (agent_name='Bounce-CTI', prompt_block='',
+    context pool off by default) this returns the template byte-for-byte
+    (roadmap invariant 4.4)."""
     out = template
     if vertical.agent_name != "Bounce-CTI":
         out = out.replace("Bounce-CTI", vertical.agent_name)
     if vertical.prompt_block:
         out = out + "\n\n" + vertical.prompt_block
-    if context_pool.context_pool_enabled(vertical.name):
+    if ctx is None:
+        ctx = context_pool.context_pool_enabled(vertical.name)
+    if ctx:
         out = out + "\n\n" + verticals.CONTEXT_POOL_PROMPT_BLOCK
     return out
 
@@ -3054,8 +3072,9 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
     # CTI and OSINT-v1, which both use the cti source pool — see
     # build_system_prompt / build_allowed_tools).
     vertical = verticals.get_vertical(gs.get_vertical(inv_id))
-    system_prompt = build_system_prompt(system_prompt, vertical)
-    allowed_tools = build_allowed_tools_for(vertical)
+    ctx = _context_pool_on(inv_id, vertical)
+    system_prompt = build_system_prompt(system_prompt, vertical, ctx)
+    allowed_tools = build_allowed_tools_for(vertical, ctx)
     _log(inv_id, f"phase_{phase}_starting", {"prompt_preview": prompt[:200]})
 
     cmd = [

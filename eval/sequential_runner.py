@@ -29,6 +29,14 @@ cookie jar in with the admin PIN for a capture run. A capture that was asked
 for and not acknowledged stops the investigation at once: an uncaptured run
 would cost the tokens and leave nothing to promote. Only fresh submissions
 capture; a tracked investigation resumes with whatever it was created with.
+
+Context pool: BOUNCE_EVAL_CONTEXT_POOL=1 submits every case with
+`context_pool: true`, so the agent also gets its model memory and the wrapped
+open web (mcp__ctx__*), as capped leads a source tool must corroborate. That is
+the "Bounce-CTI with web" arm next to eval/baseline.py's bare model with web.
+Admin only too. The server answers with what it will mount; a run without the
+pool, or with the pool but without its web tools (BOUNCE_CTX_WEB=0), is stopped
+at once: it would be scored as the "with web" arm and measure nothing of it.
 """
 import json, os, sys, time, urllib.request, urllib.error, http.cookiejar
 sys.path.insert(0, "/tmp/eval_run")
@@ -40,6 +48,7 @@ except ImportError:
 
 MODEL = "opus-4.8"
 CAPTURE = os.environ.get("BOUNCE_EVAL_CAPTURE") == "1"
+CONTEXT_POOL = os.environ.get("BOUNCE_EVAL_CONTEXT_POOL") == "1"
 
 BASE = "https://bounce.alexandre-pinoteau.fr"
 CJ = http.cookiejar.MozillaCookieJar("/tmp/cookies.txt")
@@ -249,26 +258,50 @@ def submit_body(case):
     body = {"seed_type": case["seed_type"], "seed_value": case["seed_value"], "model": MODEL}
     if CAPTURE:
         body["capture"] = True
+    if CONTEXT_POOL:
+        body["context_pool"] = True
     return body
 
 
+def _missing_acknowledgements(data):
+    """What this run asked for and the server's answer does not grant."""
+    missing = []
+    if CAPTURE and data.get("fixture_capture") is not True:
+        missing.append("capture")
+    if CONTEXT_POOL and data.get("context_pool") is not True:
+        missing.append("context pool")
+    elif CONTEXT_POOL and data.get("context_pool_web") is not True:
+        missing.append("context pool web tools (BOUNCE_CTX_WEB=0?)")
+    return missing
+
+
 def capture_refused(label, status, data):
-    """True (and logged) when a capture was asked for and the server did not
-    grant it. A 200 without the acknowledgement means a server that predates
-    per-investigation capture: it ignored the field and started an uncaptured
-    run, which is stopped here before it spends the case's budget."""
-    if not CAPTURE:
+    """True (and logged) when a capture or a context pool was asked for and the
+    server did not grant it. A 200 without the acknowledgement means a server
+    that predates the field: it ignored it and started a run without it, which
+    is stopped here before it spends the case's budget."""
+    if not (CAPTURE or CONTEXT_POOL):
         return False
     if status == 403:
-        log(f"  [{label}] capture refused (HTTP 403): log the cookie jar in with the admin PIN")
+        log(f"  [{label}] refused (HTTP 403): log the cookie jar in with the admin PIN")
         return True
-    if status == 200 and data.get("fixture_capture") is not True:
+    if status == 409:
+        log(f"  [{label}] refused (HTTP 409): {data.get('detail')}")
+        return True
+    missing = _missing_acknowledgements(data) if status == 200 else []
+    if missing:
         inv_id = data.get("id")
-        log(f"  [{label}] server did not acknowledge the capture; stopping uncaptured inv_id={inv_id}")
+        log(f"  [{label}] server did not acknowledge: {', '.join(missing)}; "
+            f"stopping inv_id={inv_id}")
         if inv_id:
             req("POST", f"/api/investigations/{inv_id}/stop")
         return True
     return False
+
+
+def _flags_note():
+    on = [n for n, f in (("capturing", CAPTURE), ("context pool", CONTEXT_POOL)) if f]
+    return f" ({', '.join(on)})" if on else ""
 
 
 def submit_with_quota_retry(case, meta):
@@ -282,8 +315,7 @@ def submit_with_quota_retry(case, meta):
             return None
         if status == 200:
             new_id = data.get("id")
-            log(f"  [c{cid:02d}] submitted new inv_id={new_id}"
-                + (" (capturing)" if CAPTURE else ""))
+            log(f"  [c{cid:02d}] submitted new inv_id={new_id}" + _flags_note())
             meta["cases"][str(cid)] = {"inv_id": new_id, "status": "submitted",
                                        "updated_at": time.time()}
             save_meta(meta)
@@ -403,8 +435,7 @@ def run_one_negative(neg, meta, force_new=False):
                 return "submit_failed", None
             if s == 200:
                 inv_id = d.get("id")
-                log(f"  [{label}] submitted inv_id={inv_id}"
-                    + (" (capturing)" if CAPTURE else ""))
+                log(f"  [{label}] submitted inv_id={inv_id}" + _flags_note())
                 meta["cases"][meta_key] = {"inv_id": inv_id, "status": "submitted",
                                            "updated_at": time.time()}
                 save_meta(meta)
@@ -459,7 +490,7 @@ def main():
 
     force = os.environ.get("FORCE_NEW") == "1"
     log(f"pos_targets={sorted(target_pos_ids)} neg_targets={sorted(neg_ids)} "
-        f"force_new={force} capture={CAPTURE}")
+        f"force_new={force} capture={CAPTURE} context_pool={CONTEXT_POOL}")
 
     for case in CASES:
         if case["case_id"] not in target_pos_ids:

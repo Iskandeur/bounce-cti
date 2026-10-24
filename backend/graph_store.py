@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS investigations (
     effort TEXT,
     title TEXT,
     vertical TEXT DEFAULT 'cti',
-    fixture_capture INTEGER NOT NULL DEFAULT 0
+    fixture_capture INTEGER NOT NULL DEFAULT 0,
+    context_pool INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
@@ -197,6 +198,11 @@ def init_db():
         # admin at creation. 0 for every pre-existing row.
         _ensure_column(c, "investigations", "fixture_capture",
                        "fixture_capture INTEGER NOT NULL DEFAULT 0")
+        # Per-investigation context pool (backend/context_pool.py), forced on by
+        # an admin at creation so an eval run can measure CTI with it. 0 = the
+        # .env policy decides, as for every pre-existing row.
+        _ensure_column(c, "investigations", "context_pool",
+                       "context_pool INTEGER NOT NULL DEFAULT 0")
         # users table may pre-date is_admin/allowed_models
         if c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone():
             _ensure_column(c, "users", "is_admin", "is_admin INTEGER NOT NULL DEFAULT 0")
@@ -207,15 +213,26 @@ def init_db():
 
 def create_investigation(seed_type: str, seed_value: str, user_id: Optional[int] = None,
                          model: Optional[str] = None, effort: Optional[str] = None,
-                         vertical: str = "cti", fixture_capture: bool = False) -> str:
+                         vertical: str = "cti", fixture_capture: bool = False,
+                         context_pool: bool = False) -> str:
     inv_id = hashlib.sha1(f"{time.time()}|{seed_type}|{seed_value}".encode()).hexdigest()[:12]
     with conn() as c:
         c.execute(
-            "INSERT INTO investigations(id, seed_type, seed_value, created_at, status, user_id, model, effort, vertical, fixture_capture) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO investigations(id, seed_type, seed_value, created_at, status, user_id, model, effort, vertical, fixture_capture, context_pool) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (inv_id, seed_type, seed_value, time.time(), "running", user_id, model, effort, vertical or "cti",
-             1 if fixture_capture else 0),
+             1 if fixture_capture else 0, 1 if context_pool else 0),
         )
     return inv_id
+
+
+def get_context_pool(inv_id: str) -> bool:
+    """True when this investigation was created with the context pool forced on
+    (``POST /api/investigations`` with ``context_pool: true``, admin only). Read
+    by ``agent_runner`` on every spawn, so resume, pivot, add-seed and custom
+    prompts keep the pool mounted. False for unknown ids."""
+    with conn() as c:
+        row = c.execute("SELECT context_pool FROM investigations WHERE id=?", (inv_id,)).fetchone()
+    return bool(row and row["context_pool"])
 
 
 def get_fixture_capture(inv_id: str) -> bool:
