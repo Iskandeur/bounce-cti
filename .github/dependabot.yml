@@ -1,0 +1,52 @@
+# Dependency update proposals. Nothing here merges anything: every proposal is a PR
+# that goes through the CI merge-gate, and merging it deploys to production like any
+# other commit to `main`. So: once a month, grouped, at most two open per ecosystem.
+version: 2
+updates:
+  # The actions are pinned to commit SHAs (.github/workflows/*.yml); Dependabot moves
+  # the SHA and the release comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: ci
+
+  # The frontend lockfile pins every version. Minor and patch updates come as one PR;
+  # a major (React, Vite) is a migration, done on purpose, not proposed by a bot.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: monthly
+    groups:
+      frontend:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: deps(frontend)
+
+  # requirements.txt holds floors (>=), so a release that satisfies them needs no
+  # change; a PR comes only when a floor or a cap must move. The mcp cap is
+  # load-bearing (mcp 2.0 removed mcp.server.fastmcp, see requirements.txt): never
+  # proposed, lifted only together with a FastMCP migration.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    versioning-strategy: increase-if-necessary
+    ignore:
+      - dependency-name: mcp
+        versions: [">=2.0"]
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: deps
+
+  # No `docker` entry on purpose: the image's python:3.12 base is production's Python
+  # (backend/tests/test_ci_workflows.py ties them), and moving it is a deliberate change.

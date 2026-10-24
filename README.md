@@ -278,8 +278,11 @@ enforces this and adds an early-exit when a domain looks parked or sinkholed.
 
 Contributions are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Your
 first pull request must sign the [Contributor License Agreement](./CLA.md)
-(handled automatically by a bot). A CI merge-gate (`backend imports` + `frontend builds`)
-must pass before any PR is merged, since `main` deploys straight to production.
+(handled automatically by a bot). A CI merge-gate must pass before any PR is
+merged, since `main` deploys straight to production: the backend imports on
+production's Python (3.12) and its tests pass on 3.11 and 3.12, the frontend
+builds, and the Docker image builds and boots. Actions are pinned to commit
+SHAs, and Dependabot proposes the updates once a month.
 
 ## Deployment
 

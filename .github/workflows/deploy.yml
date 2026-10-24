@@ -4,12 +4,18 @@ on:
   push:
     branches: [main]
 
+# The job talks to the VPS over SSH only; the GitHub token needs nothing more.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+        # This action receives the production SSH key: pinned to a commit, never to
+        # a movable tag. The SHA is what `v1` pointed to on 2026-10-24 (v1.2.5).
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
