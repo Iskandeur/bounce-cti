@@ -2,22 +2,37 @@ name: CI merge-gate
 
 # Guards `main` against breaking commits. Production deploys on every push to
 # `main` (see deploy.yml) with no staging, so this gate must pass before merge:
-# it fails if the backend does not import or the frontend does not build.
+# it fails if the backend does not import or pass its tests, if the frontend
+# does not build, or if the Docker image does not build and boot.
+#
+# Two job names are load-bearing: the repository ruleset on `main` requires the
+# checks "Backend imports" and "Frontend builds" BY NAME. Renaming either job (a
+# matrix renames it too, "Backend imports (3.12)") leaves the required check
+# pending forever and blocks every PR. backend/tests/test_ci_workflows.py pins them.
+#
+# Actions are pinned to a full commit SHA, the release it was in the trailing
+# comment; .github/dependabot.yml proposes the bumps, grouped, once a month.
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   backend-import:
     name: Backend imports
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.11"
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          # The Python production and the Docker image run (prod venv: 3.12.3).
+          python-version: "3.12"
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -27,13 +42,20 @@ jobs:
         run: python -c "import backend.main; print('backend.main imported OK')"
 
   backend-tests:
-    name: Backend tests
+    name: Backend tests (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is production and the image; 3.11 is the oldest supported.
+        python: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.11"
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
@@ -44,10 +66,13 @@ jobs:
     name: Frontend builds
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: "20"
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # The Node the Docker image builds the frontend with (node:22-slim).
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
@@ -59,3 +84,31 @@ jobs:
       - name: Build the static demo
         working-directory: frontend
         run: npm run build:demo
+
+  docker-image:
+    name: Docker image builds and boots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the image
+        run: docker build --tag bounce-cti:ci .
+      - name: Boot it, log in as the bootstrap admin, find the claude CLI
+        # No .env and no Claude credentials: this proves the image serves the app,
+        # creates its database and bootstraps the admin, not that it can investigate.
+        run: |
+          pin=$(shuf -i 100000-999999 -n 1)
+          docker run --detach --name bounce-smoke --publish 127.0.0.1:8001:8001 \
+            --env ADMIN_PIN="$pin" bounce-cti:ci
+          trap 'docker logs bounce-smoke; docker rm -f bounce-smoke > /dev/null' EXIT
+          for _ in $(seq 1 30); do
+            curl -fsS -o /dev/null http://localhost:8001/ && break
+            sleep 2
+          done
+          curl -fsS http://localhost:8001/ | grep -q '<div id="root">'
+          curl -fsS -c cookies.txt -H 'Content-Type: application/json' \
+            -d "{\"pin\":\"$pin\"}" http://localhost:8001/api/auth/login
+          curl -fsS -b cookies.txt http://localhost:8001/api/auth/me | grep -q '"is_admin":true'
+          test "$(docker exec bounce-smoke id -u)" = 10001
+          docker exec bounce-smoke claude --version

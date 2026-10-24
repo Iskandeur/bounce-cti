@@ -386,6 +386,8 @@ eval/drain_gate_replay.py # --db … [--seeds]: replays the pivot-drain gate
                         #   graph rebuilt from its events as it stood at drain start.
                         #   Read-only; seed values only with --seeds
 .github/workflows/demo-pages.yml  # Publishes dist-demo/ to GitHub Pages, by hand only
+.github/dependabot.yml  # Monthly grouped update PRs: actions, frontend, pip (never mcp>=2).
+                        #   Workflow invariants pinned by backend/tests/test_ci_workflows.py
 ```
 
 ## Development
@@ -420,21 +422,40 @@ This repo has **automatic deployment via GitHub Actions**.
 
 Because `main` deploys straight to prod, a merge-gate runs on every PR to `main`
 (and as a backstop on push to `main`):
-- **`backend-import`** — installs `requirements.txt`, byte-compiles `backend/`,
-  and imports `backend.main` (catches syntax errors and broken imports).
-- **`backend-tests`** — installs `requirements-dev.txt` and runs
-  `pytest backend/tests` (golden/regression tests, e.g. the seed-registry lock).
-- **`frontend-build`** — `npm ci` + `npm run build` (catches a broken frontend),
-  then `npm run build:demo` (the static demo still builds, snapshots or not).
+- **`backend-import`** — on Python 3.12 (production's), installs
+  `requirements.txt`, byte-compiles `backend/`, and imports `backend.main`
+  (catches syntax errors and broken imports).
+- **`backend-tests`** — on Python 3.11 and 3.12, installs `requirements-dev.txt`
+  and runs `pytest backend/tests` (golden/regression tests, e.g. the seed-registry lock).
+- **`frontend-build`** — on Node 22 (the image's), `npm ci` + `npm run build`
+  (catches a broken frontend), then `npm run build:demo` (the static demo still
+  builds, snapshots or not).
+- **`docker-image`** — builds the image and boots it with no `.env`: the app
+  answers, the bootstrap admin (a random `ADMIN_PIN`) logs in, the process runs
+  as uid 10001 and the `claude` CLI is on its PATH. It proves packaging, not
+  that an investigation can run (no Claude credentials in CI).
 
-A red gate must be fixed before merge. Pair this with branch protection on
-`main` (PR + passing checks required) so a broken commit cannot reach prod.
+A red gate must be fixed before merge. The repository ruleset on `main` requires
+the checks **Backend imports** and **Frontend builds** by name: never rename those
+two jobs or give them a matrix (GitHub appends the matrix values to the check
+name, and the required check then stays pending forever, blocking every PR).
+`backend/tests/test_ci_workflows.py` pins this, ties the CI Python and Node to the
+Dockerfile's, and fails on any action not pinned to a full commit SHA with its
+release in a comment (`deploy.yml` hands the production SSH key to
+`appleboy/ssh-action`). A new runtime version moves the Dockerfile, the CI and
+production together.
+
+`.github/dependabot.yml` proposes updates monthly, grouped, at most two open per
+ecosystem: actions (it moves the SHA and the comment together), frontend minor and
+patch, and `requirements.txt` only when a floor or cap must move. `mcp>=2.0` is
+ignored there as long as `requirements.txt` caps it (the test checks every cap is
+mirrored). Merging a Dependabot PR deploys to production like any other commit.
 
 ### If you need to change the deploy pipeline
 
 - Deploy script: `deploy.sh` (runs on the VPS)
 - GitHub Actions workflows: `.github/workflows/deploy.yml` (deploy),
-  `.github/workflows/ci.yml` (merge-gate)
+  `.github/workflows/ci.yml` (merge-gate), `.github/dependabot.yml` (update proposals)
 - Systemd service: `bounce-cti.service` (managed on the VPS, not in this repo)
 - Reverse proxy: Caddy with automatic HTTPS (managed on the VPS)
 

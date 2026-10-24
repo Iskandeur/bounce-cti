@@ -1159,17 +1159,31 @@ Pull request → main
   │
   ▼
 GitHub Actions (.github/workflows/ci.yml)
-  ├─ backend-import : pip install -r requirements.txt
+  ├─ backend-import : Python 3.12 (production's), pip install -r requirements.txt
   │                   → python -m compileall backend
   │                   → import backend.main
-  ├─ backend-tests  : pip install -r requirements-dev.txt
+  ├─ backend-tests  : Python 3.11 and 3.12, pip install -r requirements-dev.txt
   │                   → pytest backend/tests   (golden/regression tests)
-  └─ frontend-build : npm ci → npm run build
-                      → npm run build:demo   (static demo, frontend/dist-demo/)
+  ├─ frontend-build : Node 22 (the image's), npm ci → npm run build
+  │                   → npm run build:demo   (static demo, frontend/dist-demo/)
+  └─ docker-image   : docker build, then boot the image with no .env: the app
+                      answers, the bootstrap admin logs in, uid 10001, claude CLI
 ```
 
-A failing gate must be fixed before merge. Combine with branch protection on
-`main` (require PR + passing checks) so a broken commit cannot reach prod.
+A failing gate must be fixed before merge. The repository ruleset on `main`
+requires the checks **Backend imports** and **Frontend builds** by name, so
+those two jobs keep their names and carry no matrix (GitHub appends matrix
+values to a check name). `backend/tests/test_ci_workflows.py` pins that, ties
+the CI Python and Node to the Dockerfile's (production runs Python 3.12), and
+refuses any action not pinned to a full commit SHA: `deploy.yml` hands the
+production SSH key to a third-party action, so a movable tag is not acceptable.
+
+`.github/dependabot.yml` proposes updates once a month, grouped, at most two
+open per ecosystem: the pinned actions, the frontend lockfile (minor and patch;
+majors are migrations), and `requirements.txt` only when a floor or a cap must
+move (the `mcp<2.0` cap is never proposed). No Docker entry: the image's Python
+is production's, and moving it is deliberate. A Dependabot PR goes through the
+same gate, and merging it deploys like any other commit.
 
 ### How it works
 
