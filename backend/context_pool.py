@@ -432,12 +432,21 @@ def check_fetch_host_address(host_or_ip: str) -> Optional[str]:
 _DEFAULT_CTX_VERTICALS = frozenset({"osint", "dd"})
 
 
-def context_pool_enabled(vertical: str | None) -> bool:
-    """True if the context pool is mounted for this vertical."""
+def context_pool_enabled(vertical: str | None, forced: bool = False) -> bool:
+    """True if the context pool is mounted for this vertical.
+
+    ``forced`` is one investigation's own opt-in (an admin's
+    ``"context_pool": true`` at creation, stored in
+    ``investigations.context_pool``): it turns the pool on for that
+    investigation whatever the vertical, so an eval run can measure CTI with the
+    pool without flipping it for every user through ``.env``. The kill switch
+    (``BOUNCE_CTX_ENABLED=0``) still wins over it."""
     raw = (os.getenv("BOUNCE_CTX_ENABLED", "auto") or "auto").strip().lower()
     v = (vertical or "cti").lower()
     if raw in ("0", "false", "no", "off"):
         return False
+    if forced:
+        return True
     if raw in ("1", "true", "yes", "on", "all"):
         return True
     if raw == "auto" or not raw:

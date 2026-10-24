@@ -54,6 +54,27 @@ Notes for one-by-one discipline:
 - A `quota_exceeded` case is resumed in place via `POST /resume` (no graph
   reset); a fresh-iteration `FORCE_NEW=1` run submits new instead.
 
+## Bounce-CTI with the context pool (the "with web" arm)
+
+`eval/baseline.py --arm web` gives the bare model the web. To give Bounce-CTI
+the same reach, with everything it reads kept as capped leads that a source
+tool must corroborate (`backend/context_pool.py`), run the cases with the
+context pool forced on for those investigations only (admin cookie jar, as for
+a capture below):
+
+```bash
+cd /tmp/eval_run && FORCE_NEW=1 BOUNCE_EVAL_CONTEXT_POOL=1 python3 sequential_runner.py 2 3 8 9 12
+```
+
+The runner gives up on a 403 (not admin) or a 409 (kill switch
+`BOUNCE_CTX_ENABLED=0` on the server), and stops a run the server did not
+acknowledge with `context_pool` and `context_pool_web` both true. `GET
+/api/investigations/<id>/leads` then gives the corroboration rate (COR,
+EVAL_PROTOCOL). Score with `eval/scorer.py` as usual. Note the scorer counts a
+name (actor, family, tool) found in any node's metadata or tags, leads
+included: report the score both with and without lead nodes, or a name the
+model only read on the web counts as found.
+
 ## Fixture sets (deterministic replay, EVAL_PROTOCOL §4.C)
 
 Capture a case's source responses once, then replay them offline as often as
