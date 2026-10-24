@@ -323,6 +323,7 @@ frontend/
   src/
     main.jsx            # React entrypoint
     App.jsx             # Main app (Cytoscape graph, sidebar, report/chat/node panels)
+    invUrl.js           # Pure ?inv=<id> URL-sync helper (+ invUrl.test.js, node --test, run in CI)
     Login.jsx           # PIN login screen
     AdminPanel.jsx      # Admin dashboard (users, models, impersonation)
     ShareModal.jsx      # Build a share link (sections + expiry)

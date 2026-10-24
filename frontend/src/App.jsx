@@ -5,6 +5,7 @@ import ShareModal from './ShareModal.jsx'
 import SharedView from './SharedView.jsx'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
+import { nextInvSearch } from './invUrl.js'
 
 cytoscape.use(coseBilkent)
 
@@ -721,6 +722,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const chatEndRef = useRef(null)
 
   useEffect(() => { activeInvRef.current = activeInv }, [activeInv])
+  const urlHydratedRef = useRef(false)
 
   // Sync activeInv ↔ URL (?inv=<id>) so that:
   //   - hard refresh keeps the investigation you were viewing,
@@ -728,15 +730,13 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   //   - the URL is shareable / pinnable.
   // Uses replaceState (not pushState) on natural switching so the back button
   // doesn't accumulate one entry per investigation click within a session.
+  // Held back until the initial ?inv= deep link has been read (urlHydratedRef,
+  // set after refreshInvs below): at mount activeInv is null and would erase it.
   useEffect(() => {
     try {
-      const sp = new URLSearchParams(window.location.search)
-      const cur = sp.get('inv') || null
-      if (activeInv === cur) return
-      if (activeInv) sp.set('inv', activeInv)
-      else sp.delete('inv')
-      const url = window.location.pathname + (sp.toString() ? '?' + sp.toString() : '')
-      window.history.replaceState({}, '', url)
+      const qs = nextInvSearch(window.location.search, activeInv, urlHydratedRef.current)
+      if (qs === null) return
+      window.history.replaceState({}, '', window.location.pathname + qs)
     } catch (_) { /* ignore */ }
   }, [activeInv])
   useEffect(() => { showEdgeLabelsRef.current = showEdgeLabels }, [showEdgeLabels])
@@ -1111,6 +1111,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         const wanted = sp.get('inv')
         if (wanted) openInv(wanted)
       } catch (_) { /* ignore */ }
+      urlHydratedRef.current = true
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
