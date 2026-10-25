@@ -264,6 +264,7 @@ def test_a_failed_lookup_at_t_seals_nothing_unless_accepted(tmp_path):
     assert not (batch / "manifest.json").exists() and not (batch / "commitment.json").exists()
     commitment = P.seal(batch, dirs, 14, lookup=judge, now=lambda: T0, pause_s=0, max_failed=1)
     assert commitment["lookups_failed_at_t"] == 1
+    assert commitment["max_failed_accepted"] == 1  # the tolerance is in the commitment, not only the count
     # A value the judge cannot express is not a failure of the judge.
     batch2, dirs2 = _batch(tmp_path / "imphash", {"bounce": {
         "P1": [node("ip", "203.0.113.7", "seed"), node("hash", "f" * 20)],
