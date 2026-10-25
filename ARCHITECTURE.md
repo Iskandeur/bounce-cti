@@ -966,7 +966,8 @@ commit at T). `check` repeats the lookups after `due_at` (exit 3 before, unless
 undetermined and gives per arm `ahead_share` and a pooled recall. Both refuse a
 manifest whose hash is not the committed one (exit 1). Judge v1: OTX pulses,
 keyless, a domain asked under `hostname` and `domain`, 3 s between requests; a
-failed lookup is undetermined, never "in no pulse". Stdlib plus
+failed lookup is undetermined, never "in no pulse", and a lookup failed at T
+seals nothing (exit 4: seal again later, or with `OTX_API_KEY`). Stdlib plus
 `backend.action_exports`, not part of the running service; locked by
 `backend/tests/test_eval_prospective.py`.
 

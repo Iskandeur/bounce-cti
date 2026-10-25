@@ -256,6 +256,23 @@ def test_seal_refuses_a_missing_graph_and_a_second_seal(tmp_path):
         P.seal(batch2, {}, 14, lookup=_judge({}), now=lambda: T0, pause_s=0)
 
 
+def test_a_failed_lookup_at_t_seals_nothing_unless_accepted(tmp_path):
+    batch, dirs = _batch(tmp_path, ARMS)
+    judge = _judge({"domain|c2b.example": FAILED})
+    with pytest.raises(P.JudgeUnavailable, match="1 of"):
+        P.seal(batch, dirs, 14, lookup=judge, now=lambda: T0, pause_s=0)
+    assert not (batch / "manifest.json").exists() and not (batch / "commitment.json").exists()
+    commitment = P.seal(batch, dirs, 14, lookup=judge, now=lambda: T0, pause_s=0, max_failed=1)
+    assert commitment["lookups_failed_at_t"] == 1
+    # A value the judge cannot express is not a failure of the judge.
+    batch2, dirs2 = _batch(tmp_path / "imphash", {"bounce": {
+        "P1": [node("ip", "203.0.113.7", "seed"), node("hash", "f" * 20)],
+        "P2": [node("domain", "seed2.example", "seed")]}})
+    unjudgeable = {"hash|" + "f" * 20: {"state": "error", "error": "OTX has no exact lookup for this hash"}}
+    c2 = P.seal(batch2, dirs2, 14, lookup=_judge(unjudgeable), now=lambda: T0, pause_s=0)
+    assert (c2["lookups_failed_at_t"], c2["unjudgeable"]) == (0, 1)
+
+
 def test_check_is_refused_before_the_horizon_unless_early(tmp_path):
     batch, _, _ = _sealed(tmp_path)
     with pytest.raises(P.NotDue):
@@ -349,11 +366,12 @@ def test_results_say_whether_the_committed_copy_was_found(tmp_path, monkeypatch)
 def test_a_label_that_would_leave_its_directory_is_refused(tmp_path):
     batch = tmp_path / "b"
     batch.mkdir()
-    (batch / "seeds.json").write_text(json.dumps([dict(SEEDS[0], label="../x")]))
-    with pytest.raises(ValueError, match="letters"):
-        P.load_seeds(batch)
-    with pytest.raises(ValueError, match="letters"):
-        _load("baseline").load_seeds(batch / "seeds.json")
+    for bad in ("../x", "P1\n"):
+        (batch / "seeds.json").write_text(json.dumps([dict(SEEDS[0], label=bad)]))
+        with pytest.raises(ValueError, match="letters"):
+            P.load_seeds(batch)
+        with pytest.raises(ValueError, match="letters"):
+            _load("baseline").load_seeds(batch / "seeds.json")
 
 
 def test_cli_exit_codes(tmp_path, monkeypatch):

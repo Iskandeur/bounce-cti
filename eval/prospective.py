@@ -51,7 +51,8 @@ parties. ``commitment.json`` and ``results.json`` / ``results.md`` (counts only)
 are the parts meant to be committed.
 
 Exit codes: 0 done; 1 the manifest is not the committed one; 2 usage or input
-error; 3 the check is not due yet (``--early`` to run it anyway).
+error; 3 the check is not due yet (``--early`` to run it anyway); 4 lookups
+failed at T, nothing sealed (seal again later, or with ``OTX_API_KEY``).
 
 Stdlib only, plus backend.action_exports for the definition of a claim.
 """
@@ -86,9 +87,9 @@ _RETRY_STATUS = {429, 500, 502, 503, 504}
 # Between requests: the keyless OTX API answered 429 after ~60 calls in 3 minutes
 # (measured 2026-10-25, EVAL_PROTOCOL §4.E).
 PAUSE_S = 3.0
-LABEL_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+LABEL_RE = re.compile(r"[A-Za-z0-9_-]+")
 COMMITTED_DIR = ROOT / "eval" / "prospective"
-EXIT_TAMPERED, EXIT_USAGE, EXIT_NOT_DUE = 1, 2, 3
+EXIT_TAMPERED, EXIT_USAGE, EXIT_NOT_DUE, EXIT_JUDGE = 1, 2, 3, 4
 
 
 def utcnow() -> datetime:
@@ -275,7 +276,7 @@ def load_seeds(batch: Path) -> list[dict]:
         missing = [k for k in ("label", "seed_type", "seed_value", "first_seen", "source") if not s.get(k)]
         if missing:
             raise ValueError(f"seed {s.get('label') or '?'}: missing {', '.join(missing)}")
-        if not LABEL_RE.match(str(s["label"])):
+        if not LABEL_RE.fullmatch(str(s["label"])):
             # The label names a directory under every arm: "../x" would leave it.
             raise ValueError(f"seed label {s['label']!r}: letters, digits, '_' and '-' only")
         if s["label"] in labels:
@@ -310,8 +311,12 @@ def load_manifest(batch: Path) -> dict:
 
 # ── seal / check / score ───────────────────────────────────────────────────
 
+class JudgeUnavailable(Exception):
+    pass
+
+
 def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lookup,
-         now=None, pause_s: float = PAUSE_S, sleep=time.sleep) -> dict:
+         now=None, pause_s: float = PAUSE_S, sleep=time.sleep, max_failed: int = 0) -> dict:
     if (batch / "manifest.json").exists():
         raise FileExistsError(f"{batch / 'manifest.json'} exists: a batch is sealed once")
     if horizon_days < 1:
@@ -338,6 +343,14 @@ def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lo
     keys = [k for per in claims.values() for k in per]
     keys += [f"{s['seed_type']}|{normalise(s['seed_type'], s['seed_value'])}" for s in seeds]
     at_t = _lookup_all(keys, lookup, pause_s, sleep)
+    failed = sorted(k for k, r in at_t.items() if r.get("state") == "error" and not _unjudgeable(r))
+    if len(failed) > max_failed:
+        # A lookup that fails at T can never be redone at T: sealing now would
+        # freeze those claims as undetermined for good. Nothing is written, so
+        # the batch can be sealed again once the judge answers.
+        raise JudgeUnavailable(f"{len(failed)} of {len(at_t)} lookups failed at T "
+                               f"({at_t[failed[0]].get('error')}, …): nothing sealed. Seal again later "
+                               f"or with OTX_API_KEY set (--max-failed N accepts N failures)")
     manifest = {
         "version": 1, "judge": JUDGE, "batch": batch.name,
         "sealed_at": _iso(sealed_at), "horizon_days": horizon_days,
@@ -489,6 +502,8 @@ def main(argv=None) -> int:
     s.add_argument("--batch", type=Path, required=True)
     s.add_argument("--arm", action="append", required=True, help="name=<dir with <label>/graph.json>")
     s.add_argument("--horizon-days", type=int, default=14)
+    s.add_argument("--max-failed", type=int, default=0,
+                   help="failed lookups at T accepted before sealing (default 0: none)")
     c = sub.add_parser("check")
     c.add_argument("--batch", type=Path, required=True)
     c.add_argument("--early", action="store_true", help="check before the horizon (provisional)")
@@ -508,7 +523,7 @@ def main(argv=None) -> int:
     try:
         if args.cmd == "seal":
             commitment = seal(args.batch, _arms(args.arm), args.horizon_days, lookup=lookup,
-                              pause_s=args.pause)
+                              pause_s=args.pause, max_failed=args.max_failed)
             print(json.dumps(commitment, indent=2))
             if commitment["lookups_failed_at_t"]:
                 print(f"warning: {commitment['lookups_failed_at_t']} lookups failed at T; those "
@@ -534,6 +549,9 @@ def main(argv=None) -> int:
     except NotDue as e:
         print(str(e), file=sys.stderr)
         return EXIT_NOT_DUE
+    except JudgeUnavailable as e:
+        print(str(e), file=sys.stderr)
+        return EXIT_JUDGE
     except (ValueError, FileNotFoundError, FileExistsError, KeyError) as e:
         print(f"error: {e}", file=sys.stderr)
         return EXIT_USAGE

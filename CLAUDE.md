@@ -367,7 +367,8 @@ eval/prospective.py     # Prospective cases (EVAL_PROTOCOL §4.E): seal <batch> 
                         #   check after the horizon (exit 3 before, --early = provisional);
                         #   score: known/ahead/unconfirmed/benign/undetermined per arm,
                         #   pooled recall. Judge v1 = OTX pulses, keyless, a domain asked
-                        #   under hostname AND domain. Manifest not the committed one = exit 1
+                        #   under hostname AND domain. Manifest not the committed one = exit 1;
+                        #   a lookup failed at T seals nothing (exit 4; OTX_API_KEY for a batch)
 deploy.sh               # Auto-deploy script (callable on the VPS)
 Dockerfile              # Local one-image run (not used by prod): frontend build
                         #   stage, then backend + claude CLI as non-root `bounce`
