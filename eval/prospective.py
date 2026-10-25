@@ -367,6 +367,7 @@ def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lo
         "seeds": len(seeds),
         "claims_per_arm": {a: sum(1 for per in claims.values() for c in per.values() if a in c["arms"])
                            for a in sorted(arms)},
+        "max_failed_accepted": max_failed,
         "lookups_failed_at_t": sum(1 for r in at_t.values()
                                    if r.get("state") == "error" and not _unjudgeable(r)),
         "unjudgeable": sum(1 for r in at_t.values() if _unjudgeable(r)),
