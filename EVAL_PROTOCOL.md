@@ -156,6 +156,45 @@ Rules that keep the comparison honest:
 
 Results land in `eval/baseline/<date>/results.json` (scores, models, hosts read) and `results.md` (per case); `eval/results_digest.py` publishes the latest in `EVAL_RESULTS.md`. Raw answers and streams stay out of the repo (they can quote registrant records).
 
+### 4.E Prospective cases — no answer key in the world at run time (added 2026-10-25)
+
+Why. §4.D's first runs (2026-10-21) found the web arm reading the write-up of its own case on 3 of the 5 fresh cases (2, 3, 12). On those, "Claude + web" beats Bounce-CTI by reading the ground truth. Bounce-CTI with the context pool mounted (2026-10-24, `context_pool: true`) made no web call on the 5 cases. Every case in §9 has its ground truth in a public write-up, so none of them can say what an investigation finds that nobody has published. A prospective case removes the answer key from the world at run time. The seed is picked when it is first listed, hours old, before anything is written about it, and every arm runs on it in the same window. The ground truth is what an independent feed lists **after** the runs, once a fixed horizon has passed.
+
+Procedure (`eval/prospective.py`):
+
+1. **Pick the seeds, by rules written before the runs.** A seed was first listed in a feed ≤ 48 h before the runs, carries a family or campaign tag there, and is not on a shared platform (CDN, free hosting, URL shortener, dynamic DNS: the §9 must-defuse kinds). One seed per family per batch. Each goes into `<batch>/seeds.json` with `label` (`P1`, `P2`…), `seed_type`, `seed_value`, `first_seen` (UTC) and `source` (the feed entry it was picked from).
+2. **Run every arm in the same hour.** Bounce-CTI: one investigation per seed on `opus-5`, under an admin session. Fetch each graph to `<arm dir>/<label>/graph.json` with `GET /api/investigations/{id}/graph`, as `fetch.py` does. The bare model: `python3 eval/baseline.py run --arm web --model claude-opus-5 --out <dir> --seeds <batch>/seeds.json P1 P2 …`, whose graphs land in `<dir>/web/<label>/`. Optionally a third arm, Bounce-CTI with `context_pool: true` (`BOUNCE_EVAL_CONTEXT_POOL=1`). **Contamination rule:** a seed whose web arm fetched a write-up about it (`hosts_read` in its `run.json`) is not prospective. Drop it before sealing, with a note in `seeds.json`.
+3. **Seal right after the last arm finishes.** `python3 eval/prospective.py seal --batch <batch> --arm bounce=<dir> --arm web=<dir>/web [--horizon-days 14]`. This writes `manifest.json`: every arm's claims, the judge's answer for each at T, the horizon, and the sha256 of each graph. It also writes `commitment.json`: the manifest's sha256 and counts, no indicator value. **Copy `commitment.json` to `eval/prospective/<batch>/` and commit it the same day** (the batch directory itself lives outside the repo). Its commit date is the pre-registration: it proves the claims were fixed before the judge spoke. `check` and `score` refuse a manifest whose hash is not the committed one.
+4. **Judge after the horizon.** `check --batch <batch>` repeats every lookup and refuses before `due_at` (exit 3). `--early` runs it anyway, and every score from it is labelled provisional. `score --batch <batch> --write` writes `results.json` and `results.md` (counts only), which join the commitment in `eval/prospective/<batch>/`. The manifest, the checks and the graphs stay out of the repo: a claim can name a victim.
+
+**Lookups leave the box.** `seal` and `check` send every claim to OTX as a query, as Bounce-CTI's own `otx` source does during a run. A claim that names a victim (a compromised site's URL, say) is disclosed to OTX that way: nothing is submitted, but the question is seen.
+
+**The pre-registration is the committed copy.** The batch's own `commitment.json` is written by whoever sealed the batch, so on its own it proves nothing. `check` and `score` also compare the manifest with `eval/prospective/<batch>/commitment.json` when the repo has it, and `results.md` says whether that copy was found.
+
+**Claims.** A claim is what an arm would hand a defender: the domain, ip, url and hash nodes that `backend.action_exports` would put in a blocklist or a detection rule, minus the seed. Leads, `unverified`/`refuted`/`unverifiable` nodes and defused nodes are left out, as the exports leave them out. The definition is imported, not copied, so it moves with the exports.
+
+**Judge v1 (`otx-pulses/1`)**: AlienVault OTX pulses, exact indicator match, keyless (`OTX_API_KEY` is sent when set, for the rate limit only). Each claim lands in one class:
+
+| Class | At T | At the check | Reads as |
+|---|---|---|---|
+| `known` | in a pulse | — | already public: the arm could have read it |
+| `ahead` | in no pulse | in a pulse | found before the feed had it |
+| `unconfirmed` | in no pulse | in no pulse | not shown wrong, not shown right |
+| `benign` | whitelisted (`validation` / `false_positive`) at either time | | shared infrastructure, the N2 failure mode |
+| `undetermined` | a lookup failed at either time, or OTX has no exact lookup for the value (an imphash) | | never counted as "in no pulse" |
+
+Two traps in the judge, both measured on 2026-10-25:
+- **OTX files a registrable domain under `domain` and a subdomain under `hostname`. Asked in the wrong section, it answers a clean zero.** `moonzonet.com` (case 2's C2) is in 46 pulses under `domain` and in none under `hostname`; `cdn.jsdelivr.net` is the other way round. Every domain is asked in both sections. Listed in either one means listed. "In no pulse" needs both sections to have answered.
+- **The keyless API answers 429 after about 60 calls in 3 minutes, and the block outlasts the burst.** After about 100 anonymous requests in 20 minutes it was still answering 429 a quarter of an hour later, with no `Retry-After` header. Lookups are paced at 3 s per request (`--pause`), retried four times, and a `Retry-After` header wins when there is one. A lookup that fails at T can never be redone at T, so **`seal` writes nothing when a lookup fails** (exit 4, `--max-failed N` to accept N failures): seal again later. For a real batch, set `OTX_API_KEY` (a free OTX account; the same variable the `otx` source reads).
+
+**Metrics, per arm.** The class counts. `ahead_share` = ahead / (ahead + unconfirmed): of the claims nobody had listed, the share the feed confirmed later. `pooled_recall` = ahead / the union of every arm's `ahead` claims on the same seed. This is pooling as in TREC: the pool is what the systems found, the feed judges it. Report counts next to every percentage, because a batch yields few `ahead` claims.
+
+**What it does not measure:**
+- A pulse confirms that the indicator is malicious, not that it belongs to the seed's cluster. Read each `ahead` claim before quoting it.
+- One community feed is a partial judge, so `unconfirmed` does not mean wrong. Judge v2 adds abuse.ch (ThreatFox, URLhaus, MalwareBazaar; needs an Auth-Key) as more sections under the same rule: any listing is a listing, and any failure leaves the claim undetermined.
+- Recall is relative to what the arms found together, not to the whole infrastructure.
+- Bounce-CTI reads some of the same feeds during a run. That is what `known` counts, and `ahead` excludes it by construction.
+
 ---
 
 ## 5. Failure mode taxonomy

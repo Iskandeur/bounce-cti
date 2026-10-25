@@ -950,7 +950,26 @@ event, hosts fetched, hosts linked from search results, refused tool calls;
 model writes is kept as `claimed_*` metadata, never as provenance; the
 baseline's corpus is the tool results only, not its own text or queries.
 Stdlib only, not part of the running service; locked by
-`backend/tests/test_eval_baseline.py`.
+`backend/tests/test_eval_baseline.py`. `run --seeds <batch>/seeds.json P1 …`
+runs a prospective batch's seeds instead of `cases.py`'s (next section).
+
+### `eval/prospective.py` → `<batch>/`
+Prospective cases (EVAL_PROTOCOL §4.E): fresh seeds, every arm run in the same
+window, judged after a horizon by what an independent feed lists later. `seal`
+reads `<batch>/seeds.json` and one `<arm>/<label>/graph.json` per arm and seed,
+keeps as claims what `backend.action_exports._iter_actionable` would ship
+(domain, ip, url, hash; no lead, no unverified or defused node; the seed left
+out), asks the judge about each, and writes `manifest.json` plus
+`commitment.json` (the manifest's sha256 and counts, no value: the part to
+commit at T). `check` repeats the lookups after `due_at` (exit 3 before, unless
+`--early`), and `score` classes each claim known / ahead / unconfirmed / benign /
+undetermined and gives per arm `ahead_share` and a pooled recall. Both refuse a
+manifest whose hash is not the committed one (exit 1). Judge v1: OTX pulses,
+keyless, a domain asked under `hostname` and `domain`, 3 s between requests; a
+failed lookup is undetermined, never "in no pulse", and a lookup failed at T
+seals nothing (exit 4: seal again later, or with `OTX_API_KEY`). Stdlib plus
+`backend.action_exports`, not part of the running service; locked by
+`backend/tests/test_eval_prospective.py`.
 
 ### Static demo: `backend/demo_snapshot.py`, `eval/demo_export.py`, `frontend/demo/`
 One investigation frozen into a JSON snapshot that a static page renders with

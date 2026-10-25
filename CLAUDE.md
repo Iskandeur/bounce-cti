@@ -356,9 +356,19 @@ eval/baseline.py        # Bare-model baseline (EVAL_PROTOCOL §4.D): run --arm m
                         #   gives each seed to the same model with no Bounce-CTI tool
                         #   (empty cwd, no MCP, filtered env); compare scores every side
                         #   with eval/scorer.py itself (score_case(case, out_dir)).
+                        #   run --seeds <batch>/seeds.json runs a prospective batch.
                         #   Stdlib only
 eval/baseline/<date>/   # Committed baseline results: results.json (scores, models,
                         #   hosts the web arm read) + results.md. No raw answers
+eval/prospective.py     # Prospective cases (EVAL_PROTOCOL §4.E): seal <batch> freezes
+                        #   every arm's claims (what action_exports would ship, minus
+                        #   the seed) + the judge's answer at T into manifest.json, and
+                        #   commitment.json (sha256 + counts, no value: commit it at T);
+                        #   check after the horizon (exit 3 before, --early = provisional);
+                        #   score: known/ahead/unconfirmed/benign/undetermined per arm,
+                        #   pooled recall. Judge v1 = OTX pulses, keyless, a domain asked
+                        #   under hostname AND domain. Manifest not the committed one = exit 1;
+                        #   a lookup failed at T seals nothing (exit 4; OTX_API_KEY for a batch)
 deploy.sh               # Auto-deploy script (callable on the VPS)
 Dockerfile              # Local one-image run (not used by prod): frontend build
                         #   stage, then backend + claude CLI as non-root `bounce`

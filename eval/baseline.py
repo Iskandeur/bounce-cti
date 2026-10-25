@@ -34,6 +34,8 @@ Usage:
     python3 eval/baseline.py run --arm memory --model claude-opus-5 \\
         --out eval/baseline/<date> 2 3 8 9 12 N1 N2 N3
     python3 eval/baseline.py run --arm web --model claude-opus-5 --out ... 2 3 8 9 12 N1 N2 N3
+    python3 eval/baseline.py run --arm web --model claude-opus-5 --out ... \\
+        --seeds <batch>/seeds.json P1 P2 ...   # a prospective batch (§4.E)
     python3 eval/baseline.py compare --out eval/baseline/<date> \\
         [--bounce <dir with c02/graph.json…, as fetch.py writes>] \\
         [--bounce-model claude-opus-5] [--date <date>] [--write]
@@ -159,8 +161,13 @@ def child_env(environ: dict) -> dict:
     return {k: v for k, v in environ.items() if k in _ENV_KEEP or k.startswith("XDG_")}
 
 
-def case_for(label: str) -> tuple[dict, bool, str]:
-    """'2' → (case 2, False, 'c02'); 'N1' → (negative 101, True, 'n01')."""
+def case_for(label: str, seeds: dict | None = None) -> tuple[dict, bool, str]:
+    """'2' → (case 2, False, 'c02'); 'N1' → (negative 101, True, 'n01'); a label of
+    ``seeds`` (a prospective batch, eval/prospective.py) → (that seed, False, label)."""
+    if seeds and label in seeds:
+        s = seeds[label]
+        return ({"case_id": label, "name": label, "seed_type": s["seed_type"],
+                 "seed_value": s["seed_value"]}, False, label)
     if label.upper().startswith("N"):
         n = int(label[1:])
         for neg in NEGATIVE_CASES:
@@ -423,8 +430,23 @@ def answer_key(case_id: int, read: list[str], seen: list[str]) -> str | None:
 
 # ── running ────────────────────────────────────────────────────────────────
 
-def run_case(label: str, arm: str, model: str, out: Path, claude_bin: str) -> dict:
-    case, negative, dname = case_for(label)
+def load_seeds(path: Path) -> dict:
+    """A prospective batch's seeds.json, by label. Its graphs land in
+    <out>/<arm>/<label>/, the arm directory eval/prospective.py seals."""
+    seeds = {}
+    for s in json.loads(path.read_text(encoding="utf-8")):
+        if not (s.get("label") and s.get("seed_type") and s.get("seed_value")):
+            raise ValueError(f"{path}: every seed needs label, seed_type and seed_value")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", str(s["label"])):
+            # The label names the run's directory: "../x" would leave --out.
+            raise ValueError(f"{path}: seed label {s['label']!r}: letters, digits, '_' and '-' only")
+        seeds[s["label"]] = s
+    return seeds
+
+
+def run_case(label: str, arm: str, model: str, out: Path, claude_bin: str,
+             seeds: dict | None = None) -> dict:
+    case, negative, dname = case_for(label, seeds)
     d = out / arm / dname
     d.mkdir(parents=True, exist_ok=True)
     prompt = build_prompt(case, arm)
@@ -631,6 +653,8 @@ def main(argv=None) -> int:
     r.add_argument("--model", required=True, help="pin the exact model id (e.g. claude-opus-5)")
     r.add_argument("--out", type=Path, required=True)
     r.add_argument("--claude", default=os.environ.get("CLAUDE_BIN") or "claude")
+    r.add_argument("--seeds", type=Path, help="a prospective batch's seeds.json (EVAL_PROTOCOL "
+                   "§4.E): its labels are run instead of cases.py's")
     r.add_argument("cases", nargs="+")
     c = sub.add_parser("compare")
     c.add_argument("--out", type=Path, required=True)
@@ -644,8 +668,13 @@ def main(argv=None) -> int:
     c.add_argument("cases", nargs="*", default=[str(x) for x in FRESH_SUBSET] + ["N1", "N2", "N3"])
     args = ap.parse_args(argv)
     if args.cmd == "run":
+        seeds = load_seeds(args.seeds) if args.seeds else None
+        unknown = [l for l in args.cases if seeds is not None and l not in seeds]
+        if unknown:
+            print(f"not in {args.seeds}: {', '.join(unknown)}", file=sys.stderr)
+            return 2
         for label in args.cases:
-            meta = run_case(label, args.arm, args.model, args.out, args.claude)
+            meta = run_case(label, args.arm, args.model, args.out, args.claude, seeds)
             print(json.dumps({k: meta[k] for k in ("case", "arm", "model", "wall_s", "num_turns",
                                                     "answer_parsed", "timed_out",
                                                     "permission_denials")}), flush=True)
