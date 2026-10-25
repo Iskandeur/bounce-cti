@@ -75,6 +75,25 @@ name (actor, family, tool) found in any node's metadata or tags, leads
 included: report the score both with and without lead nodes, or a name the
 model only read on the web counts as found.
 
+## Prospective cases (no write-up yet, EVAL_PROTOCOL §4.E)
+
+Seeds picked when first listed, every arm run in the same hour, judged after a
+horizon by what OTX lists later. The seeding rules and the contamination rule
+are in §4.E: write the batch's `seeds.json` before any run.
+
+```bash
+B=/path/outside/the/repo/batch-2026-10-26        # holds seeds.json
+# Bounce-CTI: one investigation per seed (opus-5, admin session), then each
+# graph to $B-bounce/<label>/graph.json (GET /api/investigations/<id>/graph).
+python3 eval/baseline.py run --arm web --model claude-opus-5 --out $B-base \
+    --seeds $B/seeds.json P1 P2 P3
+python3 eval/prospective.py seal --batch $B --arm bounce=$B-bounce --arm web=$B-base/web
+# copy $B/commitment.json to eval/prospective/<batch>/ and commit it TODAY
+# (sha256 + counts, no value): its commit date is the pre-registration
+python3 eval/prospective.py check --batch $B          # after due_at (exit 3 before)
+python3 eval/prospective.py score --batch $B --write  # results.json + results.md
+```
+
 ## Fixture sets (deterministic replay, EVAL_PROTOCOL §4.C)
 
 Capture a case's source responses once, then replay them offline as often as
