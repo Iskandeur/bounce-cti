@@ -83,7 +83,11 @@ CLASSES = ("known", "ahead", "unconfirmed", "benign", "undetermined")
 BAD_TAGS = {"malicious", "c2", "phishing", "malware", "attacker"}  # as eval/scorer.score_negative
 _FILE_HASH_RE = re.compile(r"^(?:[0-9a-f]{32}|[0-9a-f]{40}|[0-9a-f]{64})$")
 _RETRY_STATUS = {429, 500, 502, 503, 504}
-PAUSE_S = 3.0  # between lookups: the keyless OTX API answers 429 past ~20 calls a minute
+# Between requests: the keyless OTX API answered 429 after ~60 calls in 3 minutes
+# (measured 2026-10-25, EVAL_PROTOCOL §4.E).
+PAUSE_S = 3.0
+LABEL_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+COMMITTED_DIR = ROOT / "eval" / "prospective"
 EXIT_TAMPERED, EXIT_USAGE, EXIT_NOT_DUE = 1, 2, 3
 
 
@@ -271,19 +275,36 @@ def load_seeds(batch: Path) -> list[dict]:
         missing = [k for k in ("label", "seed_type", "seed_value", "first_seen", "source") if not s.get(k)]
         if missing:
             raise ValueError(f"seed {s.get('label') or '?'}: missing {', '.join(missing)}")
+        if not LABEL_RE.match(str(s["label"])):
+            # The label names a directory under every arm: "../x" would leave it.
+            raise ValueError(f"seed label {s['label']!r}: letters, digits, '_' and '-' only")
         if s["label"] in labels:
             raise ValueError(f"seed label {s['label']} appears twice")
         labels.add(s["label"])
     return seeds
 
 
+def committed_copy(batch: Path) -> Path:
+    """Where the pre-registration lives once committed: the repo, not the batch."""
+    return COMMITTED_DIR / batch.name / "commitment.json"
+
+
 def load_manifest(batch: Path) -> dict:
-    """The manifest, if and only if it is the one the commitment names."""
+    """The manifest, if and only if it is the one the commitment names, and the
+    one the committed copy names when the repo has it. The batch's own
+    commitment.json is written by whoever sealed the batch: only the copy in
+    git, dated by its commit, proves the claims were fixed at T."""
     commitment = json.loads((batch / "commitment.json").read_text(encoding="utf-8"))
     digest = _sha256(batch / "manifest.json")
     if digest != commitment.get("manifest_sha256"):
         raise PermissionError(f"manifest.json is not the sealed one (sha256 {digest[:12]}, "
                               f"committed {str(commitment.get('manifest_sha256'))[:12]})")
+    copy = committed_copy(batch)
+    if copy.is_file():
+        pinned = json.loads(copy.read_text(encoding="utf-8")).get("manifest_sha256")
+        if digest != pinned:
+            raise PermissionError(f"manifest.json is not the one {copy} names "
+                                  f"(sha256 {digest[:12]}, committed {str(pinned)[:12]})")
     return json.loads((batch / "manifest.json").read_text(encoding="utf-8"))
 
 
@@ -425,8 +446,13 @@ def render_md(r: dict) -> str:
     lines = [f"# Prospective batch {r['batch']}", "",
              f"Sealed {r['sealed_at']}, checked {r['checked_at']} (horizon {r['horizon_days']} days, "
              f"due {r['due_at']}), judge `{r['judge']}`."
-             + (" **Provisional: checked before the horizon.**" if r["provisional"] else ""), "",
-             head, "|" + "---|" * (len(cols) + 1)]
+             + (" **Provisional: checked before the horizon.**" if r["provisional"] else ""), ""]
+    if r.get("commitment_in_repo") is True:
+        lines += [f"Manifest checked against the committed `eval/prospective/{r['batch']}/commitment.json`.", ""]
+    elif r.get("commitment_in_repo") is False:
+        lines += [f"**No committed `eval/prospective/{r['batch']}/commitment.json`: nothing here proves the "
+                  "claims were fixed before the judge spoke.**", ""]
+    lines += [head, "|" + "---|" * (len(cols) + 1)]
     for a, t in r["arms"].items():
         lines.append(f"| {a} | " + " | ".join(_fmt(t[c]) for c in cols) + " |")
     lines += ["", "Per seed (ahead / claims, pooled recall):", "",
@@ -501,6 +527,7 @@ def main(argv=None) -> int:
         if path is None:
             raise FileNotFoundError(f"no check-*.json in {args.batch}: run check first")
         result = score(manifest, load_check(args.batch, path))
+        result["commitment_in_repo"] = committed_copy(args.batch).is_file()
     except PermissionError as e:
         print(f"refusing: {e}", file=sys.stderr)
         return EXIT_TAMPERED

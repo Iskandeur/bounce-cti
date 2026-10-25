@@ -315,6 +315,47 @@ def test_a_check_of_another_batch_is_refused(tmp_path):
         P.load_check(batch, path)
 
 
+def test_the_committed_copy_is_what_proves_the_pre_registration(tmp_path, monkeypatch):
+    batch, _, _ = _sealed(tmp_path / "w")
+    repo = tmp_path / "repo-eval-prospective"
+    monkeypatch.setattr(P, "COMMITTED_DIR", repo)
+    (repo / batch.name).mkdir(parents=True)
+    (repo / batch.name / "commitment.json").write_text((batch / "commitment.json").read_text())
+    P.load_manifest(batch)  # same manifest: fine
+    # Rewrite the manifest AND the batch's own commitment: only the committed copy catches it.
+    m = json.loads((batch / "manifest.json").read_text())
+    m["horizon_days"] = 1
+    P._dump(batch / "manifest.json", m)
+    c = json.loads((batch / "commitment.json").read_text())
+    c["manifest_sha256"] = P._sha256(batch / "manifest.json")
+    P._dump(batch / "commitment.json", c)
+    with pytest.raises(PermissionError, match="names"):
+        P.load_manifest(batch)
+
+
+def test_results_say_whether_the_committed_copy_was_found(tmp_path, monkeypatch):
+    batch, _, _ = _sealed(tmp_path)
+    monkeypatch.setattr(P, "COMMITTED_DIR", tmp_path / "nowhere")
+    monkeypatch.setattr(P, "utcnow", lambda: T0 + timedelta(days=15))
+    P.check(batch, lookup=_judge({}), pause_s=0)
+    assert P.main(["score", "--batch", str(batch), "--write"]) == 0
+    assert "No committed" in (batch / "results.md").read_text()
+    (tmp_path / "nowhere" / batch.name).mkdir(parents=True)
+    (tmp_path / "nowhere" / batch.name / "commitment.json").write_text((batch / "commitment.json").read_text())
+    assert P.main(["score", "--batch", str(batch), "--write"]) == 0
+    assert "Manifest checked against the committed" in (batch / "results.md").read_text()
+
+
+def test_a_label_that_would_leave_its_directory_is_refused(tmp_path):
+    batch = tmp_path / "b"
+    batch.mkdir()
+    (batch / "seeds.json").write_text(json.dumps([dict(SEEDS[0], label="../x")]))
+    with pytest.raises(ValueError, match="letters"):
+        P.load_seeds(batch)
+    with pytest.raises(ValueError, match="letters"):
+        _load("baseline").load_seeds(batch / "seeds.json")
+
+
 def test_cli_exit_codes(tmp_path, monkeypatch):
     batch, _, _ = _sealed(tmp_path)
     monkeypatch.setattr(P, "utcnow", lambda: T0 + timedelta(days=1))

@@ -437,6 +437,9 @@ def load_seeds(path: Path) -> dict:
     for s in json.loads(path.read_text(encoding="utf-8")):
         if not (s.get("label") and s.get("seed_type") and s.get("seed_value")):
             raise ValueError(f"{path}: every seed needs label, seed_type and seed_value")
+        if not re.match(r"^[A-Za-z0-9_-]+$", str(s["label"])):
+            # The label names the run's directory: "../x" would leave --out.
+            raise ValueError(f"{path}: seed label {s['label']!r}: letters, digits, '_' and '-' only")
         seeds[s["label"]] = s
     return seeds
 
