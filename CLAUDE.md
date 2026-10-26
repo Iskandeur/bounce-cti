@@ -171,6 +171,14 @@ backend/
                         #   or a forbidden word (named, never printed). Used by
                         #   GET /api/investigations/{id}/demo_snapshot (owner)
                         #   and eval/demo_export.py. Stdlib only
+  eval_judge.py         # Prospective cases, server side (EVAL_PROTOCOL §4.E):
+                        #   fresh_iocs (ThreatFox get_iocs → candidate seeds +
+                        #   the §4.E rules each breaks) and judge v2
+                        #   (otx+abusech/2: OTX keyed + ThreatFox + URLhaus +
+                        #   MalwareBazaar, exact match, live — never the cache —
+                        #   each listing's id/date/author). Behind the admin
+                        #   routes /api/admin/eval/fresh_iocs and /judge, which
+                        #   use the server's own keys. Stdlib only
   pivot_mapping.py      # Per-node-type pivot rules + fan-out caps + global
                         #   pending-queue ceiling (MAX_PENDING_QUEUE) + cloud
                         #   ASN list + discriminating_marker() for convergence
@@ -368,7 +376,13 @@ eval/prospective.py     # Prospective cases (EVAL_PROTOCOL §4.E): seal <batch> 
                         #   score: known/ahead/unconfirmed/benign/undetermined per arm,
                         #   pooled recall. Judge v1 = OTX pulses, keyless, a domain asked
                         #   under hostname AND domain. Manifest not the committed one = exit 1;
-                        #   a lookup failed at T seals nothing (exit 4; OTX_API_KEY for a batch)
+                        #   a lookup failed at T seals nothing (exit 4; OTX_API_KEY for a batch).
+                        #   --server/--cookies (admin session): `seeds` picks a batch from
+                        #   /api/admin/eval/fresh_iocs (pick/1, one per family, once),
+                        #   `preflight`, and seal/check under judge v2 via /judge, with a
+                        #   positive control (a seed must be listed in its own feed at T,
+                        #   else exit 4). Secondary horizon 30 days pre-registered.
+                        #   backend/tests/test_sources_read_only.py: sources only read
 deploy.sh               # Auto-deploy script (callable on the VPS)
 Dockerfile              # Local one-image run (not used by prod): frontend build
                         #   stage, then backend + claude CLI as non-root `bounce`

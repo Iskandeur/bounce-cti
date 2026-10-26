@@ -353,6 +353,53 @@ def admin_lessons_learned(limit: int = 200, _: int = Depends(current_admin)):
     return {"entries": entries, "total": len(lines)}
 
 
+# ── Prospective eval, server side (EVAL_PROTOCOL §4.E, backend/eval_judge.py) ──
+# The feed keys live in this server's .env; these two routes are how
+# eval/prospective.py uses them without ever reading them.
+def _abusech_key_or_503() -> str:
+    from . import config
+    if not config.ABUSECH_KEY:
+        raise HTTPException(status_code=503, detail="ABUSECH_AUTH_KEY is not set on this server")
+    return config.ABUSECH_KEY
+
+
+@app.get("/api/admin/eval/fresh_iocs")
+def admin_eval_fresh_iocs(days: int = 2, _: int = Depends(current_admin)):
+    """ThreatFox's last ``days`` (1-7) of indicators as candidate prospective
+    seeds, each with ``excluded_by``: the §4.E rules it breaks (empty =
+    eligible). Fetched live, never from the cache. 502 when ThreatFox fails."""
+    from . import eval_judge
+    try:
+        return eval_judge.fresh_iocs(abusech_key=_abusech_key_or_503(), days=days)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+class EvalClaim(BaseModel):
+    type: str
+    value: str
+
+
+class EvalJudgeReq(BaseModel):
+    claims: list[EvalClaim]
+
+
+@app.post("/api/admin/eval/judge")
+def admin_eval_judge(req: EvalJudgeReq, _: int = Depends(current_admin)):
+    """Judge v2 (``otx+abusech/2``) on up to 20 claims: OTX (with this server's
+    key) + ThreatFox + URLhaus + MalwareBazaar, live, exact match, with each
+    listing's id, creation date and author. Answers ``{judge, lookups}``,
+    keyed ``type|value``. A failed section leaves a claim in error, never
+    "in no listing"."""
+    from . import config, eval_judge
+    if len(req.claims) > eval_judge.MAX_CLAIMS_PER_REQUEST:
+        raise HTTPException(status_code=422,
+                            detail=f"at most {eval_judge.MAX_CLAIMS_PER_REQUEST} claims per request")
+    key = _abusech_key_or_503()
+    return eval_judge.judge([c.model_dump() for c in req.claims],
+                            otx_key=config.OTX_KEY or None, abusech_key=key)
+
+
 # ── Core routes (all scoped to user_id) ────────────────────────────────────
 def _require_owner(inv_id: str, user_id: int):
     owner = gs.get_investigation_owner(inv_id)
