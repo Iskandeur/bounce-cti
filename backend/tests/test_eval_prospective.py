@@ -578,3 +578,4 @@ def test_seeds_are_picked_once(tmp_path, monkeypatch):
     lot2 = tmp_path / "lot2"
     assert P.main(["seeds", "--batch", str(lot2), "--server", "https://srv", "--cookies", str(jar),
                    "--avoid", str(batch / "seeds.json")]) == P.EXIT_USAGE  # its only family is taken
+    assert not lot2.exists()  # a failed pick writes nothing: no fresh_iocs.json, no seeds.json

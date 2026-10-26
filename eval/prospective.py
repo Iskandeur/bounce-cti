@@ -685,11 +685,12 @@ def main(argv=None) -> int:
             if (args.batch / "seeds.json").exists():
                 raise FileExistsError(f"{args.batch / 'seeds.json'} exists: seeds are picked once")
             fresh = server_call(server[0], f"/api/admin/eval/fresh_iocs?days={args.days}", opener=server[1])
-            args.batch.mkdir(parents=True, exist_ok=True)
-            _dump(args.batch / "fresh_iocs.json", fresh)
             seeds = pick(fresh, args.n, families_of(args.avoid))
             if not seeds:
+                # Nothing written: no seed was chosen, so a later attempt chooses nothing twice.
                 raise ValueError(f"no eligible seed among {fresh.get('count')} candidates")
+            args.batch.mkdir(parents=True, exist_ok=True)
+            _dump(args.batch / "fresh_iocs.json", fresh)
             _dump(args.batch / "seeds.json", seeds)
             print(f"{len(seeds)} seeds of {fresh.get('eligible')} eligible / {fresh.get('count')} candidates "
                   f"→ {args.batch / 'seeds.json'}; next: preflight, then the arms in the same hour")

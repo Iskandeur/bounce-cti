@@ -61,7 +61,11 @@ MAX_CLAIMS_PER_REQUEST = 20
 # abuse.ch asks for fair use. A quarter second keeps a 20-claim chunk near a minute.
 PAUSE_KEYED_S = 0.25
 _RETRY_STATUS = {429, 500, 502, 503, 504}
-_FILE_HASH_RE = re.compile(r"^(?:[0-9a-f]{32}|[0-9a-f]{40}|[0-9a-f]{64})$")
+_FILE_HASH_RE = re.compile(r"(?:[0-9a-f]{32}|[0-9a-f]{40}|[0-9a-f]{64})")
+# A host name, label by label (punycode included). A value that is not one never
+# reaches the OTX path: a "/", "?", "#" or a control character would change the
+# request made with the server's key, or make urllib raise.
+_DOMAIN_RE = re.compile(r"[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)+")
 _UA = "bounce-cti-eval/judge-v2"
 
 
@@ -125,7 +129,8 @@ def _request(req: urllib.request.Request, *, opener, retries: int, backoff_s: fl
 
 def otx_paths(ntype: str, value: str) -> list[str]:
     """The OTX indicator paths for a claim, empty when OTX has no exact lookup
-    for that value (an imphash typed ``hash``, an unknown type).
+    for that value (an imphash typed ``hash``, an unknown type, a value that
+    does not have the shape of its type: it is never put in the path).
 
     A domain gets two: OTX files a registrable domain under ``domain`` and a
     subdomain under ``hostname``, and the other section answers a clean zero
@@ -134,12 +139,15 @@ def otx_paths(ntype: str, value: str) -> list[str]:
     way round). Telling the two apart needs the public suffix list, so both
     are asked."""
     if ntype == "ip":
-        sections = ["IPv6" if ":" in value else "IPv4"]
-    elif ntype == "domain":
+        try:
+            sections = ["IPv6" if ipaddress.ip_address(value).version == 6 else "IPv4"]
+        except ValueError:
+            return []
+    elif ntype == "domain" and _DOMAIN_RE.fullmatch(value):
         sections = ["hostname", "domain"]
-    elif ntype == "url":
+    elif ntype == "url" and value.isprintable() and " " not in value:
         sections = ["url"]
-    elif ntype == "hash" and _FILE_HASH_RE.match(value):
+    elif ntype == "hash" and _FILE_HASH_RE.fullmatch(value):
         sections = ["file"]
     else:
         return []
@@ -247,7 +255,7 @@ def threatfox_matches(ntype: str, value: str, entries) -> list[dict]:
 
 def threatfox_lookup(ntype: str, value: str, *, key: str, opener=None, retries: int = 3,
                      backoff_s: float = 15.0, sleep=time.sleep) -> dict:
-    if ntype == "hash" and not _FILE_HASH_RE.match(value.lower()):
+    if ntype == "hash" and not _FILE_HASH_RE.fullmatch(value.lower()):
         return _na()
     body, err = _abusech(THREATFOX_API, key=key, json_body={"query": "search_ioc", "search_term": value},
                          opener=opener, retries=retries, backoff_s=backoff_s, sleep=sleep)
@@ -294,7 +302,7 @@ def urlhaus_lookup(ntype: str, value: str, *, key: str, opener=None, retries: in
 
 def malwarebazaar_lookup(ntype: str, value: str, *, key: str, opener=None, retries: int = 3,
                          backoff_s: float = 15.0, sleep=time.sleep) -> dict:
-    if ntype != "hash" or not _FILE_HASH_RE.match(value.lower()):
+    if ntype != "hash" or not _FILE_HASH_RE.fullmatch(value.lower()):
         return _na()
     body, err = _abusech(MALWAREBAZAAR_API, key=key, form={"query": "get_info", "hash": value},
                          opener=opener, retries=retries, backoff_s=backoff_s, sleep=sleep)
@@ -363,8 +371,11 @@ def judge(claims: list[dict], *, otx_key: str | None, abusech_key: str, opener=N
             continue
         if i and pause_s:
             sleep(pause_s)
-        out[k] = judge_one(ntype, value, otx_key=otx_key, abusech_key=abusech_key, opener=opener,
-                           pause_s=pause_s, sleep=sleep)
+        try:
+            out[k] = judge_one(ntype, value, otx_key=otx_key, abusech_key=abusech_key, opener=opener,
+                               pause_s=pause_s, sleep=sleep)
+        except Exception as e:  # noqa: BLE001 — one claim's failure is that claim's, never "unlisted"
+            out[k] = _error(f"judge: {type(e).__name__}")
     return {"judge": JUDGE_V2, "lookups": out}
 
 

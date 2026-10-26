@@ -184,6 +184,30 @@ def test_an_imphash_is_unjudgeable_and_costs_no_request():
     assert J.is_unjudgeable(r) and o.seen == []
 
 
+def test_a_value_without_the_shape_of_its_type_never_reaches_the_otx_path():
+    for ntype, value in (("domain", "evil.example/../../IPv4/1.1.1.1"), ("domain", "evil.example?x=1"),
+                         ("domain", "evil\n.example"), ("ip", "203.0.113.7/x"), ("ip", "not-an-ip"),
+                         ("hash", "a" * 64 + "\n"), ("url", "http://evil.example/\r\nHost: x")):
+        assert J.otx_paths(ntype, value) == [], (ntype, value)
+    assert [p.rsplit("/", 3)[1] for p in J.otx_paths("domain", "xn--80ak6aa92e.com")] == ["hostname", "domain"]
+    assert J.otx_paths("ip", "2001:db8::1")[0].endswith("/IPv6/2001:db8::1/general")
+
+
+def test_one_claim_that_breaks_its_lookup_stays_that_claims_error(monkeypatch):
+    real = J.judge_one
+
+    def flaky(ntype, value, **kw):
+        if value == "boom.example":
+            raise RuntimeError("a bug in one lookup")
+        return real(ntype, value, **kw)
+    monkeypatch.setattr(J, "judge_one", flaky)
+    o = _opener(otx(), otx(), {"query_status": "no_result"}, {"query_status": "no_results"})
+    doc = J.judge([{"type": "domain", "value": "boom.example"}, {"type": "domain", "value": "ok.example"}],
+                  otx_key=None, abusech_key=KEY, opener=o, sleep=_no_sleep)
+    assert doc["lookups"]["domain|boom.example"] == {"state": "error", "error": "judge: RuntimeError"}
+    assert doc["lookups"]["domain|ok.example"]["state"] == "unlisted"
+
+
 def test_the_judge_never_reads_the_cache(monkeypatch):
     # A check answered from the cache would repeat T and confirm nothing.
     from backend import graph_store
