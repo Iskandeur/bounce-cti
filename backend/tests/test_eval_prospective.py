@@ -92,7 +92,9 @@ def _otx(pulses=(), validation=(), count=None):
 
 def test_otx_listed_unlisted_and_whitelisted():
     r = P.otx_lookup("domain", "evil.example", opener=_opener(_otx(["b", "a"]), _otx()))
-    assert r == {"state": "listed", "count": 2, "pulses": ["a", "b"], "whitelist": []}
+    assert r == {"state": "listed", "count": 2, "pulses": ["a", "b"], "whitelist": [],
+                 "entries": [{"id": "a", "created": None, "author": None},
+                             {"id": "b", "created": None, "author": None}]}
     assert P.otx_lookup("ip", "203.0.113.9", opener=_opener(_otx()))["state"] == "unlisted"
     r = P.otx_lookup("domain", "cdn.example", opener=_opener(_otx(["c"], ["whitelist", "akamai"]), _otx()))
     assert r["whitelist"] == ["akamai", "whitelist"]
@@ -397,3 +399,183 @@ def test_baseline_runs_the_seeds_of_a_batch(tmp_path):
     f.write_text(json.dumps([{"label": "P9", "seed_type": "ip"}]))
     with pytest.raises(ValueError):
         B.load_seeds(f)
+
+
+# ── judge v2: through the server, with a positive control ─────────────────
+
+def _v2(state, *, sections=None, whitelist=()):
+    """A judge v2 answer: ``sections`` maps a section to (state, [(author, created)])."""
+    secs = {}
+    for name, (st, entries) in (sections or {}).items():
+        secs[name] = {"state": st, "count": len(entries), "whitelist": [],
+                      "entries": [{"id": f"{name}-{i}", "author": a, "created": c}
+                                  for i, (a, c) in enumerate(entries)]}
+    return {"state": state, "count": 0, "whitelist": list(whitelist), "sections": secs}
+
+
+TF_SEEDS = [dict(SEEDS[0], source="threatfox:1601", reporter="tf-reporter", family="win.asyncrat"),
+            dict(SEEDS[1], source="threatfox:1602", reporter="tf-reporter", family="win.remcos")]
+SEEN_BY_TF = _v2("listed", sections={"otx": ("unlisted", []), "threatfox": ("listed", [("tf-reporter", None)])})
+NOT_SEEN = _v2("unlisted", sections={"otx": ("unlisted", []), "threatfox": ("unlisted", [])})
+
+
+def _v2_batch(tmp_path):
+    batch, dirs = _batch(tmp_path, ARMS)
+    (batch / "seeds.json").write_text(json.dumps(TF_SEEDS))
+    return batch, dirs
+
+
+def _lookup_all(table):
+    calls = []
+
+    def lookup_all(keys):
+        calls.append(sorted(keys))
+        return {k: table.get(k, NOT_SEEN) for k in keys}
+    lookup_all.calls = calls
+    return lookup_all
+
+
+SEEDS_SEEN = {"ip|203.0.113.7": SEEN_BY_TF, "domain|seed2.example": SEEN_BY_TF}
+
+
+def test_a_judge_blind_to_the_seeds_own_feed_seals_nothing(tmp_path):
+    batch, dirs = _v2_batch(tmp_path)
+    blind = {"ip|203.0.113.7": SEEN_BY_TF}  # P2's own feed answers unlisted
+    with pytest.raises(P.JudgeUnavailable, match="P2: picked from threatfox, which answers unlisted"):
+        P.seal(batch, dirs, 14, judge=P.JUDGE_V2, lookup_all=_lookup_all(blind), now=lambda: T0)
+    assert not (batch / "manifest.json").exists()
+    c = P.seal(batch, dirs, 14, judge=P.JUDGE_V2, lookup_all=_lookup_all(SEEDS_SEEN), now=lambda: T0)
+    assert c["judge"] == P.JUDGE_V2
+    # Judge v1 has no control: OTX alone may well not list a seed hours old.
+    batch1, dirs1 = _batch(tmp_path / "v1", ARMS)
+    (batch1 / "seeds.json").write_text(json.dumps(TF_SEEDS))
+    P.seal(batch1, dirs1, 14, lookup=_judge({}), now=lambda: T0, pause_s=0)
+
+
+def test_preflight_judges_the_seeds_alone(tmp_path):
+    batch, _ = _v2_batch(tmp_path)
+    la = _lookup_all({"ip|203.0.113.7": SEEN_BY_TF})
+    res = P.preflight(batch, lookup_all=la)
+    assert la.calls == [["domain|seed2.example", "ip|203.0.113.7"]]
+    assert res["blind"] == ["P2: picked from threatfox, which answers unlisted"]
+    assert res["seeds"]["P1"] == {"otx": "unlisted", "threatfox": "listed"}
+    assert P.preflight(batch, lookup_all=_lookup_all(SEEDS_SEEN))["blind"] == []
+
+
+def test_the_secondary_horizon_is_sealed_with_the_primary(tmp_path):
+    batch, dirs = _batch(tmp_path, ARMS)
+    c = P.seal(batch, dirs, 14, lookup=_judge({}), now=lambda: T0, pause_s=0)
+    assert (c["secondary_horizon_days"], c["secondary_due_at"]) == (30, "2026-11-25T20:00:00Z")
+    with pytest.raises(P.NotDue, match="2026-11-25"):
+        P.check(batch, secondary=True, lookup=_judge({}), now=lambda: T0 + timedelta(days=20), pause_s=0)
+    path = P.check(batch, lookup=_judge({}), now=lambda: T0 + timedelta(days=20), pause_s=0)
+    assert json.loads(path.read_text())["horizon"] == "primary"
+    path = P.check(batch, secondary=True, lookup=_judge({}), now=lambda: T0 + timedelta(days=31), pause_s=0)
+    r = P.score(P.load_manifest(batch), P.load_check(batch, path))
+    assert r["horizon_reached"] == "secondary" and "secondary horizon (30 days)" in P.render_md(r)
+    for bad in (14, 7):
+        b2, d2 = _batch(tmp_path / f"s{bad}", ARMS)
+        with pytest.raises(ValueError, match="secondary"):
+            P.seal(b2, d2, 14, secondary_days=bad, lookup=_judge({}), now=lambda: T0, pause_s=0)
+    b3, d3 = _batch(tmp_path / "none", ARMS)
+    assert P.seal(b3, d3, 14, secondary_days=0, lookup=_judge({}), now=lambda: T0,
+                  pause_s=0)["secondary_due_at"] is None
+    with pytest.raises(ValueError, match="no secondary"):
+        P.check(b3, secondary=True, lookup=_judge({}), now=lambda: T0 + timedelta(days=40), pause_s=0)
+
+
+def test_a_batch_is_checked_by_the_judge_that_sealed_it(tmp_path):
+    batch, dirs = _v2_batch(tmp_path)
+    P.seal(batch, dirs, 14, judge=P.JUDGE_V2, lookup_all=_lookup_all(SEEDS_SEEN), now=lambda: T0)
+    with pytest.raises(ValueError, match="same judge"):
+        P.check(batch, lookup=_judge({}), now=lambda: T0 + timedelta(days=15), pause_s=0)
+
+
+def test_score_v2_says_who_confirmed_ahead_and_when(tmp_path):
+    batch, dirs = _v2_batch(tmp_path)
+    P.seal(batch, dirs, 14, judge=P.JUDGE_V2, lookup_all=_lookup_all(SEEDS_SEEN), now=lambda: T0)
+    later = dict(SEEDS_SEEN)
+    # c2a: confirmed by the seed's own reporter in the seed's own feed only (not independent), 1 day on.
+    later["domain|c2a.example"] = _v2("listed", sections={
+        "otx": ("unlisted", []), "threatfox": ("listed", [("tf-reporter", "2026-10-27T20:00:00Z")])})
+    # c2b: an OTX pulse by someone else, 10 days on: independent.
+    later["domain|c2b.example"] = _v2("listed", sections={
+        "otx": ("listed", [("analyst", "2026-11-05T20:00:00Z")]), "threatfox": ("unlisted", [])})
+    # old: another author, but in the seed's own feed: not independent either.
+    later["domain|old.example"] = _v2("listed", sections={
+        "otx": ("unlisted", []), "threatfox": ("listed", [("other-reporter", "2026-10-29T20:00:00Z")])})
+    # c2c: the seed's reporter again, but in another feed: still not independent.
+    later["domain|c2c.example"] = _v2("listed", sections={
+        "urlhaus": ("listed", [("tf-reporter", "2026-10-28T08:00:00Z")]), "threatfox": ("unlisted", [])})
+    path = P.check(batch, judge=P.JUDGE_V2, lookup_all=_lookup_all(later), now=lambda: T0 + timedelta(days=14))
+    r = P.score(P.load_manifest(batch), P.load_check(batch, path))
+    b, w = r["arms"]["bounce"], r["arms"]["web"]
+    assert (b["ahead"], b["ahead_independent"]) == (3, 1)            # c2a, c2b, old; only c2b
+    assert b["ahead_by_section"] == {"otx": 1, "threatfox": 2}
+    assert b["ahead_delays_days"] == [1.0, 3.0, 10.0]
+    assert (w["ahead"], w["ahead_independent"], w["ahead_delays_days"]) == (2, 0, [1.0, 1.5])  # c2a, c2c
+    md = P.render_md(r)
+    assert "| bounce | 3 | 1 | otx 1, threatfox 2 | 3.0 |" in md
+    for v in ("c2a.example", "c2b.example", "tf-reporter", "other-reporter", "analyst", "203.0.113.7"):
+        assert v not in json.dumps(r) and v not in md
+
+
+def test_server_lookups_go_by_chunks_and_a_failed_chunk_is_an_error(monkeypatch):
+    sent = []
+
+    def call(base, path, *, opener, body=None, timeout=600):
+        sent.append((path, [c["value"] for c in body["claims"]]))
+        if len(sent) == 2:
+            raise urllib.error.HTTPError(base + path, 502, "bad gateway", {}, None)
+        return {"judge": P.JUDGE_V2,
+                "lookups": {f"{c['type']}|{c['value']}": SEEN_BY_TF for c in body["claims"]}}
+    monkeypatch.setattr(P, "server_call", call)
+    keys = [f"domain|d{i}.example" for i in range(5)]
+    out = P.server_lookup_all(keys, base="https://srv", opener=None, chunk=2)
+    assert [len(v) for _, v in sent] == [2, 2, 1] and {p for p, _ in sent} == {"/api/admin/eval/judge"}
+    assert [out[k]["state"] for k in sorted(keys)] == ["listed", "listed", "error", "error", "listed"]
+    assert out["domain|d2.example"]["error"] == "server: HTTP 502"
+    monkeypatch.setattr(P, "server_call", lambda *a, **k: {"judge": "otx-pulses/1", "lookups": {}})
+    with pytest.raises(ValueError, match="expected"):
+        P.server_lookup_all(keys, base="https://srv", opener=None)
+
+
+def _fresh(*cands, fetched="2026-10-26T18:00:00Z"):
+    return {"fetched_at": fetched, "count": len(cands), "candidates": [
+        {"seed_type": "domain", "seed_value": v, "first_seen": t, "family": fam, "reporter": "r",
+         "source": f"threatfox:{i}", "excluded_by": ex} for i, (v, t, fam, ex) in enumerate(cands)]}
+
+
+def test_pick_is_mechanical_one_per_family_newest_first():
+    fresh = _fresh(("a1.example", "2026-10-26T10:00:00Z", "win.a", []),
+                   ("a2.example", "2026-10-26T12:00:00Z", "win.a", []),
+                   ("b1.example", "2026-10-26T11:00:00Z", "win.b", []),
+                   ("c1.example", "2026-10-26T17:00:00Z", "win.c", ["no family tag"]),
+                   ("d1.example", "2026-10-26T09:00:00Z", "win.d", []),
+                   ("e1.example", "2026-10-26T16:00:00Z", None, []))
+    seeds = P.pick(fresh, 2)
+    assert [(s["label"], s["seed_value"], s["family"]) for s in seeds] == [
+        ("P1", "a2.example", "win.a"), ("P2", "b1.example", "win.b")]
+    assert seeds[0]["picked"] == "pick/1 from fresh_iocs fetched 2026-10-26T18:00:00Z"
+    assert P.pick(fresh, 2) == seeds                                    # same answer, same seeds
+    assert [s["family"] for s in P.pick(fresh, 5, {"win.a"})] == ["win.b", "win.d"]
+    for s in seeds:  # a picked seed is a valid seeds.json entry
+        assert all(s.get(k) for k in ("label", "seed_type", "seed_value", "first_seen", "source"))
+
+
+def test_seeds_are_picked_once(tmp_path, monkeypatch):
+    batch = tmp_path / "lot1"
+    jar = tmp_path / "cookies.txt"
+    jar.write_text("# Netscape HTTP Cookie File\n")
+    fresh = _fresh(("a1.example", "2026-10-26T10:00:00Z", "win.a", []))
+    monkeypatch.setattr(P, "server_call", lambda *a, **k: fresh)
+    args = ["seeds", "--batch", str(batch), "--server", "https://srv", "--cookies", str(jar), "--n", "3"]
+    assert P.main(args) == 0
+    assert [s["seed_value"] for s in json.loads((batch / "seeds.json").read_text())] == ["a1.example"]
+    assert json.loads((batch / "fresh_iocs.json").read_text()) == fresh
+    assert P.main(args) == P.EXIT_USAGE          # picking again after seeing them is choosing
+    assert P.main(["preflight", "--batch", str(batch)]) == P.EXIT_USAGE   # needs --server
+    lot2 = tmp_path / "lot2"
+    assert P.main(["seeds", "--batch", str(lot2), "--server", "https://srv", "--cookies", str(jar),
+                   "--avoid", str(batch / "seeds.json")]) == P.EXIT_USAGE  # its only family is taken
+    assert not lot2.exists()  # a failed pick writes nothing: no fresh_iocs.json, no seeds.json

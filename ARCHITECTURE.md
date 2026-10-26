@@ -127,6 +127,16 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   agent as `report_context`). Exactly one of the two must be supplied.
 - `GET /api/admin/lessons_learned?limit=N` — admin-only feed of agent
   retrospectives backed by `data/lessons_learned.jsonl`
+- `GET /api/admin/eval/fresh_iocs?days=N` — admin only — ThreatFox's last
+  `N` days (1-7, default 2) of indicators as candidate prospective seeds
+  (EVAL_PROTOCOL §4.E), each with `excluded_by`: the §4.E rules it breaks
+  (`backend/eval_judge.py`). Uses the server's `ABUSECH_AUTH_KEY` (503 without
+  it), fetched live, never from the cache; 502 when ThreatFox fails
+- `POST /api/admin/eval/judge` — admin only — judge v2 (`otx+abusech/2`) on
+  `{"claims": [{"type", "value"}]}`, at most 20 a request: OTX with the
+  server's key, ThreatFox, URLhaus, MalwareBazaar, exact match, live, with
+  each listing's id, creation date and author. `{judge, lookups}` keyed
+  `type|value`; 503 without `ABUSECH_AUTH_KEY`, 422 over 20 claims
 
 **Sharing**
 
@@ -968,8 +978,43 @@ manifest whose hash is not the committed one (exit 1). Judge v1: OTX pulses,
 keyless, a domain asked under `hostname` and `domain`, 3 s between requests; a
 failed lookup is undetermined, never "in no pulse", and a lookup failed at T
 seals nothing (exit 4: seal again later, or with `OTX_API_KEY`). Stdlib plus
-`backend.action_exports`, not part of the running service; locked by
-`backend/tests/test_eval_prospective.py`.
+`backend.action_exports` and `backend.eval_judge`, not part of the running
+service; locked by `backend/tests/test_eval_prospective.py`.
+
+With `--server <url> --cookies <jar>` (an admin session), the batch uses the
+server: `seeds` asks `GET /api/admin/eval/fresh_iocs` and picks by a fixed rule
+(`pick/1`: eligible only, one seed per family, the family's newest entry,
+families newest first, `--avoid` the families of an earlier lot), writing
+`seeds.json` once; `preflight` judges the seeds alone; `seal` and `check` ask
+judge v2 through `POST /api/admin/eval/judge`, 20 claims a request. A batch is
+checked by the judge that sealed it. Judge v2 has a positive control: a seed
+picked from ThreatFox must be listed in the judge's `threatfox` section at T,
+or nothing is sealed (exit 4), since a section blind to a known presence makes
+every absence worthless. Every batch also pre-registers a secondary horizon (30
+days, `--secondary-horizon-days`; `check --secondary` waits for it). Under
+judge v2, `score` adds per arm the sections that confirmed each `ahead`, the
+`ahead` confirmed independently of the seed (another feed than the seed's,
+another author than its reporter) and the days from the seal to the first
+dated confirmation.
+
+### `backend/eval_judge.py`
+The server side of prospective cases. `fresh_iocs` is ThreatFox `get_iocs`
+turned into candidates (`ip:port` → ip, domain, url, md5/sha1/sha256 → hash),
+each excluded by the §4.E rules it breaks: first listed over 48 h ago, no family
+(`unknown`), confidence under 50, a compromised site, a non-public address, a
+shared platform (the agent's CDN / sinkhole / Tor / dyndns / cloud-platform
+lists plus `SHARED_HOSTS`: shorteners, file and code hosting, paste sites,
+tunnels). `judge` asks each claim of OTX (both `hostname` and `domain` for a
+domain), ThreatFox `search_ioc`, URLhaus (host or URL) and MalwareBazaar
+`get_info`, by type. ThreatFox searches by substring, so a listing counts only
+when its indicator is the claim (an `ip:port` on the claimed host for an ip).
+Listed in any section is listed; "in no listing" needs every section that can
+express the value; a section that cannot is `n/a`. Requests go out with
+`urllib`, never through `graph_store`'s cache (a check answered from the cache
+would repeat T). Locked by `backend/tests/test_eval_judge.py`;
+`backend/tests/test_sources_read_only.py` checks that it and every source only
+read (every non-GET request to a listed lookup endpoint, abuse.ch read verbs, no
+upload, no submission path, no GraphQL mutation).
 
 ### Static demo: `backend/demo_snapshot.py`, `eval/demo_export.py`, `frontend/demo/`
 One investigation frozen into a JSON snapshot that a static page renders with
