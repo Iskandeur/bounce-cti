@@ -109,6 +109,59 @@ def test_a_rejected_key_is_not_retried_and_a_rate_limit_is():
     assert len(o.seen) == 2
 
 
+# ── a seed's own entry, by id (the positive control's second question) ────
+
+HASH = "7428bbccd4dcc416487e477b2a7055757502529bc5ee6fa855ea6d99be0490ac"
+
+
+def test_an_entry_is_read_by_id_then_searched_back_both_ways():
+    # The 2026-10-27 canary: an entry an hour old that search_ioc did not return.
+    entry = tf_entry(HASH, "sha256_hash", id_="1991256", first_seen="2026-10-26 23:07:27 UTC")
+    o = _opener({"query_status": "ok", "data": entry},
+                {"query_status": "no_result"},                                   # wildcard
+                {"query_status": "ok", "data": [dict(entry, id="1991256")]})     # exact
+    r = J.threatfox_entry("1991256", key=KEY, opener=o, sleep=_no_sleep)
+    assert r == {"state": "present", "id": "1991256", "ioc": HASH, "ioc_type": "sha256_hash",
+                 "first_seen": "2026-10-26T23:07:27Z", "search": {"wildcard": "unlisted", "exact": "listed"}}
+    assert [json.loads(s.body) for s in o.seen] == [
+        {"query": "ioc", "id": 1991256},
+        {"query": "search_ioc", "search_term": HASH},
+        {"query": "search_ioc", "search_term": HASH, "exact_match": True}]
+    assert all(s.url == J.THREATFOX_API and s.headers["Auth-key"] == KEY for s in o.seen)
+    # The search counts THIS entry, not a namesake: another id is "unlisted".
+    o = _opener({"query_status": "ok", "data": [entry]},          # data as a one-entry list
+                {"query_status": "ok", "data": [dict(entry, id="7")]},
+                {"query_status": "unknown_auth_key"})
+    r = J.threatfox_entry(1991256, key=KEY, opener=o, sleep=_no_sleep)
+    assert r["search"] == {"wildcard": "unlisted", "exact": "error: query_status 'unknown_auth_key'"}
+
+
+def test_an_entry_not_found_is_not_present_and_anything_else_an_error():
+    r = J.threatfox_entry("1991256", key=KEY, sleep=_no_sleep, opener=_opener({"query_status": "no_result"}))
+    assert r == {"state": "not_present", "id": "1991256", "status": "no_result"}
+    # Undocumented statuses and failures never read as "gone".
+    for answer in ({"query_status": "illegal_id"}, {"query_status": "unknown_auth_key"}, 401,
+                   {"query_status": "ok", "data": []}, {"query_status": "ok", "data": "x"}):
+        o = _opener(answer)
+        assert J.threatfox_entry("1991256", key=KEY, opener=o, sleep=_no_sleep)["state"] == "error", answer
+        assert len(o.seen) == 1                                   # no search after a failed read
+    r = J.threatfox_entry("1991256", key=KEY, sleep=_no_sleep,
+                          opener=_opener({"query_status": "ok", "data": tf_entry(HASH, "sha256_hash", id_="5")}))
+    assert r == {"state": "error", "error": "ThreatFox answered with another entry"}
+    for bad in ("", "12a", "1991256; drop", "-1", "1" * 13, None):
+        o = _opener()
+        assert J.threatfox_entry(bad, key=KEY, opener=o)["state"] == "error" and o.seen == []
+
+
+def test_entries_by_feed_once_each():
+    o = _opener({"query_status": "no_result"})
+    doc = J.entries(["threatfox:41", " threatfox:41", "otx:p1", "urlhaus:9"], abusech_key=KEY, opener=o,
+                    sleep=_no_sleep)
+    assert doc["threatfox:41"]["state"] == "not_present" and len(o.seen) == 1
+    assert doc["otx:p1"] == {"state": "error", "error": "no entry lookup for feed 'otx'"}
+    assert doc["urlhaus:9"]["state"] == "error"
+
+
 def test_urlhaus_by_host_and_by_url():
     host = {"query_status": "ok", "host": "evil.example", "url_count": 2, "urls": [
         {"id": 11, "url": "http://evil.example/a", "date_added": "2026-10-27 01:00:00 UTC", "reporter": "r1"},
@@ -338,7 +391,17 @@ def test_the_routes_use_the_server_keys(api, monkeypatch):
     r = api.call(admin, "POST", "/api/admin/eval/judge", json={"claims": [{"type": "ip", "value": "203.0.113.7"}]})
     assert r.status_code == 200 and r.json()["judge"] == J.JUDGE_V2
     assert got["judge"] == ([{"type": "ip", "value": "203.0.113.7"}], {"otx_key": "otx-k", "abusech_key": KEY})
-    assert KEY not in r.text
+    assert KEY not in r.text and "entries" not in r.json()     # unchanged without entries
+
+    def entries(refs, **kw):
+        got["entries"] = (refs, kw)
+        return {r: {"state": "not_present", "id": r.split(":")[1], "status": "no_result"} for r in refs}
+    monkeypatch.setattr(J, "entries", entries)
+    r = api.call(admin, "POST", "/api/admin/eval/judge", json={"claims": [], "entries": ["threatfox:41"]})
+    assert r.status_code == 200 and r.json()["entries"]["threatfox:41"]["state"] == "not_present"
+    assert got["entries"] == (["threatfox:41"], {"abusech_key": KEY})
+    too_many = {"claims": [], "entries": [f"threatfox:{i}" for i in range(J.MAX_ENTRIES_PER_REQUEST + 1)]}
+    assert api.call(admin, "POST", "/api/admin/eval/judge", json=too_many).status_code == 422
 
 
 def test_the_routes_refuse_without_a_key_too_many_claims_and_a_failed_feed(api, monkeypatch):

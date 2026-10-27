@@ -32,8 +32,9 @@ READ_ONLY_POSTS = {
     "https://google.serper.dev/search": "Serper web search",
 }
 # abuse.ch read verbs. Submissions share the same endpoints: ThreatFox
-# "submit_ioc", MalwareBazaar "upload" (with a file).
-READ_VERB = re.compile(r"^(get_[a-z_]+|search_[a-z_]+|taginfo|malwareinfo)$")
+# "submit_ioc", MalwareBazaar "upload" (with a file). ThreatFox "ioc" reads one
+# entry by its id (the judge's positive control, backend/eval_judge.py).
+READ_VERB = re.compile(r"^(get_[a-z_]+|search_[a-z_]+|taginfo|malwareinfo|ioc)$")
 # Paths that submit, whatever the method that reaches them.
 SUBMISSION_MARKERS = (
     "urlscan.io/api/v1/scan",        # urlscan: a public scan by default

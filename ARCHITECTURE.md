@@ -136,7 +136,11 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   `{"claims": [{"type", "value"}]}`, at most 20 a request: OTX with the
   server's key, ThreatFox, URLhaus, MalwareBazaar, exact match, live, with
   each listing's id, creation date and author. `{judge, lookups}` keyed
-  `type|value`; 503 without `ABUSECH_AUTH_KEY`, 422 over 20 claims
+  `type|value`; 503 without `ABUSECH_AUTH_KEY`, 422 over 20 claims. With
+  `"entries": ["threatfox:<id>", …]` (at most 20, 422 beyond) the answer adds
+  `entries`: each seed's own ThreatFox entry read by its id (`present` with its
+  value, type, `first_seen` and whether the wildcard and the `exact_match`
+  search return it; `not_present` on `no_result`; any other answer an error)
 
 **Sharing**
 
@@ -990,12 +994,19 @@ judge v2 through `POST /api/admin/eval/judge`, 20 claims a request. A batch is
 checked by the judge that sealed it. Judge v2 has a positive control: a seed
 picked from ThreatFox must be listed in the judge's `threatfox` section at T,
 or nothing is sealed (exit 4), since a section blind to a known presence makes
-every absence worthless. Every batch also pre-registers a secondary horizon (30
+every absence worthless. A seed the search misses is read by its id (route
+`entries`): still in the feed with the seed's value, it is `late` (accepted at
+T while the search returns another seed of the feed, recorded in
+`control_at_t`); gone, another value or unreadable is a refusal. The check's
+control is strict (`control` in the check file): a present seed still missed
+is a blind search and `score` refuses the check (exit 4); a gone one is
+`withdrawn` and reported. Every batch also pre-registers a secondary horizon (30
 days, `--secondary-horizon-days`; `check --secondary` waits for it). Under
-judge v2, `score` adds per arm the sections that confirmed each `ahead`, the
-`ahead` confirmed independently of the seed (another feed than the seed's,
-another author than its reporter) and the days from the seal to the first
-dated confirmation.
+judge v2, a claim the check finds in an abuse.ch entry dated before the seal is
+`known` (`known_late`), not `ahead`, and `score` adds per arm the sections that
+confirmed each `ahead`, the `ahead` confirmed independently of the seed
+(another feed than the seed's, another author than its reporter) and the days
+from the seal to the first dated confirmation.
 
 ### `backend/eval_judge.py`
 The server side of prospective cases. `fresh_iocs` is ThreatFox `get_iocs`
@@ -1011,10 +1022,13 @@ when its indicator is the claim (an `ip:port` on the claimed host for an ip).
 Listed in any section is listed; "in no listing" needs every section that can
 express the value; a section that cannot is `n/a`. Requests go out with
 `urllib`, never through `graph_store`'s cache (a check answered from the cache
-would repeat T). Locked by `backend/tests/test_eval_judge.py`;
+would repeat T). `entries` reads a seed's ThreatFox entry by id (`ioc` query)
+and searches its value back, wildcard and `exact_match`, so the positive
+control can tell a gone entry from a search that does not return it yet.
+Locked by `backend/tests/test_eval_judge.py`;
 `backend/tests/test_sources_read_only.py` checks that it and every source only
-read (every non-GET request to a listed lookup endpoint, abuse.ch read verbs, no
-upload, no submission path, no GraphQL mutation).
+read (every non-GET request to a listed lookup endpoint, abuse.ch read verbs
+including ThreatFox `ioc`, no upload, no submission path, no GraphQL mutation).
 
 ### Static demo: `backend/demo_snapshot.py`, `eval/demo_export.py`, `frontend/demo/`
 One investigation frozen into a JSON snapshot that a static page renders with

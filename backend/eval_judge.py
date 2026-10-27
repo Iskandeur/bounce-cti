@@ -13,6 +13,10 @@ feed keys live in its own ``.env`` (as ``demo_snapshot`` checks secrets there):
   section keeps, per listing, its id, creation date and author: who confirmed
   a claim, and how long after the seal, is part of the result (a mirror that
   copies a feed on day 1 is not an analyst a month later).
+* :func:`entries`: a seed's own ThreatFox entry, read by its id and searched
+  back by its value (the same route, ``entries``). It is what the positive
+  control asks when the search does not return a seed: gone, not returned by
+  the search yet, or asked under another form.
 
 Never through the cache. ``graph_store.cache_get`` would answer a check with
 what it stored at T, and the check would confirm nothing. Every request here
@@ -267,6 +271,93 @@ def threatfox_lookup(ntype: str, value: str, *, key: str, opener=None, retries: 
     if status != "ok":
         return _error(f"query_status {status!r}")
     return _listed(threatfox_matches(ntype, value, body.get("data")))
+
+
+# A seed's own entry, read by its id. On 2026-10-27 the first preflight on
+# production refused 3 of 6 seeds picked from ThreatFox an hour earlier:
+# ``search_ioc`` did not return them, while the entries just before and just
+# after were found. Three causes look the same from the search alone: the
+# entry is gone, the search does not return it (yet), or the seed was asked
+# under another form than the entry's. Reading the entry by id, then searching
+# its own value both ways (the default wildcard, and ``exact_match``), tells
+# them apart.
+MAX_ENTRIES_PER_REQUEST = 20
+_ENTRY_ID_RE = re.compile(r"[0-9]{1,12}")
+
+
+def _threatfox_returns(value: str, entry_id: str, *, exact: bool, key: str, opener, retries,
+                       backoff_s, sleep) -> str:
+    """``listed`` when ``search_ioc`` on ``value`` returns the entry ``entry_id``,
+    ``unlisted`` when it answers without it, else ``error: …``."""
+    query = {"query": "search_ioc", "search_term": value}
+    if exact:
+        query["exact_match"] = True
+    body, err = _abusech(THREATFOX_API, key=key, json_body=query, opener=opener, retries=retries,
+                         backoff_s=backoff_s, sleep=sleep)
+    if err:
+        return f"error: {err}"
+    status = body.get("query_status") if isinstance(body, dict) else None
+    if status == "no_result":
+        return "unlisted"
+    if status != "ok":
+        return f"error: query_status {status!r}"
+    data = body.get("data") if isinstance(body.get("data"), list) else []
+    return "listed" if any(isinstance(d, dict) and str(d.get("id")) == entry_id for d in data) else "unlisted"
+
+
+def threatfox_entry(entry_id, *, key: str, opener=None, retries: int = 3, backoff_s: float = 15.0,
+                    pause_s: float = PAUSE_KEYED_S, sleep=time.sleep) -> dict:
+    """One ThreatFox entry read by its id (``{"query": "ioc", "id": N}``), then
+    searched back by its own value. ``{"state": "present", "id", "ioc",
+    "ioc_type", "first_seen", "search": {"wildcard", "exact"}}``;
+    ``{"state": "not_present", "id", "status"}`` when ThreatFox answered
+    ``no_result``; any other answer is an error, never "not present" (the
+    statuses of this query are not documented)."""
+    eid = str(entry_id or "").strip()
+    if not _ENTRY_ID_RE.fullmatch(eid):
+        return _error("not a ThreatFox entry id")
+    body, err = _abusech(THREATFOX_API, key=key, json_body={"query": "ioc", "id": int(eid)},
+                         opener=opener, retries=retries, backoff_s=backoff_s, sleep=sleep)
+    if err:
+        return _error(err)
+    status = body.get("query_status") if isinstance(body, dict) else None
+    data = body.get("data") if isinstance(body, dict) else None
+    if isinstance(data, list) and len(data) == 1:
+        data = data[0]
+    if status == "no_result":
+        return {"state": "not_present", "id": eid, "status": status}
+    if status != "ok" or not isinstance(data, dict):
+        return _error(f"query_status {status!r}")
+    if str(data.get("id")) != eid:
+        return _error("ThreatFox answered with another entry")
+    ioc = str(data.get("ioc") or "").strip()
+    out = {"state": "present", "id": eid, "ioc": ioc, "ioc_type": str(data.get("ioc_type") or ""),
+           "first_seen": _utc(data.get("first_seen")), "search": {}}
+    for exact in (False, True):
+        if pause_s:
+            sleep(pause_s)
+        out["search"]["exact" if exact else "wildcard"] = _threatfox_returns(
+            ioc, eid, exact=exact, key=key, opener=opener, retries=retries, backoff_s=backoff_s, sleep=sleep)
+    return out
+
+
+def entries(refs: list[str], *, abusech_key: str, opener=None, pause_s: float = PAUSE_KEYED_S,
+            sleep=time.sleep) -> dict:
+    """``{"<feed>:<id>": answer}`` for each seed source (``threatfox:1991256``).
+    Only ThreatFox entries can be read by id; any other feed is an error."""
+    out: dict[str, dict] = {}
+    for i, ref in enumerate(dict.fromkeys(str(r).strip() for r in refs)):
+        feed, _, eid = ref.partition(":")
+        if feed != "threatfox":
+            out[ref] = _error(f"no entry lookup for feed {feed!r}")
+            continue
+        if i and pause_s:
+            sleep(pause_s)
+        try:
+            out[ref] = threatfox_entry(eid, key=abusech_key, opener=opener, pause_s=pause_s, sleep=sleep)
+        except Exception as e:  # noqa: BLE001 — one entry's failure is that entry's
+            out[ref] = _error(f"entry: {type(e).__name__}")
+    return out
 
 
 def urlhaus_lookup(ntype: str, value: str, *, key: str, opener=None, retries: int = 3,
