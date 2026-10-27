@@ -579,3 +579,211 @@ def test_seeds_are_picked_once(tmp_path, monkeypatch):
     assert P.main(["seeds", "--batch", str(lot2), "--server", "https://srv", "--cookies", str(jar),
                    "--avoid", str(batch / "seeds.json")]) == P.EXIT_USAGE  # its only family is taken
     assert not lot2.exists()  # a failed pick writes nothing: no fresh_iocs.json, no seeds.json
+
+
+# ── the control reads an unseen seed by id (the 2026-10-27 canary) ─────────
+
+def _present(eid, ioc, itype, *, wildcard="unlisted", exact="unlisted"):
+    return {"state": "present", "id": eid, "ioc": ioc, "ioc_type": itype,
+            "first_seen": "2026-10-26T19:00:00Z", "search": {"wildcard": wildcard, "exact": exact}}
+
+
+def _lookup_entries(table):
+    calls = []
+
+    def lookup_entries(refs):
+        calls.append(sorted(refs))
+        return {r: table.get(r, {"state": "error", "error": "server: HTTP 502"}) for r in refs}
+    lookup_entries.calls = calls
+    return lookup_entries
+
+
+CANARY = [{"label": f"P{i}", "seed_type": t, "seed_value": v, "first_seen": "2026-10-26T19:00:00Z",
+           "source": f"threatfox:{1600 + i}", "reporter": "r", "family": f"f{i}"}
+          for i, (t, v) in enumerate([("hash", "a" * 64), ("hash", "b" * 64), ("domain", "late.example"),
+                                      ("domain", "seen.example")], start=1)]
+
+
+def _canary_batch(tmp_path, seeds=CANARY):
+    batch = tmp_path / "canary"
+    batch.mkdir(parents=True)
+    (batch / "seeds.json").write_text(json.dumps(seeds))
+    return batch
+
+
+def test_a_seed_in_its_feed_that_the_search_misses_is_late_not_blind(tmp_path):
+    # 2026-10-27: ThreatFox's search returned 3 of 6 seeds picked from it an hour earlier.
+    batch = _canary_batch(tmp_path)
+    seen = {"hash|" + "a" * 64: SEEN_BY_TF, "domain|seen.example": SEEN_BY_TF}
+    le = _lookup_entries({"threatfox:1602": _present("1602", "B" * 64, "sha256_hash", exact="listed"),
+                          "threatfox:1603": _present("1603", "Late.Example.", "domain")})
+    res = P.preflight(batch, lookup_all=_lookup_all(seen), lookup_entries=le)
+    assert res["blind"] == [] and le.calls == [["threatfox:1602", "threatfox:1603"]]  # the unseen only
+    assert set(res["late"]) == {"P2", "P3"}
+    assert res["late"]["P2"] == {"entry": "1602", "first_seen": "2026-10-26T19:00:00Z",
+                                 "search": {"wildcard": "unlisted", "exact": "listed"}}
+    # Without the entries (none asked), the same answers are a refusal, as before.
+    assert P.preflight(batch, lookup_all=_lookup_all(seen))["blind"] == [
+        "P2: picked from threatfox, which answers unlisted", "P3: picked from threatfox, which answers unlisted"]
+    # Every seed seen: nothing is read by id.
+    le = _lookup_entries({})
+    assert P.preflight(batch, lookup_all=_lookup_all({_k: SEEN_BY_TF for _k in (
+        "hash|" + "a" * 64, "hash|" + "b" * 64, "domain|late.example", "domain|seen.example")}),
+        lookup_entries=le)["late"] == {} and le.calls == []
+
+
+@pytest.mark.parametrize("entry, why", [
+    ({"state": "not_present", "id": "1602", "status": "no_result"}, "is no longer in the feed (query_status 'no_result')"),
+    (_present("1602", "c" * 64, "sha256_hash"), "holds another value than the seed as picked"),
+    ({"state": "error", "error": "query_status 'illegal_id'"}, "could not be read (query_status 'illegal_id')"),
+    (None, "could not be read (server: HTTP 502)"),
+])
+def test_a_seed_gone_from_its_feed_or_read_otherwise_is_a_refusal(tmp_path, entry, why):
+    batch = _canary_batch(tmp_path, CANARY[:2])
+    res = P.preflight(batch, lookup_all=_lookup_all({"hash|" + "a" * 64: SEEN_BY_TF}),
+                      lookup_entries=_lookup_entries({"threatfox:1602": entry} if entry else {}))
+    assert len(res["blind"]) == 1 and res["late"] == {}
+    assert res["blind"][0].startswith("P2: picked from threatfox, which answers unlisted; its entry 1602 ")
+    assert why in res["blind"][0]
+
+
+def test_a_search_that_returns_none_of_its_seeds_is_not_trusted(tmp_path):
+    batch = _canary_batch(tmp_path, CANARY[:2])
+    le = _lookup_entries({"threatfox:1601": _present("1601", "a" * 64, "sha256_hash"),
+                          "threatfox:1602": _present("1602", "b" * 64, "sha256_hash")})
+    res = P.preflight(batch, lookup_all=_lookup_all({}), lookup_entries=le)
+    assert res["blind"] == ["threatfox: its search returns none of the seeds picked from it, so its "
+                            "silence proves nothing yet; run preflight again in an hour"]
+
+
+def test_an_ip_seed_is_the_host_of_its_entry(tmp_path):
+    batch, _ = _v2_batch(tmp_path)
+    p2 = {"domain|seed2.example": SEEN_BY_TF}
+    le = _lookup_entries({"threatfox:1601": _present("1601", "203.0.113.7:443", "ip:port")})
+    res = P.preflight(batch, lookup_all=_lookup_all(p2), lookup_entries=le)
+    assert res["blind"] == [] and set(res["late"]) == {"P1"}
+    le = _lookup_entries({"threatfox:1601": _present("1601", "203.0.113.70:443", "ip:port")})
+    assert "another value" in P.preflight(batch, lookup_all=_lookup_all(p2), lookup_entries=le)["blind"][0]
+
+
+def test_seal_records_the_late_seeds_and_the_check_is_strict(tmp_path):
+    batch, dirs = _v2_batch(tmp_path)
+    at_t = {"domain|seed2.example": SEEN_BY_TF}
+    le = _lookup_entries({"threatfox:1601": _present("1601", "203.0.113.7:443", "ip:port")})
+    c = P.seal(batch, dirs, 14, judge=P.JUDGE_V2, lookup_all=_lookup_all(at_t), lookup_entries=le,
+               now=lambda: T0)
+    assert c["seeds_late_at_t"] == 1 and "203.0.113.7" not in (batch / "commitment.json").read_text()
+    manifest = P.load_manifest(batch)
+    assert manifest["control_at_t"]["late"]["P1"]["entry"] == "1601"
+    # A horizon on, the search still misses P1 while its entry is there: a blind search, not scored.
+    path = P.check(batch, judge=P.JUDGE_V2, lookup_all=_lookup_all(at_t), lookup_entries=le,
+                   now=lambda: T0 + timedelta(days=14))
+    doc = P.load_check(batch, path)
+    assert doc["control"]["blind"] == ["P1: picked from threatfox, which answers unlisted; its entry 1601 "
+                                       "is still in the feed (search wildcard unlisted, exact unlisted): "
+                                       "the search is blind"]
+    with pytest.raises(P.JudgeUnavailable, match="Check again later"):
+        P.score(manifest, doc)
+    # The feed withdrew P1 since the seal: reported, and the batch is scored.
+    gone = _lookup_entries({"threatfox:1601": {"state": "not_present", "id": "1601", "status": "no_result"}})
+    path = P.check(batch, judge=P.JUDGE_V2, lookup_all=_lookup_all(at_t), lookup_entries=gone,
+                   now=lambda: T0 + timedelta(days=15))
+    r = P.score(manifest, P.load_check(batch, path))
+    assert r["seeds_withdrawn"] == ["P1"] and "withdrew after the seal: P1" in P.render_md(r)
+    # Returned by the search at last: scored, nothing withdrawn, nothing read by id.
+    le = _lookup_entries({})
+    path = P.check(batch, judge=P.JUDGE_V2, lookup_all=_lookup_all(SEEDS_SEEN), lookup_entries=le,
+                   now=lambda: T0 + timedelta(days=16))
+    doc = P.load_check(batch, path)
+    assert P.score(manifest, doc)["seeds_withdrawn"] == [] and le.calls == []
+    # A judge v2 check without its control (an older prospective.py) is not scored.
+    doc.pop("control")
+    with pytest.raises(ValueError, match="no positive control"):
+        P.score(manifest, doc)
+
+
+def test_cli_check_exits_4_on_a_blind_search(tmp_path, monkeypatch):
+    batch, dirs = _v2_batch(tmp_path)
+    P.seal(batch, dirs, 14, judge=P.JUDGE_V2, lookup_all=_lookup_all(SEEDS_SEEN), now=lambda: T0)
+    jar = tmp_path / "cookies.txt"
+    jar.write_text("# Netscape HTTP Cookie File\n")
+
+    def call(base, path, *, opener, body=None, timeout=600):
+        if body.get("entries"):
+            return {"judge": P.JUDGE_V2, "lookups": {},
+                    "entries": {r: _present(r.split(":")[1], "seed2.example", "domain") for r in body["entries"]}}
+        return {"judge": P.JUDGE_V2, "lookups": {f"{c['type']}|{c['value']}": SEEN_BY_TF if c["type"] == "ip"
+                                                 else NOT_SEEN for c in body["claims"]}}
+    monkeypatch.setattr(P, "server_call", call)
+    monkeypatch.setattr(P, "utcnow", lambda: T0 + timedelta(days=14))
+    args = ["check", "--batch", str(batch), "--server", "https://srv", "--cookies", str(jar)]
+    assert P.main(args) == P.EXIT_JUDGE
+    assert P.main(["score", "--batch", str(batch)]) == P.EXIT_JUDGE
+
+
+def test_a_claim_the_feed_dated_before_the_seal_is_known_not_ahead(tmp_path):
+    batch, dirs = _v2_batch(tmp_path)
+    P.seal(batch, dirs, 14, judge=P.JUDGE_V2, lookup_all=_lookup_all(SEEDS_SEEN), now=lambda: T0)
+    later = dict(SEEDS_SEEN)
+    before, after = "2026-10-26T19:30:00Z", "2026-10-27T08:00:00Z"      # T0 = 2026-10-26T20:00Z
+    # c2a: a ThreatFox entry from before the seal, which the search did not return at T.
+    later["domain|c2a.example"] = _v2("listed", sections={
+        "otx": ("unlisted", []), "threatfox": ("listed", [("x", before)])})
+    # c2b: URLhaus, a URL of the host added before the seal.
+    later["domain|c2b.example"] = _v2("listed", sections={
+        "otx": ("unlisted", []), "urlhaus": ("listed", [("y", before)])})
+    # c2c: an OTX pulse created before the seal. A pulse's date is not the indicator's: still ahead.
+    later["domain|c2c.example"] = _v2("listed", sections={
+        "otx": ("listed", [("z", before)]), "threatfox": ("unlisted", [])})
+    # old: listed after the seal: ahead.
+    later["domain|old.example"] = _v2("listed", sections={
+        "otx": ("unlisted", []), "threatfox": ("listed", [("x", after)])})
+    path = P.check(batch, judge=P.JUDGE_V2, lookup_all=_lookup_all(later), now=lambda: T0 + timedelta(days=14))
+    r = P.score(P.load_manifest(batch), P.load_check(batch, path))
+    b, w = r["arms"]["bounce"], r["arms"]["web"]
+    assert (b["known"], b["known_late"], b["ahead"], b["unconfirmed"]) == (2, 2, 1, 1)   # c2a c2b | old | P2's ip
+    assert (w["known"], w["known_late"], w["ahead"]) == (1, 1, 1)                        # c2a | c2c
+    assert b["ahead_by_section"] == {"threatfox": 1} and w["ahead_by_section"] == {"otx": 1}
+    assert "bounce 2, web 1." in P.render_md(r)
+    # The rule needs the seal's time: without it (judge v1), dates are not read.
+    assert P.classify(NOT_SEEN, later["domain|c2a.example"]) == "ahead"
+    assert P.classify(NOT_SEEN, later["domain|c2a.example"], T0) == "known"
+    assert P.classify(NOT_SEEN, later["domain|c2c.example"], T0) == "ahead"
+
+
+def test_server_entries_ask_the_judge_route_and_fail_closed(monkeypatch):
+    sent = []
+
+    def call(base, path, *, opener, body=None, timeout=600):
+        sent.append((path, body))
+        if len(sent) == 2:
+            raise urllib.error.HTTPError(base + path, 502, "bad gateway", {}, None)
+        first = body["entries"][0]
+        return {"judge": P.JUDGE_V2, "lookups": {},
+                "entries": {first: {"state": "not_present", "id": first.split(":")[1], "status": "no_result"}}}
+    monkeypatch.setattr(P, "server_call", call)
+    refs = sorted(f"threatfox:{i}" for i in range(P.MAX_ENTRIES_PER_REQUEST + 2))
+    out = P.server_entries(refs + refs[:3], base="https://srv", opener=None)
+    assert [len(b["entries"]) for _, b in sent] == [P.MAX_ENTRIES_PER_REQUEST, 2]
+    assert {p for p, _ in sent} == {"/api/admin/eval/judge"} and all(b["claims"] == [] for _, b in sent)
+    assert out[refs[0]]["state"] == "not_present"
+    assert out[refs[1]]["error"] == "server: no entry lookup (an older server?)"
+    assert out[refs[-1]]["error"] == "server: HTTP 502"
+
+
+def test_cli_preflight_reads_unseen_seeds_by_id(tmp_path, monkeypatch, capsys):
+    batch, _ = _v2_batch(tmp_path)
+    jar = tmp_path / "cookies.txt"
+    jar.write_text("# Netscape HTTP Cookie File\n")
+
+    def call(base, path, *, opener, body=None, timeout=600):
+        if body.get("entries"):
+            return {"judge": P.JUDGE_V2, "lookups": {}, "entries": {
+                "threatfox:1601": _present("1601", "203.0.113.7:443", "ip:port", exact="listed")}}
+        return {"judge": P.JUDGE_V2, "lookups": {f"{c['type']}|{c['value']}": SEEN_BY_TF if c["type"] == "domain"
+                                                 else NOT_SEEN for c in body["claims"]}}
+    monkeypatch.setattr(P, "server_call", call)
+    assert P.main(["preflight", "--batch", str(batch), "--server", "https://srv", "--cookies", str(jar)]) == 0
+    out = capsys.readouterr().out
+    assert "P1: entry 1601 is in the feed, its search does not return it yet (wildcard unlisted, exact listed)" in out
+    assert "some by id only" in out

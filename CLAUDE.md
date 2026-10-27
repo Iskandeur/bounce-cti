@@ -176,9 +176,12 @@ backend/
                         #   the §4.E rules each breaks) and judge v2
                         #   (otx+abusech/2: OTX keyed + ThreatFox + URLhaus +
                         #   MalwareBazaar, exact match, live — never the cache —
-                        #   each listing's id/date/author). Behind the admin
-                        #   routes /api/admin/eval/fresh_iocs and /judge, which
-                        #   use the server's own keys. Stdlib only
+                        #   each listing's id/date/author) + entries (a seed's
+                        #   ThreatFox entry read by id, then searched back
+                        #   wildcard and exact_match: gone vs not returned yet).
+                        #   Behind the admin routes /api/admin/eval/fresh_iocs
+                        #   and /judge (+ "entries"), which use the server's own
+                        #   keys. Stdlib only
   pivot_mapping.py      # Per-node-type pivot rules + fan-out caps + global
                         #   pending-queue ceiling (MAX_PENDING_QUEUE) + cloud
                         #   ASN list + discriminating_marker() for convergence
@@ -381,7 +384,11 @@ eval/prospective.py     # Prospective cases (EVAL_PROTOCOL §4.E): seal <batch> 
                         #   /api/admin/eval/fresh_iocs (pick/1, one per family, once),
                         #   `preflight`, and seal/check under judge v2 via /judge, with a
                         #   positive control (a seed must be listed in its own feed at T,
-                        #   else exit 4). Secondary horizon 30 days pre-registered.
+                        #   else exit 4; one its search misses is read by id: still in the
+                        #   feed = late, accepted at T; gone = refused; strict at the check,
+                        #   where score refuses a blind search). An abuse.ch listing dated
+                        #   before the seal scores known (known_late), not ahead.
+                        #   Secondary horizon 30 days pre-registered.
                         #   backend/tests/test_sources_read_only.py: sources only read
 deploy.sh               # Auto-deploy script (callable on the VPS)
 Dockerfile              # Local one-image run (not used by prod): frontend build

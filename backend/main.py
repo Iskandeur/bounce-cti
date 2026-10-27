@@ -382,6 +382,9 @@ class EvalClaim(BaseModel):
 
 class EvalJudgeReq(BaseModel):
     claims: list[EvalClaim]
+    # Seed sources (``threatfox:<id>``) to read by id: the positive control's
+    # second question when the search does not return a seed.
+    entries: list[str] = []
 
 
 @app.post("/api/admin/eval/judge")
@@ -390,14 +393,21 @@ def admin_eval_judge(req: EvalJudgeReq, _: int = Depends(current_admin)):
     key) + ThreatFox + URLhaus + MalwareBazaar, live, exact match, with each
     listing's id, creation date and author. Answers ``{judge, lookups}``,
     keyed ``type|value``. A failed section leaves a claim in error, never
-    "in no listing"."""
+    "in no listing". With ``entries`` (up to 20 ``threatfox:<id>``), also
+    ``entries``: each one read by its id and searched back by its value."""
     from . import config, eval_judge
     if len(req.claims) > eval_judge.MAX_CLAIMS_PER_REQUEST:
         raise HTTPException(status_code=422,
                             detail=f"at most {eval_judge.MAX_CLAIMS_PER_REQUEST} claims per request")
+    if len(req.entries) > eval_judge.MAX_ENTRIES_PER_REQUEST:
+        raise HTTPException(status_code=422,
+                            detail=f"at most {eval_judge.MAX_ENTRIES_PER_REQUEST} entries per request")
     key = _abusech_key_or_503()
-    return eval_judge.judge([c.model_dump() for c in req.claims],
-                            otx_key=config.OTX_KEY or None, abusech_key=key)
+    doc = eval_judge.judge([c.model_dump() for c in req.claims],
+                           otx_key=config.OTX_KEY or None, abusech_key=key)
+    if req.entries:
+        doc["entries"] = eval_judge.entries(req.entries, abusech_key=key)
+    return doc
 
 
 # ── Core routes (all scoped to user_id) ────────────────────────────────────
