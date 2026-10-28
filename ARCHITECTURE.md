@@ -997,7 +997,10 @@ outside [first listed, seal], a Bounce-CTI run not `done` (or a `bounce.json`
 filled for other seeds), a web run that ended
 without an answer, and an arm with no start times unless `--allow-unstamped`.
 The starts go into the manifest (`arms.<arm>.runs`), the window into the
-commitment (`runs`). Stdlib plus
+commitment (`runs`). `--drop LABEL=<reason>` leaves a seed out at the seal
+(the contamination rule) without editing `seeds.json`, whose sha256 ties the
+stamped arms to the batch: the manifest keeps it under `dropped`, the
+commitment lists its label (`seeds_dropped`). Stdlib plus
 `backend.action_exports` and `backend.eval_judge`, not part of the running
 service; locked by `backend/tests/test_eval_prospective.py` and
 `test_eval_prospective_arms.py`.
@@ -1008,9 +1011,11 @@ service; locked by `backend/tests/test_eval_prospective.py` and
 subscription), its row in `GET /api/investigations` polled until it ends,
 `POST /resume` (at most twice) after `quota_exceeded` or `error: interrupted`,
 and `GET /api/investigations/{id}/graph` written only for a run that ended
-`done`. `<dir>/bounce.json` records each run at submission (server id, the
-server's start time, status, resumes), so a second call picks up where the
-first stopped and never submits a seed twice; exit 5 while a run is not done.
+`done`. `<dir>/bounce.json` records each run at submission, before the POST
+is answered (then the server id, the server's start time, status, resumes), so
+a second call picks up where the first stopped and never submits a seed twice:
+a submission with no answer is looked for in `GET /api/investigations` (same
+seed and model, started since, `find_submitted`); exit 5 while a run is not done.
 A server briefly out of reach (connection refused, a 5xx during a restart) is
 polled through; a 4xx (an expired session) stops the command.
 

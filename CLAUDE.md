@@ -405,7 +405,9 @@ eval/prospective.py     # Prospective cases (EVAL_PROTOCOL §4.E): seal <batch> 
                         #   web arm's run.json started_at) and refuses a start > 48 h after
                         #   the seed's first_seen (rule 1 at run time), a run not done, a
                         #   web run with no answer, an arm with no start times (unless
-                        #   --allow-unstamped, listed in the commitment)
+                        #   --allow-unstamped, listed in the commitment). --drop
+                        #   LABEL=reason leaves a contaminated seed out at the seal:
+                        #   never edit seeds.json (its sha256 ties the stamped arms)
                         #   backend/tests/test_sources_read_only.py: sources only read
 deploy.sh               # Auto-deploy script (callable on the VPS)
 Dockerfile              # Local one-image run (not used by prod): frontend build

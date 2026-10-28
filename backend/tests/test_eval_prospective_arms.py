@@ -202,6 +202,63 @@ def test_a_client_error_is_not_polled_through(tmp_path):
     assert [e for e in srv.log if e[0] == "start"] == [("start", "203.0.113.7")]
 
 
+def _find(srv):
+    """find over the fake server's investigations, as main() wires it."""
+    def find(seed, model, since):
+        rows = [{"id": i, "seed_value": v["seed"], "seed_type": v["body"]["seed_type"], "model": v["body"]["model"],
+                 "created_at": srv.created_at, "context_pool": v["body"].get("context_pool", False)}
+                for i, v in srv.invs.items()]
+        return P.find_submitted(rows, seed, model, since)
+    return find
+
+
+def test_a_submission_whose_answer_was_lost_is_found_not_submitted_again(tmp_path):
+    batch, out = _batch(tmp_path, SEEDS[:1]), tmp_path / "bounce"
+    srv = Server({"203.0.113.7": ["done"]}, created_at=T0.timestamp())
+
+    def lost(body):  # the server creates the run, the answer never arrives
+        srv.start(body)
+        raise urllib.error.URLError("connection reset")
+    with pytest.raises(urllib.error.URLError):
+        P.fill_bounce(batch, out, start=lost, row_of=srv.row_of, resume=srv.resume, graph_of=srv.graph_of,
+                      now=lambda: T0, sleep=lambda s: None, log=lambda *a: None)
+    assert json.loads((out / P.BOUNCE_STAMP).read_text())["runs"]["P1"]["status"] == P.BOUNCE_SUBMITTING
+    # Without a way to look, the next call stops rather than submit twice.
+    with pytest.raises(P.ArmIncomplete, match="got no answer"):
+        _fill(batch, out, srv)
+    stamp = _fill(batch, out, srv, find=_find(srv))
+    assert stamp["runs"]["P1"]["inv_id"] == "inv-1" and stamp["runs"]["P1"]["status"] == "done"
+    assert [e for e in srv.log if e[0] == "start"] == [("start", "203.0.113.7")]
+
+
+def test_a_submission_that_never_reached_the_server_is_submitted_again(tmp_path):
+    batch, out = _batch(tmp_path, SEEDS[:1]), tmp_path / "bounce"
+    srv = Server({"203.0.113.7": ["done"]}, created_at=T0.timestamp())
+
+    def refused(body):  # 429: nothing created
+        raise _http(429)
+    with pytest.raises(urllib.error.HTTPError):
+        P.fill_bounce(batch, out, start=refused, row_of=srv.row_of, resume=srv.resume, graph_of=srv.graph_of,
+                      now=lambda: T0, sleep=lambda s: None, log=lambda *a: None)
+    stamp = _fill(batch, out, srv, find=_find(srv))
+    assert stamp["runs"]["P1"]["status"] == "done"
+    assert [e for e in srv.log if e[0] == "start"] == [("start", "203.0.113.7")]
+
+
+def test_find_submitted_keeps_to_this_seed_model_and_window():
+    seed = {"seed_type": "domain", "seed_value": "Seed2.Example"}
+    since = T0
+    base = {"seed_type": "domain", "seed_value": "seed2.example", "model": "opus-5"}
+    rows = [dict(base, id="old", created_at=T0.timestamp() - P.BOUNCE_FIND_SKEW_S - 1),  # an earlier run
+            dict(base, id="other-model", model="sonnet", created_at=T0.timestamp()),
+            dict(base, id="other-seed", seed_value="x.example", created_at=T0.timestamp()),
+            dict(base, id="skewed", created_at=T0.timestamp() - P.BOUNCE_FIND_SKEW_S),
+            dict(base, id="newest", created_at=T0.timestamp() + 5)]
+    assert P.find_submitted(rows, seed, "opus-5", since)["id"] == "newest"
+    assert P.find_submitted(rows[:4], seed, "opus-5", since)["id"] == "skewed"
+    assert P.find_submitted(rows[:3], seed, "opus-5", since) is None
+
+
 def test_the_context_pool_arm_stops_a_run_the_server_did_not_mount_it_for(tmp_path):
     batch = _batch(tmp_path)
     srv = Server({"203.0.113.7": ["done"]}, ack={"context_pool": True, "context_pool_web": False})
@@ -306,6 +363,35 @@ def test_seal_refuses_an_arm_without_start_times_unless_asked_and_says_so(tmp_pa
         _seal(batch, {"web": bare})
     c = _seal(batch, {"web": bare}, allow_unstamped=True)
     assert c["runs"]["unstamped_arms"] == ["web"] and c["runs"]["first_started_at"] is None
+
+
+def test_a_contaminated_seed_is_dropped_at_the_seal_without_editing_seeds_json(tmp_path):
+    # Every arm stamped (bounce, web, pivot-1 within the hour): editing seeds.json would break them all.
+    batch, out, piv = _batch(tmp_path), tmp_path / "bounce", tmp_path / "pivot"
+    _fill(batch, out, Server({"203.0.113.7": ["done"], "seed2.example": ["done"]}))
+    P.fill_pivot(batch, piv, call=lambda body: GRAPH, now=lambda: T0 - timedelta(minutes=20))
+    before = (batch / "seeds.json").read_bytes()
+    c = _seal(batch, {"bounce": out, "web": _arm(tmp_path, "web"), "pivot-1": piv},
+              drop={"P2": "web run read a write-up (hosts_read: blog.example)"})
+    assert (batch / "seeds.json").read_bytes() == before
+    assert c["seeds"] == 1 and c["seeds_dropped"] == ["P2"]
+    m = json.loads((batch / "manifest.json").read_text())
+    assert [s["label"] for s in m["seeds"]] == ["P1"] and list(m["claims"]) == ["P1"]
+    assert m["dropped"][0]["label"] == "P2" and "write-up" in m["dropped"][0]["dropped_because"]
+    assert set(m["arms"]["bounce"]["runs"]) == {"P1"}
+
+
+def test_a_drop_names_a_seed_of_the_batch_with_a_reason_and_leaves_one(tmp_path):
+    batch, web = _batch(tmp_path), _arm(tmp_path, "web")
+    for drop, msg in (({"P9": "x"}, "names no seed"), ({"P1": "  "}, "with its reason"),
+                      ({"P1": "a", "P2": "b"}, "leaves no seed")):
+        with pytest.raises(ValueError, match=msg):
+            _seal(batch, {"web": web}, drop=drop)
+    assert not (batch / "manifest.json").exists()
+    assert P._drops(["P2=read a write-up"]) == {"P2": "read a write-up"}
+    for bad in (["P2"], ["=x"], ["P2=a", "P2=b"]):
+        with pytest.raises(ValueError):
+            P._drops(bad)
 
 
 def test_pivot_1_carries_its_start_like_the_other_arms(tmp_path):

@@ -98,7 +98,9 @@ python3 eval/prospective.py pivot --batch $B --out $B-pivot $S   # last: seal wi
 python3 eval/prospective.py seal --batch $B --arm bounce=$B-bounce --arm web=$B-base/web \
     --arm pivot-1=$B-pivot $S
 # seal refuses a run started over 48 h after its seed was first listed, a Bounce-CTI
-# run not done, and a web run without an answer.
+# run not done, and a web run without an answer. A seed whose web run read a
+# write-up about it (hosts_read in its run.json) leaves at the seal:
+#   … seal … --drop P3="web run read <host>"     (never edit seeds.json)
 # copy $B/commitment.json to eval/prospective/<batch>/ and commit it TODAY
 # (sha256 + counts, no value): its commit date is the pre-registration
 python3 eval/prospective.py check --batch $B          # after due_at (exit 3 before)
