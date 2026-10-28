@@ -132,6 +132,14 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   (EVAL_PROTOCOL §4.E), each with `excluded_by`: the §4.E rules it breaks
   (`backend/eval_judge.py`). Uses the server's `ABUSECH_AUTH_KEY` (503 without
   it), fetched live, never from the cache; 502 when ThreatFox fails
+- `POST /api/admin/eval/pivot` — admin only — the mechanical arm `pivot-1`
+  (EVAL_PROTOCOL §4.E rule 1) for one seed `{"type", "value"}`: the mandatory
+  tools of its type (`seeds.mandatory_tools`) run on the seed alone, NO model
+  (`backend/pivot_arm.py`); every IP, domain, URL and hash in their answers
+  becomes a node, filtered by the exports' own neutralisation (`defuse_check`
+  tags, then `action_exports._iter_actionable`). Answers a `graph.json`
+  (`nodes`, `edges`, `metadata.tools`: one status per tool, a failed tool is
+  shown, never an empty answer); 422 for a type with no mandatory tools
 - `POST /api/admin/eval/judge` — admin only — judge v2 (`otx+abusech/2`) on
   `{"claims": [{"type", "value"}]}`, at most 20 a request: OTX with the
   server's key, ThreatFox, URLhaus, MalwareBazaar, exact match, live, with
@@ -1007,6 +1015,15 @@ judge v2, a claim the check finds in an abuse.ch entry dated before the seal is
 confirmed each `ahead`, the `ahead` confirmed independently of the seed
 (another feed than the seed's, another author than its reporter) and the days
 from the seal to the first dated confirmation.
+
+### `backend/pivot_arm.py`
+The mechanical arm of a prospective batch. `run(type, value)` parses each
+`mandatory_tools` call example (literals only), awaits the tool from the cti
+pool with a 120 s timeout, extracts public IPs, domains, URLs and 32/40/64-hex
+hashes from the answer (keys starting `_` are hints, skipped), tags them with
+`defuse_check`, and keeps what `_iter_actionable` lets through (at most 300
+nodes). Nothing judges them: no node is tagged malicious. No subprocess, no
+`agent_runner` (locked by `tests/test_pivot_arm.py`).
 
 ### `backend/eval_judge.py`
 The server side of prospective cases. `fresh_iocs` is ThreatFox `get_iocs`

@@ -171,6 +171,11 @@ backend/
                         #   or a forbidden word (named, never printed). Used by
                         #   GET /api/investigations/{id}/demo_snapshot (owner)
                         #   and eval/demo_export.py. Stdlib only
+  pivot_arm.py          # The mechanical arm pivot-1 (EVAL_PROTOCOL §4.E rule 1): a seed's
+                        #   mandatory tools run on the seed alone, NO model, results read
+                        #   as nodes through the exports' own neutralisation. Behind
+                        #   POST /api/admin/eval/pivot; eval/prospective.py `pivot` fills
+                        #   the arm, `seal --arm pivot-1=<dir>` takes it (same hour)
   eval_judge.py         # Prospective cases, server side (EVAL_PROTOCOL §4.E):
                         #   fresh_iocs (ThreatFox get_iocs → candidate seeds +
                         #   the §4.E rules each breaks) and judge v2

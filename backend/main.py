@@ -375,6 +375,25 @@ def admin_eval_fresh_iocs(days: int = 2, _: int = Depends(current_admin)):
         raise HTTPException(status_code=502, detail=str(e))
 
 
+class EvalPivotReq(BaseModel):
+    type: str
+    value: str
+
+
+@app.post("/api/admin/eval/pivot")
+async def admin_eval_pivot(req: EvalPivotReq, _: int = Depends(current_admin)):
+    """The mechanical ``pivot-1`` arm for one seed: the mandatory tools of its
+    type run on the seed alone, NO model, what comes back kept as nodes after the
+    exports' own neutralisation. Answers a ``graph.json`` (``nodes``, ``edges``,
+    ``metadata.tools`` = one status per tool: a failed tool is shown, not empty)."""
+    from . import pivot_arm, seeds
+    if req.type not in seeds.KNOWN_SEED_TYPES or not seeds.mandatory_tools(req.type, req.value):
+        raise HTTPException(status_code=422, detail=f"no mandatory tools for seed type {req.type!r}")
+    if not req.value.strip() or len(req.value) > 2048:
+        raise HTTPException(status_code=422, detail="bad seed value")
+    return await pivot_arm.run(req.type, req.value)
+
+
 class EvalClaim(BaseModel):
     type: str
     value: str

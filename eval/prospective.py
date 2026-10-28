@@ -43,10 +43,16 @@ committed one, and ``check`` refuses to run before the horizon unless ``--early`
     S="--server https://cti.alexandre-pinoteau.fr --cookies <admin cookie jar>"
     python3 eval/prospective.py seeds --batch <dir> $S [--n 6] [--avoid <lot1>/seeds.json]
     python3 eval/prospective.py preflight --batch <dir> $S
-    python3 eval/prospective.py seal --batch <dir> --arm bounce=<dir> --arm web=<dir> $S \\
+    python3 eval/prospective.py pivot --batch <dir> --out <pivot-dir> $S
+    python3 eval/prospective.py seal --batch <dir> --arm bounce=<dir> --arm web=<dir> --arm pivot-1=<pivot-dir> $S \\
         [--horizon-days 14] [--secondary-horizon-days 30]
     python3 eval/prospective.py check --batch <dir> $S [--early] [--secondary]
     python3 eval/prospective.py score --batch <dir> [--check <file>] [--write]
+
+``pivot`` fills the mechanical arm ``pivot-1`` (§4.E rule 1, the base rate): the server runs
+each seed's mandatory tools on the seed alone, no model (POST /api/admin/eval/pivot), under one
+timestamp. ``seal`` refuses ``--arm pivot-1=`` filled for other seeds or not within the hour
+before the seal: run it in the same hour as the other arms.
 
 ``seeds`` picks the batch from the server's fresh ThreatFox entries by a fixed
 rule (pick/1), once. Judge v2 has a positive control: a seed picked from a feed
@@ -489,6 +495,49 @@ def families_of(paths) -> set[str]:
 SECONDARY_HORIZON_DAYS = 30
 
 
+PIVOT_ARM = "pivot-1"
+PIVOT_STAMP = "pivot-1.json"
+PIVOT_SAME_HOUR_S = 3600
+
+
+def fill_pivot(batch: Path, out: Path, *, call, now=None) -> dict:
+    """Fill the mechanical arm ``pivot-1`` for a batch: one ``<label>/graph.json``
+    per seed, from the server's pivot route (no model), all under ONE timestamp
+    (``pivot-1.json``), taken once for the lot. ``seal`` refuses the arm when that
+    stamp is not within the hour of the seal, as the other arms run: a base rate
+    read a day apart from the arms it is compared to is not a base rate."""
+    if (out / PIVOT_STAMP).exists():
+        raise FileExistsError(f"{out / PIVOT_STAMP} exists: the arm is filled once per batch")
+    seeds = load_seeds(batch)
+    stamp = _iso((now or utcnow)())
+    failed: dict[str, list[str]] = {}
+    for s in seeds:
+        graph = call({"type": s["seed_type"], "value": s["seed_value"]})
+        (out / s["label"]).mkdir(parents=True, exist_ok=True)
+        _dump(out / s["label"] / "graph.json", graph)
+        bad = [t["tool"] for t in (graph.get("metadata") or {}).get("tools", []) if t.get("status") != "ok"]
+        if bad:
+            failed[s["label"]] = bad
+    doc = {"arm": PIVOT_ARM, "fetched_at": stamp, "seeds_sha256": _sha256(batch / "seeds.json"),
+           "seeds": [s["label"] for s in seeds], "tools_failed": failed}
+    out.mkdir(parents=True, exist_ok=True)
+    _dump(out / PIVOT_STAMP, doc)
+    return doc
+
+
+def pivot_stamp_check(batch: Path, d: Path, seeds: list[dict], sealed_at: datetime) -> None:
+    path = d / PIVOT_STAMP
+    if not path.is_file():
+        raise ValueError(f"arm {PIVOT_ARM} has no {PIVOT_STAMP} in {d}: fill it with the pivot command")
+    stamp = json.loads(path.read_text(encoding="utf-8"))
+    if stamp.get("seeds_sha256") != _sha256(batch / "seeds.json"):
+        raise ValueError(f"arm {PIVOT_ARM} was filled for other seeds than this batch's")
+    age = (sealed_at - _parse_iso(stamp["fetched_at"])).total_seconds()
+    if not 0 <= age <= PIVOT_SAME_HOUR_S:
+        raise ValueError(f"arm {PIVOT_ARM} was filled {stamp['fetched_at']}, not within the hour before the "
+                         f"seal: refill it in the same hour as the other arms (new batch dir)")
+
+
 def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lookup,
          lookup_all=None, lookup_entries=None, judge: str = JUDGE,
          secondary_days: int = SECONDARY_HORIZON_DAYS, now=None, pause_s: float = PAUSE_S,
@@ -523,6 +572,8 @@ def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lo
                 entry["arms"].append(arm)
                 entry["malicious"][arm] = c["malicious"]
     sealed_at = (now or utcnow)()
+    if PIVOT_ARM in arms:
+        pivot_stamp_check(batch, arms[PIVOT_ARM], seeds, sealed_at)
     keys = [k for per in claims.values() for k in per]
     keys += [f"{s['seed_type']}|{normalise(s['seed_type'], s['seed_value'])}" for s in seeds]
     at_t = lookup_all(keys) if lookup_all else _lookup_all(keys, lookup, pause_s, sleep)
@@ -811,6 +862,10 @@ def main(argv=None) -> int:
                    help="seeds.json of an earlier lot: its families are not picked again")
     f = sub.add_parser("preflight", help="judge v2 on the seeds alone, before the arms run")
     f.add_argument("--batch", type=Path, required=True)
+    v = sub.add_parser("pivot", help="fill the mechanical arm pivot-1 from the server (no model); "
+                                     "then seal with --arm pivot-1=<dir>")
+    v.add_argument("--batch", type=Path, required=True)
+    v.add_argument("--out", type=Path, required=True, help="the arm directory (<label>/graph.json)")
     s = sub.add_parser("seal")
     s.add_argument("--batch", type=Path, required=True)
     s.add_argument("--arm", action="append", required=True, help="name=<dir with <label>/graph.json>")
@@ -826,7 +881,7 @@ def main(argv=None) -> int:
     for p in (s, c):
         p.add_argument("--pause", type=float, default=PAUSE_S,
                        help=f"seconds between lookups (default {PAUSE_S}: the keyless OTX limit)")
-    for p in (d, f, s, c):
+    for p in (d, f, v, s, c):
         p.add_argument("--server", help="the Bounce-CTI server (judge v2 and fresh seeds), "
                                         "e.g. https://cti.alexandre-pinoteau.fr")
         p.add_argument("--cookies", type=Path, help="cookie jar holding an admin session (curl -c)")
@@ -842,8 +897,8 @@ def main(argv=None) -> int:
 
     try:
         server = None
-        if args.cmd in ("seeds", "preflight", "seal", "check"):
-            if args.cmd in ("seeds", "preflight") and not args.server:
+        if args.cmd in ("seeds", "preflight", "pivot", "seal", "check"):
+            if args.cmd in ("seeds", "preflight", "pivot") and not args.server:
                 raise ValueError(f"{args.cmd} needs --server and --cookies")
             if args.server:
                 if not args.cookies:
@@ -866,6 +921,14 @@ def main(argv=None) -> int:
             _dump(args.batch / "seeds.json", seeds)
             print(f"{len(seeds)} seeds of {fresh.get('eligible')} eligible / {fresh.get('count')} candidates "
                   f"→ {args.batch / 'seeds.json'}; next: preflight, then the arms in the same hour")
+            return 0
+        if args.cmd == "pivot":
+            doc = fill_pivot(args.batch, args.out, call=lambda body: server_call(
+                server[0], "/api/admin/eval/pivot", opener=server[1], body=body))
+            print(f"{PIVOT_ARM}: {len(doc['seeds'])} seeds → {args.out} at {doc['fetched_at']}; "
+                  f"seal within the hour with --arm {PIVOT_ARM}={args.out}")
+            for lab, tools in doc["tools_failed"].items():
+                print(f"{lab}: tools that failed: {', '.join(tools)}", file=sys.stderr)
             return 0
         if args.cmd == "preflight":
             res = preflight(args.batch, lookup_all=v2["lookup_all"], lookup_entries=v2["lookup_entries"])
