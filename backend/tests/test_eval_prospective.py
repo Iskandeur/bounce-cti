@@ -190,6 +190,10 @@ SEEDS = [
 ]
 
 
+# An hour before T0, and 10 to 11 h after the seeds were first listed.
+RUN_AT = "2026-10-26T19:00:00Z"
+
+
 def _batch(tmp_path, arms):
     batch = tmp_path / "batch-2026-10-26"
     batch.mkdir(parents=True)
@@ -200,6 +204,9 @@ def _batch(tmp_path, arms):
         for label, nodes in per_seed.items():
             (d / label).mkdir(parents=True)
             (d / label / "graph.json").write_text(json.dumps({"nodes": nodes, "edges": []}))
+            # Every arm says when its runs started (seal checks rule 1 on it): the baseline.py form.
+            (d / label / "run.json").write_text(json.dumps({"started_at": RUN_AT, "model": "claude-opus-5",
+                                                            "answer_parsed": True}))
         dirs[arm] = d
     return batch, dirs
 

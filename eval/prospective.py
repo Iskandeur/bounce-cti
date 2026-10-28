@@ -43,11 +43,28 @@ committed one, and ``check`` refuses to run before the horizon unless ``--early`
     S="--server https://cti.alexandre-pinoteau.fr --cookies <admin cookie jar>"
     python3 eval/prospective.py seeds --batch <dir> $S [--n 6] [--avoid <lot1>/seeds.json]
     python3 eval/prospective.py preflight --batch <dir> $S
+    python3 eval/prospective.py bounce --batch <dir> --out <bounce-dir> $S [--model opus-5]
+    python3 eval/baseline.py run --arm web --model claude-opus-5 --out <web-out> --seeds <dir>/seeds.json P1 P2 …
     python3 eval/prospective.py pivot --batch <dir> --out <pivot-dir> $S
-    python3 eval/prospective.py seal --batch <dir> --arm bounce=<dir> --arm web=<dir> --arm pivot-1=<pivot-dir> $S \\
+    python3 eval/prospective.py seal --batch <dir> --arm bounce=<bounce-dir> --arm web=<web-out>/web --arm pivot-1=<pivot-dir> $S \\
         [--horizon-days 14] [--secondary-horizon-days 30]
     python3 eval/prospective.py check --batch <dir> $S [--early] [--secondary]
     python3 eval/prospective.py score --batch <dir> [--check <file>] [--write]
+
+``bounce`` fills the Bounce-CTI arm: one investigation per seed on the server (admin session),
+ONE AT A TIME (the runs spend the operator's Claude subscription), each resumed at most twice
+when a restart (``error: interrupted``) or the quota stopped it, and a graph written only for a run
+that ended ``done``. ``<bounce-dir>/bounce.json`` records every run as it is submitted, so running
+the command again picks the batch up where it stopped and never submits a seed twice.
+
+``seal`` reads when each seed's run started (``bounce.json``, ``pivot-1.json``, or baseline.py's
+``run.json``) and refuses a run that started more than 48 h after its seed was first listed
+(rule 1 again, at run time: the arms can run days after the pick), a Bounce-CTI run that did not
+end done, a web run that ended without an answer (its empty graph would seal as "found
+nothing"), and an arm with no start times unless ``--allow-unstamped`` (listed in the
+commitment). The start times go into the manifest; the commitment keeps the window.
+``--drop LABEL=<reason>`` leaves a seed out at the seal (the contamination rule): never edit
+``seeds.json``, whose sha256 ties every stamped arm to the batch.
 
 ``pivot`` fills the mechanical arm ``pivot-1`` (§4.E rule 1, the base rate): the server runs
 each seed's mandatory tools on the seed alone, no model (POST /api/admin/eval/pivot), under one
@@ -77,7 +94,8 @@ Exit codes: 0 done; 1 the manifest is not the committed one; 2 usage or input
 error; 3 the check is not due yet (``--early`` to run it anyway); 4 lookups
 failed at T, nothing sealed (seal again later, or with ``OTX_API_KEY``), or
 judge v2 does not see a seed in its own feed (at ``preflight`` and ``seal``;
-at ``check``, and then ``score`` refuses that check).
+at ``check``, and then ``score`` refuses that check); 5 a run of the arm ``bounce`` fills did not
+end done, or is still going (run it again: it waits for that run, it starts no other).
 
 Stdlib only, plus backend.action_exports for the definition of a claim and
 backend.eval_judge for the OTX lookup and judge v2's name.
@@ -116,7 +134,7 @@ BAD_TAGS = {"malicious", "c2", "phishing", "malware", "attacker"}  # as eval/sco
 PAUSE_S = 3.0
 LABEL_RE = re.compile(r"[A-Za-z0-9_-]+")
 COMMITTED_DIR = ROOT / "eval" / "prospective"
-EXIT_TAMPERED, EXIT_USAGE, EXIT_NOT_DUE, EXIT_JUDGE = 1, 2, 3, 4
+EXIT_TAMPERED, EXIT_USAGE, EXIT_NOT_DUE, EXIT_JUDGE, EXIT_ARM = 1, 2, 3, 4, 5
 
 
 def utcnow() -> datetime:
@@ -538,13 +556,294 @@ def pivot_stamp_check(batch: Path, d: Path, seeds: list[dict], sealed_at: dateti
                          f"seal: refill it in the same hour as the other arms (new batch dir)")
 
 
+# The Bounce-CTI arm (§4.E step 2): one investigation per seed on the server, ONE AT
+# A TIME. The investigations spend the same Claude subscription as whoever drives the
+# batch, and parallel runs exhaust it (the no-parallelism rule of sequential_runner.py).
+# On production an opus-5 investigation took 28 min (median) to 44 min (max) over the
+# 16 that ended done in the 30 days to 2026-10-28, so a batch of 6 takes about 3 hours.
+BOUNCE_ARM = "bounce"
+BOUNCE_STAMP = "bounce.json"
+BOUNCE_MODEL = "opus-5"
+# A service restart marks the runs in flight `error: interrupted` (graph_store.
+# reconcile_orphaned_running): a deploy during the batch does it. Both statuses keep
+# the graph, and POST /resume carries on from it.
+BOUNCE_RESUMABLE = ("quota_exceeded", "error: interrupted")
+BOUNCE_MAX_RESUMES = 2
+# A run recorded before its POST is answered (`find` looks for it on the next call).
+BOUNCE_SUBMITTING = "submitting"
+# How far before the recorded submission a server's start time may be (clock skew).
+BOUNCE_FIND_SKEW_S = 120
+BOUNCE_POLL_S = 30.0
+BOUNCE_MAX_WAIT_S = 150 * 60
+# Rule 1: a seed was first listed in a feed at most 48 h before the runs. `seeds`
+# applies it when it picks; `seal` applies it again to every run's start, since the
+# arms can run days after the pick.
+FRESH_MAX_S = 48 * 3600
+
+
+class ArmIncomplete(Exception):
+    """A run of the arm did not end done, or is still going: nothing to seal yet."""
+
+
+_OUT_OF_REACH = object()
+
+
+def _transient(e: OSError) -> bool:
+    """A deploy restarts the server: connection refused, then the proxy's 5xx for a few
+    seconds. A 4xx is not transient (401: the session expired; 404: no such run)."""
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code >= 500
+    return True
+
+
+def _bounce_final(status: str) -> bool:
+    return status in ("done", "failed", "stopped", "cleared") or status.startswith("error")
+
+
+def _epoch_iso(x) -> str | None:
+    if isinstance(x, (int, float)) and x > 0:
+        return _iso(datetime.fromtimestamp(x, timezone.utc))
+    return None
+
+
+def fill_bounce(batch: Path, out: Path, *, start, row_of, resume, graph_of, model: str = BOUNCE_MODEL,
+                context_pool: bool = False, stop=None, find=None, now=None, sleep=time.sleep,
+                poll_s: float = BOUNCE_POLL_S, max_wait_s: float = BOUNCE_MAX_WAIT_S, log=print) -> dict:
+    """Fill the Bounce-CTI arm: for each seed in order, start an investigation
+    (``start(body)``, POST /api/investigations), wait until it ends (``row_of(id)``,
+    its row in GET /api/investigations), resume it when a restart or the quota
+    stopped it, and write ``<label>/graph.json`` (``graph_of(id)``) only for a run
+    that ended done. ``bounce.json`` records each run as soon as it is submitted
+    (server id, start time read from the server's row, status), so running the
+    command again picks the batch up where it stopped and never submits a seed
+    twice. The next seed starts only once the previous run has ended. A server
+    out of reach for a while (a restart) is polled through (``_transient``)."""
+    clock = now or utcnow
+    seeds = load_seeds(batch)
+    digest = _sha256(batch / "seeds.json")
+    path = out / BOUNCE_STAMP
+    if path.is_file():
+        stamp = json.loads(path.read_text(encoding="utf-8"))
+        if stamp.get("seeds_sha256") != digest:
+            raise ValueError(f"{path} was filled for other seeds than this batch's")
+        if (stamp.get("model"), bool(stamp.get("context_pool"))) != (model, context_pool):
+            raise ValueError(f"{path} runs model {stamp.get('model')} with context_pool "
+                             f"{bool(stamp.get('context_pool'))}: one arm, one setting (another --out)")
+    else:
+        stamp = {"arm": BOUNCE_ARM, "model": model, "context_pool": context_pool,
+                 "seeds_sha256": digest, "runs": {}}
+    out.mkdir(parents=True, exist_ok=True)
+
+    def save():
+        _dump(path, stamp)
+
+    for s in seeds:
+        lab = s["label"]
+        run = stamp["runs"].get(lab)
+        if run and run.get("status") == "done" and (out / lab / "graph.json").is_file():
+            continue
+        if run and _bounce_final(run.get("status") or "") and run.get("status") != "done" \
+                and run.get("status") not in BOUNCE_RESUMABLE:
+            log(f"{lab}: {run['inv_id']} ended {run['status']}; not run again")
+            continue
+        if run is not None and run.get("status") == BOUNCE_SUBMITTING:
+            # The last call stopped between its POST and the answer (a lost response, a killed
+            # process): the server may hold that run. Find it rather than submit the seed twice.
+            if find is None:
+                raise ArmIncomplete(f"{lab}: the submission of {run['submitted_at']} got no answer; look for "
+                                    "it among the server's investigations before running this again")
+            row = find(s, model, _parse_iso(run["submitted_at"]))
+            if row is None:
+                del stamp["runs"][lab]  # it never reached the server
+                run = None
+            elif context_pool and not row.get("context_pool"):
+                if stop:
+                    stop(row["id"])
+                run.update(inv_id=row["id"], status="refused: the server did not mount the context pool")
+                save()
+                raise ValueError(f"{lab}: {run['status']}")
+            else:
+                run.update(inv_id=row["id"], status="submitted")
+                save()
+                log(f"{lab}: found {row['id']}, submitted {run['submitted_at']} with no answer")
+        if run is None:
+            body = {"seed_type": s["seed_type"], "seed_value": s["seed_value"], "model": model,
+                    "vertical": "cti"}
+            if context_pool:
+                body["context_pool"] = True
+            # Written BEFORE the POST: a call cut off after the server created the run finds it next time.
+            run = {"status": BOUNCE_SUBMITTING, "submitted_at": _iso(clock()), "resumes": []}
+            stamp["runs"][lab] = run
+            save()
+            doc = start(body)
+            run.update(inv_id=doc["id"], status="submitted")
+            save()
+            if context_pool and not (doc.get("context_pool") and doc.get("context_pool_web")):
+                # A run without the pool (or its web tools) would be scored as the arm with it.
+                if stop:
+                    stop(run["inv_id"])
+                run["status"] = "refused: the server did not mount the context pool with its web tools"
+                save()
+                raise ValueError(f"{lab}: {run['status']}")
+            log(f"{lab}: started {run['inv_id']} ({s['seed_type']} {model})")
+        waited = 0.0
+        while True:
+            try:
+                row = row_of(run["inv_id"])
+            except OSError as e:
+                if not _transient(e):
+                    raise
+                row = _OUT_OF_REACH
+            if row is _OUT_OF_REACH:
+                status = run.get("status") or ""
+                log(f"{lab}: the server is out of reach, polling again")
+            elif row is None:
+                run["status"] = "missing: not in the session's investigations"
+                save()
+                raise ArmIncomplete(f"{lab}: {run['inv_id']} is not in this session's investigations")
+            else:
+                if not run.get("started_at"):
+                    run["started_at"] = _epoch_iso(row.get("created_at"))
+                run["model_run"] = row.get("model")
+                status = str(row.get("status") or "")
+                if status == "done":
+                    try:
+                        graph = graph_of(run["inv_id"])
+                    except OSError as e:
+                        if not _transient(e):
+                            raise
+                        log(f"{lab}: done, its graph is out of reach, asking again")
+                    else:
+                        (out / lab).mkdir(parents=True, exist_ok=True)
+                        _dump(out / lab / "graph.json", graph)
+                        run.update(status="done", finished_at=_iso(clock()), nodes=len(graph.get("nodes") or []))
+                        save()
+                        log(f"{lab}: done, {run['nodes']} nodes")
+                        break
+                elif status in BOUNCE_RESUMABLE:
+                    if len(run["resumes"]) >= BOUNCE_MAX_RESUMES:
+                        run["status"] = status
+                        save()
+                        log(f"{lab}: {status} again after {BOUNCE_MAX_RESUMES} resumes; left there")
+                        break
+                    try:
+                        resume(run["inv_id"])
+                    except OSError as e:
+                        # 425: the quota cooldown is not over. Out of reach: a restart. Poll again.
+                        if not (isinstance(e, urllib.error.HTTPError) and e.code == 425) and not _transient(e):
+                            raise
+                    else:
+                        run["resumes"].append({"after": status, "at": _iso(clock())})
+                        run["status"] = "running"
+                        save()
+                        log(f"{lab}: resumed after {status}")
+                elif _bounce_final(status):
+                    run.update(status=status, finished_at=_iso(clock()))
+                    save()
+                    log(f"{lab}: ended {status}, no graph written")
+                    break
+                elif run.get("status") != status:
+                    run["status"] = status
+                    save()
+            if waited >= max_wait_s:
+                raise ArmIncomplete(f"{lab}: {run['inv_id']} still {status} after {round(waited / 60)} min; "
+                                    "run the command again later (it waits for this run, it starts no other)")
+            sleep(poll_s)
+            waited += poll_s
+    missing = [lab for lab in (s["label"] for s in seeds) if stamp["runs"].get(lab, {}).get("status") != "done"]
+    if missing:
+        raise ArmIncomplete("runs not done: " + ", ".join(
+            f"{lab} ({stamp['runs'].get(lab, {}).get('status')})" for lab in missing))
+    return stamp
+
+
+def find_submitted(rows, seed: dict, model: str, since: datetime) -> dict | None:
+    """Among the session's investigations (GET /api/investigations), the newest one
+    on this seed and model started no earlier than ``since`` (less the clock skew):
+    the run of a submission whose answer was lost. None if there is none."""
+    want = str(seed["seed_value"]).strip().lower()
+    floor = since.timestamp() - BOUNCE_FIND_SKEW_S
+    hits = [r for r in rows if isinstance(r, dict) and r.get("id")
+            and str(r.get("seed_value") or "").strip().lower() == want
+            and r.get("seed_type") == seed["seed_type"] and r.get("model") == model
+            and isinstance(r.get("created_at"), (int, float)) and r["created_at"] >= floor]
+    return max(hits, key=lambda r: r["created_at"]) if hits else None
+
+
+def arm_runs(arm: str, d: Path, seeds: list[dict], batch: Path) -> dict[str, dict]:
+    """When each seed's run of an arm started, read from what filled the arm:
+    ``bounce.json`` (filled for this batch's seeds; the server's start time of each
+    investigation, which must have ended done), ``pivot-1.json`` (one stamp for the lot), or each seed's
+    ``run.json`` (baseline.py: ``started_at``, and the run must have produced an
+    answer). A seed with none of them has ``started_at`` None."""
+    runs: dict[str, dict] = {}
+    labels = [s["label"] for s in seeds]
+    if (d / BOUNCE_STAMP).is_file():
+        stamp = json.loads((d / BOUNCE_STAMP).read_text(encoding="utf-8"))
+        if stamp.get("seeds_sha256") != _sha256(batch / "seeds.json"):
+            # Same labels (P1…P6) in every batch: another batch's runs would pass unseen.
+            raise ValueError(f"arm {arm} was filled for other seeds than this batch's ({d / BOUNCE_STAMP})")
+        for lab in labels:
+            r = (stamp.get("runs") or {}).get(lab) or {}
+            if r.get("status") != "done":
+                raise ValueError(f"arm {arm}: the run of {lab} is {r.get('status') or 'missing'} in "
+                                 f"{d / BOUNCE_STAMP}, not done: finish it, or seal without that arm")
+            runs[lab] = {"started_at": r.get("started_at"), "model": r.get("model_run") or stamp.get("model"),
+                         "inv_id": r.get("inv_id"), "resumes": len(r.get("resumes") or [])}
+        return runs
+    if (d / PIVOT_STAMP).is_file():
+        at = json.loads((d / PIVOT_STAMP).read_text(encoding="utf-8")).get("fetched_at")
+        return {lab: {"started_at": at, "model": None} for lab in labels}
+    for lab in labels:
+        p = d / lab / "run.json"
+        if not p.is_file():
+            runs[lab] = {"started_at": None, "model": None}
+            continue
+        r = json.loads(p.read_text(encoding="utf-8"))
+        if r.get("timed_out") or r.get("is_error") or r.get("answer_parsed") is False:
+            # An empty graph from a run that failed would seal as "found nothing".
+            raise ValueError(f"arm {arm}: the run of {lab} did not end in an answer ({p}: timed_out "
+                             f"{r.get('timed_out')}, is_error {r.get('is_error')}, answer_parsed "
+                             f"{r.get('answer_parsed')}): run it again, or seal without that arm")
+        runs[lab] = {"started_at": r.get("started_at"), "model": r.get("model")}
+    return runs
+
+
+def check_fresh(arm: str, runs: dict[str, dict], seeds: list[dict], sealed_at: datetime) -> list[float]:
+    """Rule 1 at the seal: every run started after its seed was first listed, at
+    most 48 h after, and before the seal. Returns the hours from first listing to
+    each run's start."""
+    hours = []
+    for s in seeds:
+        at = runs[s["label"]]["started_at"]
+        if at is None:
+            continue
+        started, first = _parse_iso(at), _parse_iso(s["first_seen"])
+        age = (started - first).total_seconds()
+        if age < 0 or started > sealed_at:
+            raise ValueError(f"arm {arm}: the run of {s['label']} started {at}, outside [first listed "
+                             f"{s['first_seen']}, sealed {_iso(sealed_at)}]: its time is wrong")
+        if age > FRESH_MAX_S:
+            raise ValueError(f"arm {arm}: the run of {s['label']} started {round(age / 3600, 1)} h after its "
+                             f"seed was first listed ({s['first_seen']}), over the 48 h of rule 1: "
+                             "the seed was no longer fresh, start another batch")
+        hours.append(age / 3600)
+    return hours
+
+
 def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lookup,
          lookup_all=None, lookup_entries=None, judge: str = JUDGE,
          secondary_days: int = SECONDARY_HORIZON_DAYS, now=None, pause_s: float = PAUSE_S,
-         sleep=time.sleep, max_failed: int = 0) -> dict:
+         sleep=time.sleep, max_failed: int = 0, allow_unstamped: bool = False,
+         drop: dict[str, str] | None = None) -> dict:
     """``lookup`` asks one claim (judge v1, from here); ``lookup_all`` asks a
     list (judge v2, through the server) and wins when given; ``lookup_entries``
-    reads seeds by id for the positive control (judge v2)."""
+    reads seeds by id for the positive control (judge v2). Every arm must say
+    when each seed's run started (``arm_runs``), each start within 48 h of the
+    seed's first listing (``check_fresh``), unless ``allow_unstamped``.
+    ``drop`` (label → reason) leaves seeds out of the batch at the seal, the
+    contamination rule's way: ``seeds.json`` is never edited, since its sha256 is
+    what ties every stamped arm to the batch."""
     if (batch / "manifest.json").exists():
         raise FileExistsError(f"{batch / 'manifest.json'} exists: a batch is sealed once")
     if horizon_days < 1:
@@ -553,7 +852,17 @@ def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lo
         raise ValueError("the secondary horizon comes after the primary one (0: none)")
     if judge not in JUDGES:
         raise ValueError(f"unknown judge {judge!r}")
-    seeds = load_seeds(batch)
+    seeds_all = load_seeds(batch)
+    drop = dict(drop or {})
+    unknown = sorted(set(drop) - {s["label"] for s in seeds_all})
+    if unknown:
+        raise ValueError(f"--drop names no seed of this batch: {', '.join(unknown)}")
+    if any(not str(r).strip() for r in drop.values()):
+        raise ValueError("--drop takes LABEL=<reason>: a seed leaves the batch with its reason written")
+    dropped = [dict(s, dropped_because=drop[s["label"]].strip()) for s in seeds_all if s["label"] in drop]
+    seeds = [s for s in seeds_all if s["label"] not in drop]
+    if not seeds:
+        raise ValueError("--drop leaves no seed to seal")
     graphs: dict[str, dict] = {}
     claims: dict[str, dict[str, dict]] = {s["label"]: {} for s in seeds}
     for arm, d in sorted(arms.items()):
@@ -574,6 +883,22 @@ def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lo
     sealed_at = (now or utcnow)()
     if PIVOT_ARM in arms:
         pivot_stamp_check(batch, arms[PIVOT_ARM], seeds, sealed_at)
+    # Before any lookup: when each arm ran is part of what is sealed (rule 1).
+    runs: dict[str, dict[str, dict]] = {}
+    hours: list[float] = []
+    unstamped: list[str] = []
+    for arm, d in sorted(arms.items()):
+        runs[arm] = arm_runs(arm, d, seeds, batch)
+        hours += check_fresh(arm, runs[arm], seeds, sealed_at)
+        lacking = [lab for lab, r in runs[arm].items() if r["started_at"] is None]
+        if lacking:
+            if not allow_unstamped:
+                raise ValueError(f"arm {arm}: no start time for {', '.join(lacking)} (no {BOUNCE_STAMP}, "
+                                 f"{PIVOT_STAMP} or <label>/run.json with started_at), so rule 1 cannot be "
+                                 "checked: fill the arm with prospective.py bounce / pivot or baseline.py, "
+                                 "or seal with --allow-unstamped (recorded in the commitment)")
+            unstamped.append(arm)
+    starts = sorted(r["started_at"] for per in runs.values() for r in per.values() if r["started_at"])
     keys = [k for per in claims.values() for k in per]
     keys += [f"{s['seed_type']}|{normalise(s['seed_type'], s['seed_value'])}" for s in seeds]
     at_t = lookup_all(keys) if lookup_all else _lookup_all(keys, lookup, pause_s, sleep)
@@ -595,7 +920,10 @@ def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lo
         "sealed_at": _iso(sealed_at), "horizon_days": horizon_days,
         "due_at": _iso(sealed_at + timedelta(days=horizon_days)),
         "secondary_horizon_days": secondary_days or None, "secondary_due_at": secondary_due,
-        "seeds": seeds, "arms": {a: {"source": str(d), "graphs": graphs[a]} for a, d in sorted(arms.items())},
+        "seeds": seeds,
+        # Left out at the seal (the contamination rule), with the reason: not judged, not scored.
+        "dropped": dropped,
+        "arms": {a: {"source": str(d), "graphs": graphs[a], "runs": runs[a]} for a, d in sorted(arms.items())},
         "claims": {lab: [per[k] for k in sorted(per)] for lab, per in claims.items()},
         "at_t": at_t,
     }
@@ -609,6 +937,8 @@ def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lo
         "secondary_horizon_days": manifest["secondary_horizon_days"], "secondary_due_at": secondary_due,
         "manifest_sha256": _sha256(batch / "manifest.json"),
         "seeds": len(seeds),
+        # Labels only (a reason can name a host): dropping after seeing would be choosing, so it is public.
+        "seeds_dropped": [s["label"] for s in dropped],
         "claims_per_arm": {a: sum(1 for per in claims.values() for c in per.values() if a in c["arms"])
                            for a in sorted(arms)},
         "max_failed_accepted": max_failed,
@@ -616,6 +946,12 @@ def seal(batch: Path, arms: dict[str, Path], horizon_days: int, *, lookup=otx_lo
         "lookups_failed_at_t": sum(1 for r in at_t.values()
                                    if r.get("state") == "error" and not _unjudgeable(r)),
         "unjudgeable": sum(1 for r in at_t.values() if _unjudgeable(r)),
+        # When the arms ran: the window the claims come from, and how fresh the
+        # seeds still were (rule 1 refuses past 48 h). Times, no value.
+        "runs": {"first_started_at": starts[0] if starts else None,
+                 "last_started_at": starts[-1] if starts else None,
+                 "max_hours_after_first_seen": round(max(hours), 1) if hours else None,
+                 "unstamped_arms": unstamped},
     }
     _dump(batch / "commitment.json", commitment)
     return commitment
@@ -851,6 +1187,18 @@ def _arms(values: list[str]) -> dict[str, Path]:
     return arms
 
 
+def _drops(values: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for v in values:
+        label, sep, reason = v.partition("=")
+        if not sep or not label.strip():
+            raise ValueError(f"--drop takes LABEL=<reason>, got {v!r}")
+        if label.strip() in out:
+            raise ValueError(f"seed {label.strip()} dropped twice")
+        out[label.strip()] = reason
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -866,6 +1214,16 @@ def main(argv=None) -> int:
                                      "then seal with --arm pivot-1=<dir>")
     v.add_argument("--batch", type=Path, required=True)
     v.add_argument("--out", type=Path, required=True, help="the arm directory (<label>/graph.json)")
+    b = sub.add_parser("bounce", help="fill the Bounce-CTI arm: one investigation per seed on the server, "
+                                      "one at a time, graphs of the runs that ended done; run it again to "
+                                      "pick up where it stopped")
+    b.add_argument("--batch", type=Path, required=True)
+    b.add_argument("--out", type=Path, required=True, help="the arm directory (<label>/graph.json + bounce.json)")
+    b.add_argument("--model", default=BOUNCE_MODEL, help=f"server model alias (default {BOUNCE_MODEL})")
+    b.add_argument("--context-pool", action="store_true",
+                   help="the Bounce-CTI-with-web arm (context_pool: true; use another --out)")
+    b.add_argument("--max-minutes", type=float, default=BOUNCE_MAX_WAIT_S / 60,
+                   help="how long to wait for one run before giving the hand back (default 150)")
     s = sub.add_parser("seal")
     s.add_argument("--batch", type=Path, required=True)
     s.add_argument("--arm", action="append", required=True, help="name=<dir with <label>/graph.json>")
@@ -874,6 +1232,12 @@ def main(argv=None) -> int:
                    help=f"a second pre-registered horizon (default {SECONDARY_HORIZON_DAYS}; 0: none)")
     s.add_argument("--max-failed", type=int, default=0,
                    help="failed lookups at T accepted before sealing (default 0: none)")
+    s.add_argument("--drop", action="append", default=[], metavar="LABEL=REASON",
+                   help="leave a seed out at the seal (the contamination rule: its web run read a write-up "
+                        "about it); seeds.json is never edited. Recorded in the manifest and the commitment")
+    s.add_argument("--allow-unstamped", action="store_true",
+                   help="seal an arm that does not say when its runs started (rule 1 unchecked for it; "
+                        "listed in the commitment)")
     c = sub.add_parser("check")
     c.add_argument("--batch", type=Path, required=True)
     c.add_argument("--early", action="store_true", help="check before the horizon (provisional)")
@@ -881,7 +1245,7 @@ def main(argv=None) -> int:
     for p in (s, c):
         p.add_argument("--pause", type=float, default=PAUSE_S,
                        help=f"seconds between lookups (default {PAUSE_S}: the keyless OTX limit)")
-    for p in (d, f, v, s, c):
+    for p in (d, f, v, b, s, c):
         p.add_argument("--server", help="the Bounce-CTI server (judge v2 and fresh seeds), "
                                         "e.g. https://cti.alexandre-pinoteau.fr")
         p.add_argument("--cookies", type=Path, help="cookie jar holding an admin session (curl -c)")
@@ -897,8 +1261,8 @@ def main(argv=None) -> int:
 
     try:
         server = None
-        if args.cmd in ("seeds", "preflight", "pivot", "seal", "check"):
-            if args.cmd in ("seeds", "preflight", "pivot") and not args.server:
+        if args.cmd in ("seeds", "preflight", "pivot", "bounce", "seal", "check"):
+            if args.cmd in ("seeds", "preflight", "pivot", "bounce") and not args.server:
                 raise ValueError(f"{args.cmd} needs --server and --cookies")
             if args.server:
                 if not args.cookies:
@@ -930,6 +1294,26 @@ def main(argv=None) -> int:
             for lab, tools in doc["tools_failed"].items():
                 print(f"{lab}: tools that failed: {', '.join(tools)}", file=sys.stderr)
             return 0
+        if args.cmd == "bounce":
+            base, op = server
+
+            def row_of(inv_id):
+                rows = server_call(base, "/api/investigations", opener=op)
+                return next((r for r in rows if isinstance(r, dict) and r.get("id") == inv_id), None)
+
+            stamp = fill_bounce(
+                args.batch, args.out, model=args.model, context_pool=args.context_pool,
+                max_wait_s=args.max_minutes * 60,
+                find=lambda seed, model, since: find_submitted(
+                    server_call(base, "/api/investigations", opener=op), seed, model, since),
+                start=lambda body: server_call(base, "/api/investigations", opener=op, body=body),
+                row_of=row_of,
+                resume=lambda i: server_call(base, f"/api/investigations/{i}/resume", opener=op, body={}),
+                stop=lambda i: server_call(base, f"/api/investigations/{i}/stop", opener=op, body={}),
+                graph_of=lambda i: server_call(base, f"/api/investigations/{i}/graph", opener=op))
+            print(f"{BOUNCE_ARM}: {len(stamp['runs'])} runs done → {args.out}; then the web arm, pivot, "
+                  f"and seal with --arm {BOUNCE_ARM}={args.out}")
+            return 0
         if args.cmd == "preflight":
             res = preflight(args.batch, lookup_all=v2["lookup_all"], lookup_entries=v2["lookup_entries"])
             for lab, secs in res["seeds"].items():
@@ -949,7 +1333,8 @@ def main(argv=None) -> int:
         if args.cmd == "seal":
             commitment = seal(args.batch, _arms(args.arm), args.horizon_days, lookup=lookup,
                               secondary_days=args.secondary_horizon_days,
-                              pause_s=args.pause, max_failed=args.max_failed, **v2)
+                              pause_s=args.pause, max_failed=args.max_failed,
+                              allow_unstamped=args.allow_unstamped, drop=_drops(args.drop), **v2)
             print(json.dumps(commitment, indent=2))
             if commitment["lookups_failed_at_t"]:
                 print(f"warning: {commitment['lookups_failed_at_t']} lookups failed at T; those "
@@ -986,6 +1371,9 @@ def main(argv=None) -> int:
     except JudgeUnavailable as e:
         print(str(e), file=sys.stderr)
         return EXIT_JUDGE
+    except ArmIncomplete as e:
+        print(str(e), file=sys.stderr)
+        return EXIT_ARM
     except urllib.error.HTTPError as e:
         print(f"error: the server answered HTTP {e.code} ({e.reason})", file=sys.stderr)
         return EXIT_USAGE

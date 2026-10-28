@@ -444,6 +444,10 @@ def load_seeds(path: Path) -> dict:
     return seeds
 
 
+def _utc_iso(epoch: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+
+
 def run_case(label: str, arm: str, model: str, out: Path, claude_bin: str,
              seeds: dict | None = None) -> dict:
     case, negative, dname = case_for(label, seeds)
@@ -469,11 +473,15 @@ def run_case(label: str, arm: str, model: str, out: Path, claude_bin: str,
     (d / "answer.json").write_text(json.dumps(answer, indent=2), encoding="utf-8")
     (d / "graph.json").write_text(json.dumps(graph), encoding="utf-8")
     (d / "transcript.json").write_text(json.dumps(to_transcript(parsed)), encoding="utf-8")
+    finished = time.time()
     meta = {
         "case": label, "arm": arm, "model_requested": model, "model": parsed["model"],
         "prompt_sha": prompt_sha(prompt),
+        # UTC, to the second: prospective.py seal checks a prospective seed's run
+        # started within 48 h of its first listing (EVAL_PROTOCOL §4.E rule 1).
+        "started_at": _utc_iso(started), "finished_at": _utc_iso(finished),
         "cli": parsed["cli"], "tools_offered": parsed["tools"], "rc": proc.returncode,
-        "timed_out": timed_out, "wall_s": round(time.time() - started, 1),
+        "timed_out": timed_out, "wall_s": round(finished - started, 1),
         "num_turns": parsed["num_turns"], "result_subtype": parsed["result_subtype"],
         "is_error": parsed["is_error"], "answer_parsed": answer is not None,
         "tool_calls": [c["name"] for c in parsed["tool_calls"]], "hosts_read": hosts_read(parsed),
