@@ -372,7 +372,9 @@ eval/baseline.py        # Bare-model baseline (EVAL_PROTOCOL §4.D): run --arm m
                         #   gives each seed to the same model with no Bounce-CTI tool
                         #   (empty cwd, no MCP, filtered env); compare scores every side
                         #   with eval/scorer.py itself (score_case(case, out_dir)).
-                        #   run --seeds <batch>/seeds.json runs a prospective batch.
+                        #   run --seeds <batch>/seeds.json runs a prospective batch
+                        #   (each run.json says started_at / finished_at, UTC: seal
+                        #   checks rule 1 on it).
                         #   Stdlib only
 eval/baseline/<date>/   # Committed baseline results: results.json (scores, models,
                         #   hosts the web arm read) + results.md. No raw answers
@@ -394,6 +396,16 @@ eval/prospective.py     # Prospective cases (EVAL_PROTOCOL §4.E): seal <batch> 
                         #   where score refuses a blind search). An abuse.ch listing dated
                         #   before the seal scores known (known_late), not ahead.
                         #   Secondary horizon 30 days pre-registered.
+                        #   `bounce` fills the Bounce-CTI arm through the server: one
+                        #   investigation per seed (opus-5), ONE AT A TIME, resumed (≤2)
+                        #   after quota_exceeded / error: interrupted, graph written only
+                        #   when done, bounce.json recording each run at submission (rerun
+                        #   = pick up, never resubmit; exit 5 while a run is not done).
+                        #   seal reads each run's start (bounce.json, pivot-1.json, the
+                        #   web arm's run.json started_at) and refuses a start > 48 h after
+                        #   the seed's first_seen (rule 1 at run time), a run not done, a
+                        #   web run with no answer, an arm with no start times (unless
+                        #   --allow-unstamped, listed in the commitment)
                         #   backend/tests/test_sources_read_only.py: sources only read
 deploy.sh               # Auto-deploy script (callable on the VPS)
 Dockerfile              # Local one-image run (not used by prod): frontend build

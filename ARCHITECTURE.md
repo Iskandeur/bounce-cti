@@ -976,7 +976,7 @@ Stdlib only, not part of the running service; locked by
 runs a prospective batch's seeds instead of `cases.py`'s (next section).
 
 ### `eval/prospective.py` → `<batch>/`
-Prospective cases (EVAL_PROTOCOL §4.E): fresh seeds, every arm run in the same
+Prospective cases (EVAL_PROTOCOL §4.E): fresh seeds, every arm run in one
 window, judged after a horizon by what an independent feed lists later. `seal`
 reads `<batch>/seeds.json` and one `<arm>/<label>/graph.json` per arm and seed,
 keeps as claims what `backend.action_exports._iter_actionable` would ship
@@ -989,9 +989,30 @@ undetermined and gives per arm `ahead_share` and a pooled recall. Both refuse a
 manifest whose hash is not the committed one (exit 1). Judge v1: OTX pulses,
 keyless, a domain asked under `hostname` and `domain`, 3 s between requests; a
 failed lookup is undetermined, never "in no pulse", and a lookup failed at T
-seals nothing (exit 4: seal again later, or with `OTX_API_KEY`). Stdlib plus
+seals nothing (exit 4: seal again later, or with `OTX_API_KEY`). Before any
+lookup, `seal` reads when each seed's run of each arm started (`bounce.json`,
+`pivot-1.json`, or baseline.py's `<label>/run.json` `started_at`) and refuses a
+start more than 48 h after the seed's `first_seen` (rule 1 at run time) or
+outside [first listed, seal], a Bounce-CTI run not `done` (or a `bounce.json`
+filled for other seeds), a web run that ended
+without an answer, and an arm with no start times unless `--allow-unstamped`.
+The starts go into the manifest (`arms.<arm>.runs`), the window into the
+commitment (`runs`). Stdlib plus
 `backend.action_exports` and `backend.eval_judge`, not part of the running
-service; locked by `backend/tests/test_eval_prospective.py`.
+service; locked by `backend/tests/test_eval_prospective.py` and
+`test_eval_prospective_arms.py`.
+
+`bounce --batch <b> --out <dir>` fills the Bounce-CTI arm through the server:
+`POST /api/investigations` per seed (opus-5, `vertical: cti`, optionally
+`context_pool: true`), one at a time (the runs spend the operator's
+subscription), its row in `GET /api/investigations` polled until it ends,
+`POST /resume` (at most twice) after `quota_exceeded` or `error: interrupted`,
+and `GET /api/investigations/{id}/graph` written only for a run that ended
+`done`. `<dir>/bounce.json` records each run at submission (server id, the
+server's start time, status, resumes), so a second call picks up where the
+first stopped and never submits a seed twice; exit 5 while a run is not done.
+A server briefly out of reach (connection refused, a 5xx during a restart) is
+polled through; a 4xx (an expired session) stops the command.
 
 With `--server <url> --cookies <jar>` (an admin session), the batch uses the
 server: `seeds` asks `GET /api/admin/eval/fresh_iocs` and picks by a fixed rule

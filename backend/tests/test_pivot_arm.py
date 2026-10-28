@@ -201,6 +201,7 @@ def _other_arm(tmp_path):
         (d / lab / "graph.json").write_text(json.dumps({"nodes": [
             {"type": "domain", "value": seed, "tags": ["seed"]},
             {"type": "domain", "value": "c2.evil-example.com", "tags": []}], "edges": []}))
+        (d / lab / "run.json").write_text(json.dumps({"started_at": "2026-10-28T11:30:00Z"}))
     return d
 
 

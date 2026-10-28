@@ -77,17 +77,28 @@ model only read on the web counts as found.
 
 ## Prospective cases (no write-up yet, EVAL_PROTOCOL §4.E)
 
-Seeds picked when first listed, every arm run in the same hour, judged after a
-horizon by what OTX lists later. The seeding rules and the contamination rule
-are in §4.E: write the batch's `seeds.json` before any run.
+Seeds picked when first listed, every arm run in the same window, judged after a
+horizon by what an independent feed lists later. The seeding rules and the
+contamination rule are in §4.E: the code writes the batch's `seeds.json` before
+any run.
 
 ```bash
-B=/path/outside/the/repo/batch-2026-10-26        # holds seeds.json
-# Bounce-CTI: one investigation per seed (opus-5, admin session), then each
-# graph to $B-bounce/<label>/graph.json (GET /api/investigations/<id>/graph).
+B=/path/outside/the/repo/lot1                    # the batch: seeds.json, then the seal
+S="--server https://cti.alexandre-pinoteau.fr --cookies <admin jar>"
+python3 eval/prospective.py seeds --batch $B $S --n 6     # once
+python3 eval/prospective.py preflight --batch $B $S       # must exit 0 before any run
+# Bounce-CTI: one investigation per seed on opus-5, ONE AT A TIME (~30 min each).
+# Exit 5 = a run did not end done or is still going: run it again, it picks up
+# where it stopped and never submits a seed twice. No bounce-cti merge meanwhile:
+# a deploy restarts the service (the run is resumed, and the resume is recorded).
+python3 eval/prospective.py bounce --batch $B --out $B-bounce $S
 python3 eval/baseline.py run --arm web --model claude-opus-5 --out $B-base \
-    --seeds $B/seeds.json P1 P2 P3
-python3 eval/prospective.py seal --batch $B --arm bounce=$B-bounce --arm web=$B-base/web
+    --seeds $B/seeds.json P1 P2 P3 P4 P5 P6
+python3 eval/prospective.py pivot --batch $B --out $B-pivot $S   # last: seal within the hour
+python3 eval/prospective.py seal --batch $B --arm bounce=$B-bounce --arm web=$B-base/web \
+    --arm pivot-1=$B-pivot $S
+# seal refuses a run started over 48 h after its seed was first listed, a Bounce-CTI
+# run not done, and a web run without an answer.
 # copy $B/commitment.json to eval/prospective/<batch>/ and commit it TODAY
 # (sha256 + counts, no value): its commit date is the pre-registration
 python3 eval/prospective.py check --batch $B          # after due_at (exit 3 before)
