@@ -3,7 +3,9 @@
 Each `<name>.json` here is one investigation frozen for the static demo
 (`cd frontend && npm run build:demo` → `frontend/dist-demo/`, `?case=<name>`
 picks one, otherwise the first by name). What a snapshot holds and leaves out:
-`backend/demo_snapshot.py`.
+`backend/demo_snapshot.py`. To look at it: `npm run preview:demo`, then the
+address it prints. A double-clicked `index.html` stays on a hint: browsers
+refuse its scripts and the snapshot fetch on `file://`.
 
 ## Making one
 

@@ -1100,6 +1100,11 @@ no API key (roadmap J3).
   `frontend/demo/index.html` → `src/demo.jsx` → `SharedView` with `demoSrc`,
   and copies `eval/demo/*.json` to `dist-demo/data/` (`?case=<name>` picks one).
   The app build (`vite.config.js`, served by FastAPI) is unchanged.
+  It must be served over HTTP: `npm run preview:demo` (127.0.0.1). Opened from
+  disk (`file://`), the browser refuses its module script and the snapshot
+  fetch, so `demo/index.html` carries a hint inside `#root`, unhidden by an
+  inline classic script only on `file:` (React replaces it over HTTP; pinned by
+  `backend/tests/test_demo_page_offline.py`).
   `.github/workflows/demo-pages.yml` publishes it to GitHub Pages, **by hand
   only** (`workflow_dispatch`), and refuses a build with no snapshot.
 
