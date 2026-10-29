@@ -11,7 +11,23 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="file-hint" hidden style="max-width:40rem;margin:4rem auto;padding:0 1.5rem;font:16px/1.5 system-ui,sans-serif">
+        <h1 style="font-size:1.25rem">Bounce-CTI demo: serve this folder over HTTP</h1>
+        <p>Browsers do not run this page's scripts when it is opened from disk (a <code>file://</code> address), so nothing else would show.</p>
+        <p>From this folder: <code>python3 -m http.server 8000 --bind 127.0.0.1</code>, then open
+          <a href="http://127.0.0.1:8000/">http://127.0.0.1:8000/</a>. No network and no API key are needed.</p>
+      </div>
+      <noscript>
+        <p style="max-width:40rem;margin:4rem auto;padding:0 1.5rem;font:16px/1.5 system-ui,sans-serif">The Bounce-CTI demo needs JavaScript.</p>
+      </noscript>
+    </div>
+    <script>
+      // A double-clicked index.html is a file:// page: the browser refuses the
+      // module script below and the page stays blank. An inline classic script
+      // still runs there, so it is the one place that can say what to do.
+      if (location.protocol === 'file:') document.getElementById('file-hint').hidden = false
+    </script>
     <script type="module" src="../src/demo.jsx"></script>
   </body>
 </html>
