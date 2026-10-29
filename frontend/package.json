@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "vite build",
     "build:demo": "vite build --config vite.demo.config.js",
-    "preview:demo": "vite preview --config vite.demo.config.js --host 127.0.0.1",
     "preview": "vite preview"
   },
   "dependencies": {

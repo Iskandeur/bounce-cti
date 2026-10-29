@@ -49,9 +49,10 @@ only once a source corroborates it. Asset provenance and licenses:
 (in `frontend/`) builds a static, read-only page from the investigations frozen
 in [`eval/demo/`](eval/demo/README.md): the graph, the report and the agent's
 timeline, exactly as a share link shows them, with no backend and no API key.
-`npm run preview:demo` then serves it on 127.0.0.1 and prints the address
-(http://127.0.0.1:4173/ unless that port is taken; no network needed). Opened straight from disk, the page cannot load and says so: browsers
-do not run its scripts on a `file://` address.
+Serve the folder to open it, with no network:
+`python3 -m http.server 8000 --bind 127.0.0.1 --directory frontend/dist-demo`,
+then http://127.0.0.1:8000/. Opened straight from disk, the page cannot load and
+says so: browsers do not run its scripts on a `file://` address.
 
 ## Features
 

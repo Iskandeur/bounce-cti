@@ -350,13 +350,14 @@ frontend/
     styles.css
   demo/index.html       # Static demo page (vite.demo.config.js). Opened from
                         #   disk (file://) its module script never runs: a hint
-                        #   in #root, unhidden on file: only, says to serve it
-                        #   (test_demo_page_offline.py)
+                        #   in #root, unhidden on file: only, says to serve it;
+                        #   a <noscript> if JS is off (test_demo_page_offline.py)
   vite.config.js        # Dev proxy: /api→:8001, /ws→ws://:8001
   vite.demo.config.js   # `npm run build:demo` → dist-demo/: SharedView + every
                         #   eval/demo/*.json copied to data/, relative base (any
                         #   static host). The app build is untouched by it.
-                        #   `npm run preview:demo` serves it on 127.0.0.1
+                        #   Open it served (python3 -m http.server --bind
+                        #   127.0.0.1 --directory dist-demo), never from disk
 data/                   # Runtime data (gitignored)
   bounce.db             # SQLite database
   secret.key            # HMAC key for PIN auth
