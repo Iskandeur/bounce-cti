@@ -140,6 +140,12 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   tags, then `action_exports._iter_actionable`). Answers a `graph.json`
   (`nodes`, `edges`, `metadata.tools`: one status per tool, a failed tool is
   shown, never an empty answer); 422 for a type with no mandatory tools
+- `POST /api/admin/criminalip/probe` — admin only — `{"domain"}`: GETs the
+  candidate Criminal IP domain-report paths (`/v1/domain/report`,
+  `/v1/domain/reports`) with the server's key; answers per path the HTTP status
+  and the shape of the response (keys and types, never a value or the key); 503-free,
+  `{"error"}` without a key. Never the scan endpoint. Until a path is confirmed
+  (`criminalip.DOMAIN_READ_PATH`), `criminalip_domain` is mute (no request).
 - `POST /api/admin/eval/judge` — admin only — judge v2 (`otx+abusech/2`) on
   `{"claims": [{"type", "value"}]}`, at most 20 a request: OTX with the
   server's key, ThreatFox, URLhaus, MalwareBazaar, exact match, live, with

@@ -429,7 +429,21 @@ def admin_eval_judge(req: EvalJudgeReq, _: int = Depends(current_admin)):
     return doc
 
 
-# ── Core routes (all scoped to user_id) ────────────────────────────────────
+class CriminalIPProbeReq(BaseModel):
+    domain: str
+
+
+@app.post("/api/admin/criminalip/probe")
+async def admin_criminalip_probe(req: CriminalIPProbeReq, _: int = Depends(current_admin)):
+    """Read-only diagnostic: GETs the candidate Criminal IP domain-report paths
+    with the server's key and answers, per path, the HTTP status and the shape
+    of the response (keys and types, no value, no key). The POST only carries
+    the body; upstream is GET only, never the scan endpoint."""
+    from .sources import criminalip
+    return await criminalip.probe_domain_paths(req.domain.strip().lower())
+
+
+# ── Core routes (all scoped to user_id)────────────────────────────────────
 def _require_owner(inv_id: str, user_id: int):
     owner = gs.get_investigation_owner(inv_id)
     # owner may be None for legacy investigations; only the user's own ones are accessible
