@@ -43,6 +43,7 @@ SUBMISSION_MARKERS = (
     "/api/v2/report",                # AbuseIPDB: reporting an IP
     "/submit",                       # Hybrid Analysis, PhishTank add, generic
     "json_data",                     # MalwareBazaar upload form
+    "domain/scan",                   # Criminal IP: submits a scan (a GET answers 405)
 )
 WRITE_METHODS = {"post", "put", "patch", "delete"}
 WRITE_HELPERS = {"post_json", "post_form"}
@@ -190,5 +191,7 @@ def test_the_check_catches_each_kind_of_submission():
 def test_the_reads_in_use_today_pass():
     ok = 'async def f(h):\n    return await post_form("https://mb-api.abuse.ch/api/v1/", form_data={"query": "get_info", "hash": h})\n'
     assert findings(Path("snippet.py"), ok + "# abuse.ch\n") == []
-    get = '_BASE = "https://api.criminalip.io/v1"\nasync def f(d):\n    return await get_json(f"{_BASE}/domain/scan")\n'
-    assert findings(Path("snippet.py"), get) == []  # a GET is not a submission (it answers 405, see the note)
+    get = '_BASE = "https://api.criminalip.io/v1"\nasync def f(d):\n    return await get_json(f"{_BASE}/domain/report")\n'
+    assert findings(Path("snippet.py"), get) == []
+    scan_get = get.replace("/domain/report", "/domain/scan")
+    assert findings(Path("snippet.py"), scan_get), "the scan endpoint is refused even by GET"
