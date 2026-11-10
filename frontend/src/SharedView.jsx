@@ -24,7 +24,7 @@ function iocString(v) {
   return String(v)
 }
 
-// Same rules as App.jsx (isAuxReportNode / addCyNode): the agent's internal
+// Same rules as lib/graph.js (isAuxReportNode / toCyNodeData): the agent's internal
 // report nodes stay off the canvas, and a hash or command line is labelled by
 // its file name or preview rather than a truncated digest.
 function isAuxReportNode(n) {

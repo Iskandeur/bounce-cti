@@ -1116,7 +1116,10 @@ switching is local state.
 | File              | Responsibility                                                                            |
 |-------------------|-------------------------------------------------------------------------------------------|
 | `main.jsx`        | React entrypoint                                                                          |
-| `App.jsx`         | Main app: Cytoscape canvas, sidebar (investigations + new-seed form), report/chat/node panels, agent event log, mobile drawers |
+| `App.jsx`         | `MainApp`: owns the graph state, the Cytoscape instance, the WebSocket event pump and the investigation actions, and composes the panels; `AppRoot` routes between login, share link and app |
+| `components/`     | Panels fed by `MainApp` through props: `Sidebar` (`NewInvestigationForm`, `InvestigationHistory`, `AddSeedPanel`, `AgentLog`), `GraphPane` (canvas, toolbar, filter chips), `ReportTab` (`LeadsCard`, `HypothesisCard`, `BudgetLog`), `NodeTab` (`StaticAnalysis`), `TimelineTab`, `ActionsPanel`, `ChatTab`, `PromptBox`, `PickedChips`, `HighlightedText` |
+| `hooks/`          | State slices of `MainApp`: `useRunSettings`, `useNewInvestigation`, `useNodeData` (lead stats, cross-investigation hits, node note), `useQuota`, `usePanelResize`, `useTheme`, `useIsMobile`, `useServerReconnect` |
+| `lib/`            | Pure modules: `constants`, `ioc` (refang, IOC type detection, subdomain vertical), `graph` (Cytoscape stylesheet, layout options, node data), `timeline`, `reportMarkdown`, `format` |
 | `Login.jsx`       | PIN login                                                                                 |
 | `AdminPanel.jsx`  | Admin dashboard: users, allowed-models per user, impersonation                            |
 | `ShareModal.jsx`  | Build a share link (section opt-in + expiry + label)                                      |
