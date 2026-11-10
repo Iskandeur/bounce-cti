@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { NODE_COLORS } from '../lib/constants.js'
+import CopyLabel from './CopyLabel.jsx'
 
 // Graph canvas with its toolbar (search, layout, display toggles, exports) and
 // the node-type / edge-relation filter chips.
@@ -78,7 +79,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             ? `Copy ${pickedIds.size} selected node(s) as JSON`
             : `Copy all ${nodeCount} node(s) as JSON — ctrl+click nodes to narrow`}
         >
-          {copied ? '✓ copied' : `↓ JSON (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}
+          <CopyLabel done={copied === 'graph-json'}>{`↓ JSON (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}</CopyLabel>
         </button>
         <button
           className="toolbar-btn hide-on-mobile"
@@ -88,7 +89,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             ? `Copy ${pickedIds.size} selected node(s) in Maltego paste format`
             : `Copy all ${nodeCount} node(s) in Maltego paste format — ctrl+click nodes to narrow`}
         >
-          {copied ? '✓ copied' : `⟶ Maltego (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}
+          <CopyLabel done={copied === 'maltego'}>{`⟶ Maltego (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}</CopyLabel>
         </button>
         {pickedIds.size > 0 && (
           <button

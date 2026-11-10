@@ -64,7 +64,15 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // Per-investigation budget-extension log entries (R4). Internal accounting
   // — kept off the graph and shown compactly in the Report tab.
   const [budgetLog, setBudgetLog] = useState([])
-  const [copied, setCopied] = useState(false)
+  // Which copy button just fired ('graph-json', 'maltego', 'report-md',
+  // 'node-json', 'text'), so only that one shows "copied".
+  const [copied, setCopied] = useState(null)
+  const copiedTimer = useRef(null)
+  const flashCopied = (key) => {
+    setCopied(key)
+    clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopied(null), 1500)
+  }
   const [nodeValues, setNodeValues] = useState(new Map())
   const [filterTypes, setFilterTypes] = useState(new Set())
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
@@ -700,8 +708,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       type: n.type, value: n.value, tags: n.tags,
       source: n.source, confidence: n.confidence, metadata: n.metadata
     }, null, 2))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    flashCopied('node-json')
   }
 
   // Return the cytoscape node collection to export / copy:
@@ -736,8 +743,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         relation: e.data('relation'), evidence: e.data('evidence'),
       }))
     navigator.clipboard.writeText(JSON.stringify({ nodes, edges }, null, 2))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    flashCopied('graph-json')
   }
 
   // Build Maltego-paste text: one `<entity_type>#<value>` per line.
@@ -755,8 +761,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     })
     if (lines.length === 0) return
     navigator.clipboard.writeText(lines.join('\n'))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    flashCopied('maltego')
   }
 
   // ── pivot ─────────────────────────────────────────────────────────────────
@@ -850,15 +855,13 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const copyReportMarkdown = () => {
     if (!report) return
     navigator.clipboard.writeText(reportToMarkdown(report, activeVertical))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    flashCopied('report-md')
   }
 
   const copyText = (txt) => {
     if (!txt) return
     navigator.clipboard.writeText(String(txt))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    flashCopied('text')
   }
 
   // ── Graph IOC search ────────────────────────────────────────────────────
