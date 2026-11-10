@@ -871,7 +871,7 @@ def get_node_by_id(inv_id: str, node_id: str) -> Optional[dict]:
 def get_evidence_for_value(value: str) -> list[dict]:
     """Search the cache table for entries whose key contains the given value.
 
-    Returns a list of {key, value, created_at} dicts with the raw cached data.
+    Returns a list of {cache_key, data, cached_at} dicts with the raw cached data.
     This lets analysts audit what the CTI sources actually returned.
     """
     with conn() as c:
@@ -881,12 +881,16 @@ def get_evidence_for_value(value: str) -> list[dict]:
         ).fetchall()
     out = []
     for r in rows:
+        # The cache also holds bookkeeping rows (counters, source health):
+        # those are not a source's answer.
+        if not fixtures.is_source_key(r["key"]):
+            continue
         try:
             parsed = json.loads(r["value"])
         except (json.JSONDecodeError, TypeError):
             parsed = r["value"]
         out.append({
-            "cache_key": r["cache_key"],
+            "cache_key": r["key"],
             "data": parsed,
             "cached_at": r["created_at"],
         })
