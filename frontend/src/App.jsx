@@ -905,7 +905,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     const current = cy.$(':selected')
     let target = matches[0]
     if (current.length) {
-      const idx = matches.indexOf(current[0])
+      // cytoscape's indexOf throws when the element is outside the collection
+      // (a selected edge, or a node that does not match the search).
+      const idx = matches.toArray().findIndex(m => m.id() === current[0].id())
       if (idx >= 0 && idx + 1 < matches.length) target = matches[idx + 1]
       else target = matches[0]
     }
