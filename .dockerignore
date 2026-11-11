@@ -16,6 +16,8 @@ venv/
 **/node_modules/
 frontend/dist/
 frontend/dist-demo/
+frontend/test-results/
+frontend/playwright-report/
 .vite/
 .claude/
 media/

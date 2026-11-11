@@ -285,7 +285,9 @@ enter the project under Apache-2.0, like the rest of the code; there is no CLA
 to sign. A CI merge-gate must pass before any PR is
 merged, since `main` deploys straight to production: the backend imports on
 production's Python (3.12) and its tests pass on 3.11 and 3.12, the frontend
-builds, and the Docker image builds and boots. Actions are pinned to commit
+builds and passes its browser suite (`cd frontend && npm run test:e2e`, no
+backend needed, see [`frontend/e2e/README.md`](./frontend/e2e/README.md)), and
+the Docker image builds and boots. Actions are pinned to commit
 SHAs, and Dependabot proposes the updates once a month.
 
 ## Deployment

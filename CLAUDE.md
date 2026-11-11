@@ -371,6 +371,15 @@ frontend/
                         #   disk (file://) its module script never runs: a hint
                         #   in #root, unhidden on file: only, says to serve it;
                         #   a <noscript> if JS is off (test_demo_page_offline.py)
+  e2e/                  # Browser suite (Playwright, Chromium), no backend: mockApi.js
+                        #   answers /api/ and the /ws/<id> WebSocket from the
+                        #   hand-written, synthetic fixtures/data.js. harness.js fails
+                        #   a test on an /api/ call with no mock and on an uncaught
+                        #   page error. a11y-baseline.js lists the axe rules violated
+                        #   today (a rule outside it fails). `npm run test:e2e`;
+                        #   what it leaves out is in e2e/README.md
+  playwright.config.js  # Starts the Vite dev server for the suite (127.0.0.1:5199,
+                        #   --strictPort, never an already-running one)
   vite.config.js        # Dev proxy: /api→:8001, /ws→ws://:8001
   vite.demo.config.js   # `npm run build:demo` → dist-demo/: SharedView + every
                         #   eval/demo/*.json copied to data/, relative base (any
@@ -505,6 +514,11 @@ Because `main` deploys straight to prod, a merge-gate runs on every PR to `main`
 - **`frontend-build`** — on Node 22 (the image's), `npm ci` + `npm run build`
   (catches a broken frontend), then `npm run build:demo` (the static demo still
   builds, snapshots or not).
+- **`frontend-e2e`** ("Frontend end-to-end") — on Node 22, `npm ci`,
+  `npx playwright install --with-deps chromium`, `npm run test:e2e`: the browser
+  suite of `frontend/e2e/` against the Vite dev server, API and WebSocket mocked
+  (no backend). A new `/api/` call in the frontend needs a fixture there, and a
+  new axe rule violation fails it.
 - **`docker-image`** — builds the image and boots it with no `.env`: the app
   answers, the bootstrap admin (a random `ADMIN_PIN`) logs in, the process runs
   as uid 10001 and the `claude` CLI is on its PATH. It proves packaging, not

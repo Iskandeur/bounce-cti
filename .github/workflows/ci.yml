@@ -3,7 +3,8 @@ name: CI merge-gate
 # Guards `main` against breaking commits. Production deploys on every push to
 # `main` (see deploy.yml) with no staging, so this gate must pass before merge:
 # it fails if the backend does not import or pass its tests, if the frontend
-# does not build, or if the Docker image does not build and boot.
+# does not build or fails its browser suite, or if the Docker image does not
+# build and boot.
 #
 # Two job names are load-bearing: the repository ruleset on `main` requires the
 # checks "Backend imports" and "Frontend builds" BY NAME. Renaming either job (a
@@ -87,6 +88,34 @@ jobs:
       - name: Build the static demo
         working-directory: frontend
         run: npm run build:demo
+
+  frontend-e2e:
+    name: Frontend end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # Same Node as the frontend build (node:22-slim in the Dockerfile).
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Chromium
+        # The Chromium of the Playwright version package-lock.json pins, with the
+        # system libraries it needs.
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Browser suite
+        # No backend: Playwright starts the Vite dev server and the tests answer
+        # /api/ and /ws/ themselves (frontend/e2e/README.md).
+        working-directory: frontend
+        run: npm run test:e2e
 
   docker-image:
     name: Docker image builds and boots
