@@ -490,7 +490,8 @@ def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
                                                      "confidence": confidence, "source": source,
                                                      "created_at": now}}
         except sqlite3.IntegrityError:
-            row = c.execute("SELECT metadata, tags, created_at FROM nodes WHERE id=?", (nid,)).fetchone()
+            row = c.execute("SELECT metadata, tags, created_at, source, confidence FROM nodes WHERE id=?",
+                            (nid,)).fetchone()
             existing_md = json.loads(row["metadata"] or "{}")
             original_created_at = row["created_at"]
             # Save old sources_seen before update() overwrites it
@@ -506,9 +507,12 @@ def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
             existing_tags = list(existing_tag_set | set(incoming))
             c.execute("UPDATE nodes SET metadata=?, tags=? WHERE id=?",
                       (json.dumps(existing_md), json.dumps(existing_tags), nid))
+            # The event describes the stored row. An upsert merges metadata, tags
+            # and sources_seen; `source` and `confidence` stay those of the first
+            # report, so a live client and a reload show the same node.
             event = {"kind": "node_updated", "node": {"id": nid, "type": type_, "value": value,
                                                        "metadata": existing_md, "tags": existing_tags,
-                                                       "confidence": confidence, "source": source,
+                                                       "confidence": row["confidence"], "source": row["source"],
                                                        "created_at": original_created_at}}
         c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
                   (inv_id, event["kind"], json.dumps(event), now))

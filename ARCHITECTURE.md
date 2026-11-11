@@ -342,7 +342,10 @@ SQLite-backed store. Tables:
 | `quota_state`    | single-row table (`id=1`): `exhausted_until` (epoch), `message`, `last_seen` — Claude-subscription cooldown shared across the host account |
 
 Node IDs are SHA1 hashes of `(investigation_id, type, value)` (lower-cased) —
-so upserts are idempotent.
+so upserts are idempotent. An upsert merges `metadata`, `tags` and
+`metadata.sources_seen`; `source`, `confidence` and `created_at` are written
+once, by the first report. The `node_updated` event carries those stored
+values, so a live client and a reload show the same source and confidence.
 
 `canonical_node_type(type, value, metadata)` disambiguates the TLS-fingerprint
 node types agents tend to conflate: `jarm` (62-hex active server fingerprint)
