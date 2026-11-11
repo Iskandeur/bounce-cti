@@ -1153,9 +1153,9 @@ switching is local state.
 |-------------------|-------------------------------------------------------------------------------------------|
 | `main.jsx`        | React entrypoint                                                                          |
 | `App.jsx`         | `MainApp`: owns the graph state, the Cytoscape instance, the WebSocket event pump and the investigation actions, and composes the panels; `AppRoot` routes between login, share link and app |
-| `components/`     | Panels fed by `MainApp` through props: `Sidebar` (`NewInvestigationForm`, `InvestigationHistory`, `AddSeedPanel`, `AgentLog`), `GraphPane` (canvas, toolbar, filter chips), `ReportTab` (`LeadsCard`, `HypothesisCard`, `BudgetLog`), `NodeTab` (`StaticAnalysis`), `TimelineTab`, `ActionsPanel`, `ChatTab`, `PromptBox`, `PickedChips`, `HighlightedText`, `CopyLabel` (the label of a copy button: both texts stacked, so the button keeps one width) |
-| `hooks/`          | State slices of `MainApp`: `useRunSettings`, `useNewInvestigation`, `useNodeData` (lead stats, cross-investigation hits, node note), `useQuota`, `usePanelResize`, `useTheme`, `useIsMobile`, `useServerReconnect` |
-| `lib/`            | Pure modules: `constants`, `ioc` (refang, IOC type detection, subdomain vertical), `graph` (Cytoscape stylesheet, layout options, node data), `timeline`, `reportMarkdown`, `format` |
+| `components/`     | Panels fed by `MainApp` through props: `Sidebar` (`NewInvestigationForm`, `InvestigationHistory`, `AddSeedPanel`, `AgentLog`), `GraphPane` (canvas, toolbar, filter chips), `GraphLegend` (opened on demand: the node types present, each in its shape and colour, and the border meanings present), `ReportTab` (`LeadsCard`, `HypothesisCard`, `BudgetLog`), `NodeTab` (`StaticAnalysis`), `TimelineTab`, `ActionsPanel`, `ChatTab`, `PromptBox`, `PickedChips`, `HighlightedText`, `CopyLabel` (the label of a copy button: both texts stacked, so the button keeps one width) |
+| `hooks/`          | State slices of `MainApp`: `useRunSettings`, `useNewInvestigation`, `useNodeData` (lead stats, cross-investigation hits, node note), `useQuota`, `usePanelResize`, `useTheme`, `useIsMobile`, `useServerReconnect`, `useGraphSummary` (node types, border meanings and defused count of the graph) |
+| `lib/`            | Pure modules: `constants`, `ioc` (refang, IOC type detection, subdomain vertical), `graph` (Cytoscape stylesheet, layout options, node data, the theme colours of the canvas, `isDefused`), `legend` (shape glyphs, border meanings, graph summary), `timeline`, `reportMarkdown`, `format` |
 | `Login.jsx`       | PIN login                                                                                 |
 | `AdminPanel.jsx`  | Admin dashboard: users, allowed-models per user, impersonation                            |
 | `ShareModal.jsx`  | Build a share link (section opt-in + expiry + label)                                      |
@@ -1186,8 +1186,13 @@ UI panels:
 1. **Left sidebar**: new investigation form (single seed or batch, PDF upload,
    model selector), investigation history, agent event log, share manager.
 2. **Center graph**: Cytoscape canvas + floating toolbar (Fit / Relayout /
-   Labels / Export / Copy-to-Maltego / STIX / PDF) + node-type filter chips +
-   edge-relation filter.
+   Labels / Pins / Notes / Defused / Export / Copy-to-Maltego / STIX / PDF) +
+   node-type filter chips + edge-relation filter + a legend opened from the
+   bottom-right corner. The canvas follows the light / dark theme. A node's
+   border says what it is (seed, tag, lead state, pinned); a ring marks the
+   selected node and the picked ones, a flat backdrop a search match. Node
+   types, relations and defused nodes are hidden by one stylesheet `display`
+   rule each; hidden nodes stay in the copies and the counts.
 3. **Right panel**: tabs — Report (investigation summary with clickable IOCs,
    finding cards with source chips, pivot suggestions), Chat (free-form
    custom-prompt history), Node (metadata, copy JSON, pivot/enrich, pin,

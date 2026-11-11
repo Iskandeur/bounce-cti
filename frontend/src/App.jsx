@@ -11,12 +11,13 @@ import { formatCountdown } from './lib/format.js'
 import { iocString, refang, detectIOCType } from './lib/ioc.js'
 import {
   buildCyStylesheet, INITIAL_LAYOUT, RELAYOUT_OPTIONS, HARD_RELAYOUT_OPTIONS,
-  isAuxReportNode, toCyNodeData,
+  isAuxReportNode, toCyNodeData, readCanvasColors,
 } from './lib/graph.js'
 import { transcriptToNotes } from './lib/timeline.js'
 import { reportToMarkdown } from './lib/reportMarkdown.js'
 import useIsMobile from './hooks/useIsMobile.js'
 import useTheme from './hooks/useTheme.js'
+import useGraphSummary from './hooks/useGraphSummary.js'
 import usePanelResize from './hooks/usePanelResize.js'
 import useQuota from './hooks/useQuota.js'
 import useServerReconnect from './hooks/useServerReconnect.js'
@@ -109,6 +110,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const showPinsRef = useRef(true)
   const showNotesRef = useRef(true)
   const filterRelationsRef = useRef(filterRelations)
+  // Defused nodes (CDN, parking, sinkhole…) can be taken off the canvas with
+  // one toolbar toggle. Shown by default.
+  const [showDefused, setShowDefused] = useState(true)
+  const showDefusedRef = useRef(true)
   // Service-restart banner + reconnect state. `serverDown=true` means the
   // backend sent us a `server_shutdown` frame (e.g. `systemctl restart`); we
   // display a banner and poll /api/auth/me until the service is back, then
@@ -126,6 +131,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const activeInvRef = useRef(null)
   const showEdgeLabelsRef = useRef(showEdgeLabels)
   const filterTypesRef = useRef(filterTypes)
+  // Colours the canvas draws with, re-read from the CSS variables whenever the
+  // theme changes (see the effects below).
+  const canvasColorsRef = useRef(null)
+  if (!canvasColorsRef.current) canvasColorsRef.current = readCanvasColors()
   const chatEndRef = useRef(null)
 
   useEffect(() => { activeInvRef.current = activeInv }, [activeInv])
@@ -151,6 +160,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   useEffect(() => { filterRelationsRef.current = filterRelations }, [filterRelations])
   useEffect(() => { showPinsRef.current = showPins }, [showPins])
   useEffect(() => { showNotesRef.current = showNotes }, [showNotes])
+  useEffect(() => { showDefusedRef.current = showDefused }, [showDefused])
+  // useTheme has set <html data-theme> by now: its effect is declared first.
+  useEffect(() => { canvasColorsRef.current = readCanvasColors() }, [theme])
 
   // Keep cytoscape sized correctly when crossing the mobile breakpoint or when
   // mobile drawers slide in/out (the graph container's effective area shifts).
@@ -188,7 +200,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   useEffect(() => {
     cyRef.current = cytoscape({
       container: containerRef.current,
-      style: buildCyStylesheet({ showPinsRef, showNotesRef, showEdgeLabelsRef, filterRelationsRef }),
+      style: buildCyStylesheet({
+        showPinsRef, showNotesRef, showEdgeLabelsRef, filterTypesRef, filterRelationsRef,
+        showDefusedRef, canvasColorsRef,
+      }),
       layout: INITIAL_LAYOUT,
     })
 
@@ -254,13 +269,13 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       .update()
   }, [showEdgeLabels])
 
-  // Refresh cytoscape rendering when pin/note toggles or edge-relation
-  // filter changes — the style functions read from refs, so we just need
-  // to nudge cy to re-evaluate them.
+  // Refresh cytoscape rendering when a display toggle, a filter or the theme
+  // changes — the style functions read from refs, so we just need to nudge cy
+  // to re-evaluate them.
   useEffect(() => {
     if (!cyRef.current) return
     cyRef.current.style().update()
-  }, [showPins, showNotes, filterRelations])
+  }, [showPins, showNotes, filterRelations, filterTypes, showDefused, theme])
 
   // Sync the `picked` CSS class on nodes whenever the selection set changes.
   useEffect(() => {
@@ -279,6 +294,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     return () => cy.off('add remove', 'node', update)
   }, [])
 
+  // Node types, border meanings and defused count of the graph, for the legend
+  // and the "Defused" toggle. Stays below the effect that creates cytoscape.
+  const graphSummary = useGraphSummary(cyRef)
+
   useServerReconnect(serverDown)
 
   // ── focusNode ────────────────────────────────────────────────────────────
@@ -293,25 +312,13 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     setRightTab('node')
   }, [])
 
-  // ── applyFilters ─────────────────────────────────────────────────────────
-  const applyFilters = useCallback((ft) => {
-    const cy = cyRef.current
-    if (!cy) return
-    cy.nodes().forEach(n => {
-      n.style('display', ft.has(n.data('type')) ? 'none' : 'element')
-    })
-    cy.edges().forEach(e => {
-      const srcHidden = ft.has(e.source().data('type'))
-      const tgtHidden = ft.has(e.target().data('type'))
-      e.style('display', (srcHidden || tgtHidden) ? 'none' : 'element')
-    })
-  }, [])
-
+  // The stylesheet's `display` rule reads the set through filterTypesRef, so
+  // the type filter, the relation filter and the defused toggle each hide
+  // their own elements and none can show what another one hides.
   const toggleFilterType = (type) => {
     setFilterTypes(prev => {
       const next = new Set(prev)
       if (next.has(type)) next.delete(type); else next.add(type)
-      applyFilters(next)
       return next
     })
   }
@@ -1009,9 +1016,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         containerRef={containerRef}
         cyRef={cyRef}
         search={{ graphSearch, searchMatches, doGraphSearch, selectAllSearchMatches, focusNextSearchMatch }}
-        display={{ showEdgeLabels, setShowEdgeLabels, showPins, setShowPins, showNotes, setShowNotes, hardRelayout }}
+        display={{ showEdgeLabels, setShowEdgeLabels, showPins, setShowPins, showNotes, setShowNotes, showDefused, setShowDefused, hardRelayout }}
         exports={{ copied, copyGraphJson, copyToMaltego }}
         filters={{ existingTypeList, existingRelations, filterTypes, toggleFilterType, filterRelations, toggleFilterRelation }}
+        summary={graphSummary}
         nodeCount={nodeCount}
         pickedIds={pickedIds}
         setPickedIds={setPickedIds}

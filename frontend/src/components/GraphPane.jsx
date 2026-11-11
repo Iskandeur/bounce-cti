@@ -1,12 +1,13 @@
 import React, { useState } from 'react'
 import { NODE_COLORS } from '../lib/constants.js'
 import CopyLabel from './CopyLabel.jsx'
+import GraphLegend from './GraphLegend.jsx'
 
-// Graph canvas with its toolbar (search, layout, display toggles, exports) and
-// the node-type / edge-relation filter chips.
-export default function GraphPane({ containerRef, cyRef, search, display, exports, filters, nodeCount, pickedIds, setPickedIds }) {
+// Graph canvas with its toolbar (search, layout, display toggles, exports),
+// the node-type / edge-relation filter chips and the legend.
+export default function GraphPane({ containerRef, cyRef, search, display, exports, filters, summary, nodeCount, pickedIds, setPickedIds }) {
   const { graphSearch, searchMatches, doGraphSearch, selectAllSearchMatches, focusNextSearchMatch } = search
-  const { showEdgeLabels, setShowEdgeLabels, showPins, setShowPins, showNotes, setShowNotes, hardRelayout } = display
+  const { showEdgeLabels, setShowEdgeLabels, showPins, setShowPins, showNotes, setShowNotes, showDefused, setShowDefused, hardRelayout } = display
   const { copied, copyGraphJson, copyToMaltego } = exports
   const { existingTypeList, existingRelations, filterTypes, toggleFilterType, filterRelations, toggleFilterRelation } = filters
   // On phones the node-type / edge-type filter chips used to occupy the lower
@@ -78,6 +79,16 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
         >
           {showNotes ? '✎ Notes on' : '✎ Notes off'}
         </button>
+        {summary.defused > 0 && (
+          <button
+            className={`toolbar-btn${showDefused ? ' active' : ''}`}
+            aria-pressed={showDefused}
+            onClick={() => setShowDefused(v => !v)}
+            title={`${showDefused ? 'Hide' : 'Show'} the ${summary.defused} defused node(s): CDN, parking, sinkhole, Tor exit, shared hosting and the like. Seeds and pinned nodes stay on the canvas, exports keep every node`}
+          >
+            {`◌ Defused ${showDefused ? 'on' : 'off'} (${summary.defused})`}
+          </button>
+        )}
         <button
           className="toolbar-btn"
           onClick={copyGraphJson}
@@ -173,19 +184,9 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
           })}
         </div>
       )}
-
-      {/* Legend — hidden when filter bar is active (they'd both show at bottom-left) */}
-      {existingTypeList.length === 0 && (
-        <div className="legend">
-          {Object.entries(NODE_COLORS).filter(([k]) => k !== 'report').map(([type, color]) => (
-            <span key={type} className="legend-item">
-              <span className="legend-dot" style={{ background: color }} />
-              {type}
-            </span>
-          ))}
-        </div>
-      )}
       </div>{/* .filter-bars */}
+
+      <GraphLegend summary={summary} />
     </div>
   )
 }

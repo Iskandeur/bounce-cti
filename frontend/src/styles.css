@@ -415,6 +415,30 @@ button.secondary:hover {
   position: relative;
   background: var(--bg);
 }
+/* What the canvas draws against its background and no other token gives,
+   read by readCanvasColors() in lib/graph.js along with --on-bg, --on-dim,
+   --bg, --error and --success. Plain 6-digit hex: Cytoscape parses neither
+   var(), color-mix() nor a colour with alpha.
+   --graph-line: default node border and edge. Quiet on the dark canvas; on the
+   white one a pale node fill needs a border at 3:1, and a mid-grey edge leaves
+   the dark labels readable.
+   --graph-pin, --graph-blue, --graph-orange: the pinned border, the blue of
+   the picked ring / search match / resolves_to edges, and co_resolves edges.
+   --graph-edge-tint multiplies the opacity of the coloured edges. */
+:root {
+  --graph-line: #30363d;
+  --graph-pin: #fbbf24;
+  --graph-blue: #58a6ff;
+  --graph-orange: #ffa657;
+  --graph-edge-tint: 1;
+}
+:root[data-theme="light"] {
+  --graph-line: #8c959f;
+  --graph-pin: #bf8700;
+  --graph-blue: #0969da;
+  --graph-orange: #bc4c00;
+  --graph-edge-tint: 1.75;
+}
 
 /* ── Graph toolbar ───────────────────────────────────────────────────────── */
 .graph-toolbar {
@@ -424,6 +448,21 @@ button.secondary:hover {
   display: flex;
   gap: 6px;
   z-index: 10;
+}
+/* On a narrow graph pane the toolbar is wider than the canvas. Anchored on the
+   right only, it pushed the search field off the left edge and broke each
+   button's label on two lines. It now spans the pane and takes a second row.
+   The empty part of a row lets the pointer through to the canvas. */
+@media (min-width: 769px) {
+  .graph-toolbar {
+    left: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    pointer-events: none;
+  }
+  .graph-toolbar > * { pointer-events: auto; }
+  .graph-toolbar .graph-search-input { flex: 0 1 160px; min-width: 120px; }
+  .graph-toolbar .toolbar-btn { flex-shrink: 0; white-space: nowrap; }
 }
 
 .toolbar-btn {
@@ -537,6 +576,73 @@ button.secondary:hover {
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* ── Canvas legend (components/GraphLegend.jsx) ──────────────────────────── */
+/* Opened on demand from the bottom-right corner, which nothing else uses on a
+   desktop or on a phone. The button comes first in the DOM and the panel
+   opens above it. The wrapper lets clicks through to the canvas. */
+.graph-legend {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 13;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+.graph-legend > * { pointer-events: auto; }
+.graph-legend-toggle {
+  width: auto;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  color: var(--on-surface);
+  font-size: 11px;
+}
+.graph-legend-toggle:hover {
+  border-color: var(--on-dim);
+  background: color-mix(in srgb, var(--surface-2) 90%, transparent);
+  color: var(--on-surface);
+}
+.graph-legend-toggle[aria-expanded="true"] {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+/* Same background as the canvas, so a glyph reads here as its node does there. */
+.graph-legend-panel {
+  width: 256px;
+  max-width: calc(100vw - 16px);
+  max-height: min(420px, 55vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius);
+  color: var(--on-surface);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.graph-legend-panel p { color: var(--on-dim); margin-bottom: 6px; }
+.graph-legend-panel ul { list-style: none; display: grid; gap: 4px; }
+.graph-legend-panel ul + p { margin-top: 12px; }
+.graph-legend-panel li {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  column-gap: 8px;
+  align-items: start;
+}
+.graph-legend-panel svg { width: 14px; height: 14px; margin-top: 1px; }
+.graph-legend-shape { stroke: var(--graph-line); stroke-width: 1; }
+.graph-legend-count {
+  color: var(--on-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Right panel ─────────────────────────────────────────────────────────── */
@@ -2381,9 +2487,11 @@ button.secondary:hover {
   /* Type / edge filter chips: collapsed behind the .filter-toggle-btn by
      default so they don't permanently cover the lower half of the graph.
      The toggle floats bottom-left; tapping it opens a single bottom-sheet
-     that holds both chip rows (and the legend) with one shared scroll. */
+     that holds both chip rows with one shared scroll. The legend keeps the
+     bottom-right corner and opens over the sheet. */
   .mobile-only { display: inline-flex; }
   .filter-toggle-btn { bottom: 8px; left: 8px; }
+  .graph-legend { right: 8px; bottom: 8px; }
 
   .graph:not(.mobile-filters-open) .filter-bars { display: none; }
 
@@ -2409,8 +2517,7 @@ button.secondary:hover {
   /* Inside the sheet each row flows normally — strip the desktop absolute
      positioning / chrome so they stack cleanly. */
   .graph.mobile-filters-open .filter-bar,
-  .graph.mobile-filters-open .filter-bar-relations,
-  .graph.mobile-filters-open .legend {
+  .graph.mobile-filters-open .filter-bar-relations {
     position: static;
     left: auto;
     right: auto;

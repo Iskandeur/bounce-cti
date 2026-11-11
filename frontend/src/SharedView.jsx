@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { readCanvasColors } from './lib/graph.js'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 
@@ -113,6 +114,9 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
   // Mount cytoscape once we have data.
   useEffect(() => {
     if (!data || !containerRef.current || cyRef.current) return
+    // Labels and default lines follow the theme, as on the main canvas. This
+    // view has no theme switch, so they are read once.
+    const canvas = readCanvasColors()
     cyRef.current = cytoscape({
       container: containerRef.current,
       style: [
@@ -122,19 +126,19 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
             'background-color': ele => NODE_COLORS[ele.data('type')] || '#8b949e',
             'shape': ele => NODE_SHAPES[ele.data('type')] || 'ellipse',
             'label': 'data(label)',
-            'color': '#e6edf3',
+            'color': canvas.text,
             'font-size': 10,
             'text-valign': 'bottom',
             'text-margin-y': 5,
             'width': ele => ele.data('type') === 'report' ? 38 : 22,
             'height': ele => ele.data('type') === 'report' ? 38 : 22,
             'border-width': 2,
-            'border-color': '#30363d',
+            'border-color': canvas.line,
           },
         },
         {
           selector: 'node[?seed]',
-          style: { 'width': 32, 'height': 32, 'border-width': 3, 'border-color': '#f0f6fc', 'font-weight': 'bold' },
+          style: { 'width': 32, 'height': 32, 'border-width': 3, 'border-color': canvas.text, 'font-weight': 'bold' },
         },
         {
           selector: 'node[type="report"][value="investigation_summary"]',
@@ -146,21 +150,21 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
         },
         {
           selector: 'node:selected',
-          style: { 'border-color': '#ffffff', 'border-width': 4 },
+          style: { 'border-color': canvas.text, 'border-width': 4 },
         },
         {
           selector: 'edge',
           style: {
             'width': 1.5,
-            'line-color': '#30363d',
-            'target-arrow-color': '#30363d',
+            'line-color': canvas.line,
+            'target-arrow-color': canvas.line,
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
             'label': ele => ele.data('relation') || '',
             'font-size': 8,
-            'color': '#8b949e',
+            'color': canvas.dimText,
             'text-rotation': 'autorotate',
-            'text-background-color': '#0d1117',
+            'text-background-color': canvas.canvas,
             'text-background-opacity': 1,
             'text-background-padding': 2,
           },
