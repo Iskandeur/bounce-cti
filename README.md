@@ -280,9 +280,9 @@ enforces this and adds an early-exit when a domain looks parked or sinkholed.
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Your
-first pull request must sign the [Contributor License Agreement](./CLA.md)
-(handled automatically by a bot). A CI merge-gate must pass before any PR is
+Contributions are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). They
+enter the project under Apache-2.0, like the rest of the code; there is no CLA
+to sign. A CI merge-gate must pass before any PR is
 merged, since `main` deploys straight to production: the backend imports on
 production's Python (3.12) and its tests pass on 3.11 and 3.12, the frontend
 builds, and the Docker image builds and boots. Actions are pinned to commit
