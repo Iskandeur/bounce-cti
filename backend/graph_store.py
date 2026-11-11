@@ -7,7 +7,7 @@ import hashlib
 from collections import Counter
 from contextlib import contextmanager
 from typing import Any, Optional
-from . import fixtures
+from . import evidence_match, fixtures
 from .config import DB_PATH
 
 # Tags that indicate infrastructure owned/operated by a third party (CDN,
@@ -869,31 +869,44 @@ def get_node_by_id(inv_id: str, node_id: str) -> Optional[dict]:
 
 
 def get_evidence_for_value(value: str) -> list[dict]:
-    """Search the cache table for entries whose key contains the given value.
+    """The cached source answers about a node's value, oldest first.
 
     Returns a list of {cache_key, data, cached_at} dicts with the raw cached data.
     This lets analysts audit what the CTI sources actually returned.
+
+    An answer is kept when its key holds the value as a whole token
+    (backend/evidence_match.py): a substring match would also return the
+    answers about `sub.<value>`, about a longer IP or hash, and, for a short
+    value, most of the cache. A value too short to look up returns nothing.
     """
-    with conn() as c:
-        rows = c.execute(
-            "SELECT key, value, created_at FROM cache WHERE key LIKE ?",
-            (f"%{value}%",),
-        ).fetchall()
+    pattern = evidence_match.like_pattern(value)
+    if pattern is None:
+        return []
     out = []
-    for r in rows:
-        # The cache also holds bookkeeping rows (counters, source health):
-        # those are not a source's answer.
-        if not fixtures.is_source_key(r["key"]):
-            continue
-        try:
-            parsed = json.loads(r["value"])
-        except (json.JSONDecodeError, TypeError):
-            parsed = r["value"]
-        out.append({
-            "cache_key": r["key"],
-            "data": parsed,
-            "cached_at": r["created_at"],
-        })
+    with conn() as c:
+        # Keys first: the SQL pattern is a coarse prefilter, and an answer can
+        # weigh hundreds of KB. Only the keys the matcher accepts are loaded.
+        keys = [r["key"] for r in c.execute(
+            "SELECT key FROM cache WHERE key LIKE ? ESCAPE ? ORDER BY created_at, key",
+            (pattern, evidence_match.LIKE_ESCAPE),
+        )]
+        for key in keys:
+            # The cache also holds bookkeeping rows (counters, source health):
+            # those are not a source's answer.
+            if not fixtures.is_source_key(key) or not evidence_match.key_mentions(key, value):
+                continue
+            r = c.execute("SELECT value, created_at FROM cache WHERE key=?", (key,)).fetchone()
+            if r is None:
+                continue
+            try:
+                parsed = json.loads(r["value"])
+            except (json.JSONDecodeError, TypeError):
+                parsed = r["value"]
+            out.append({
+                "cache_key": key,
+                "data": parsed,
+                "cached_at": r["created_at"],
+            })
     return out
 
 
