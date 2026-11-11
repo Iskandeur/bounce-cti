@@ -525,7 +525,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         }])
       }
       const label = (() => {
-        if (!evt.kind.startsWith('agent_') && !['snapshot','node_added','node_updated','edge_added','node_tagged'].includes(evt.kind)) {
+        if (!evt.kind.startsWith('agent_') && !['snapshot','node_added','node_updated','edge_added','node_tagged','status_change'].includes(evt.kind)) {
           return evt.kind
         }
         const msg = evt.msg || evt.data || {}
@@ -535,7 +535,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         }
         if (evt.kind === 'status_change') {
           refreshInvs()
-          if (evt.status === 'quota_exceeded' && evt.quota_reset_at) {
+          // The socket replays past events on connect: a quota halt whose
+          // reset time has passed must not bring the banner back.
+          if (evt.status === 'quota_exceeded' && evt.quota_reset_at > Date.now() / 1000) {
             // Skip the poll — show the banner instantly with the reset epoch
             // we just received over the websocket.
             setQuotaState({
@@ -627,7 +629,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
 
   const rerunInv = async (id, ev) => {
     ev.stopPropagation()
-    if (!confirm('Rerun this investigation? The existing graph is preserved; the agent will pivot from current state with a fresh budget.')) return
+    if (!confirm('Rerun this investigation? Its graph, report, timeline, pins and notes are erased, and the agent starts again from the seed.')) return
     await fetch(`/api/investigations/${id}/rerun`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ model, effort }) })
     await refreshInvs()
     openInv(id)
