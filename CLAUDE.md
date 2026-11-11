@@ -347,7 +347,7 @@ frontend/
                         #   filter chips), ReportTab (LeadsCard, HypothesisCard,
                         #   BudgetLog), NodeTab (StaticAnalysis), TimelineTab,
                         #   ActionsPanel, ChatTab, PromptBox, PickedChips,
-                        #   HighlightedText
+                        #   HighlightedText, CopyLabel (a copy button's label, fixed width)
     hooks/              # State slices used by MainApp: useRunSettings (model /
                         #   vertical / effort), useNewInvestigation (IOC / sample /
                         #   PDF form + submits), useNodeData (lead stats, cross-

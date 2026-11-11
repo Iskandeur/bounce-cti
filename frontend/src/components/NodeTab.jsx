@@ -1,6 +1,7 @@
 import React from 'react'
 import StaticAnalysis from './StaticAnalysis.jsx'
 import { NODE_COLORS, PIVOTABLE } from '../lib/constants.js'
+import CopyLabel from './CopyLabel.jsx'
 
 export default function NodeTab({ selected, activeInv, note, evidence, crossInv, copied, actions }) {
   const { noteDraft, setNoteDraft, noteBusy, saveNote } = note
@@ -190,7 +191,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
               style={{ flex: 1 }}
               onClick={() => copyNodeJson(selected)}
             >
-              {copied ? '✓ copied' : '↓ Copy JSON'}
+              <CopyLabel done={copied === 'node-json'}>↓ Copy JSON</CopyLabel>
             </button>
           </div>
 

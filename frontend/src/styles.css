@@ -450,6 +450,12 @@ button.secondary:hover {
   border-color: var(--primary);
 }
 
+/* A copy button's two labels share one grid cell, so the button is as wide as
+   the wider label whichever one shows (components/CopyLabel.jsx). */
+.copy-label { display: inline-grid; }
+.copy-label > span { grid-area: 1 / 1; text-align: center; white-space: nowrap; }
+.copy-label-off { visibility: hidden; }
+
 /* ── Node type filter bar ────────────────────────────────────────────────── */
 /* Wrapper is layout-transparent on desktop — each .filter-bar keeps its own
    absolute position. On mobile it turns into a collapsible bottom sheet. */

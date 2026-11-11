@@ -4,6 +4,7 @@ import LeadsCard from './LeadsCard.jsx'
 import HypothesisCard from './HypothesisCard.jsx'
 import BudgetLog from './BudgetLog.jsx'
 import { iocString } from '../lib/ioc.js'
+import CopyLabel from './CopyLabel.jsx'
 
 export default function ReportTab({
   report, hypothesis, hypothesisStamp, budgetLog, leadStats, nodeCount, invs, activeInv,
@@ -51,7 +52,7 @@ export default function ReportTab({
               onClick={copyReportMarkdown}
               title="Copy the full report as markdown (paste into ticket / chat)"
             >
-              {copied ? '✓ copied' : '↓ Copy MD'}
+              <CopyLabel done={copied === 'report-md'}>↓ Copy MD</CopyLabel>
             </button>
             {activeInv && (
               <button
