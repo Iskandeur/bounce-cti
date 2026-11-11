@@ -10,7 +10,7 @@ export default function Sidebar({
 }) {
   return (
     <div className={`sidebar${mobileLeftOpen ? ' mobile-open' : ''}`}>
-      <div className="logo-row"><span className="logo-mark logo-mark-sidebar" aria-hidden="true" /><div className="logo">BOUNCE<span>CTI</span></div><button className="theme-toggle-btn" title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'} aria-label="Toggle theme" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '☾' : '☀'}</button>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></div>
+      <div className="logo-row"><span className="logo-mark logo-mark-sidebar" aria-hidden="true" /><div className="logo">BOUNCE<span>CTI</span></div><span className="logo-actions"><button className="theme-toggle-btn" title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'} aria-label="Toggle theme" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}>{theme === 'light' ? '☾' : '☀'}</button>{isAdmin && <button className="admin-btn" title="Admin panel" onClick={() => setAdminOpen(true)}>⚙</button>}<button className="logout-btn" title="Log out" onClick={onLogout}>⎋</button></span></div>
 
       <NewInvestigationForm form={form} settings={settings} allowedModels={allowedModels} />
 
