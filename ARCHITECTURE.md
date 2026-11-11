@@ -1163,6 +1163,17 @@ switching is local state.
 | `demo.jsx`        | Entry of the static demo build (`frontend/demo/index.html`, `vite.demo.config.js`)        |
 | `styles.css`      | All styling                                                                               |
 
+Browser suite (`frontend/e2e/`, `frontend/playwright.config.js`, `npm run
+test:e2e`): Playwright drives the app in Chromium with no backend. It starts the
+Vite dev server on `127.0.0.1:5199`; `e2e/mockApi.js` answers every `/api/`
+request and the `/ws/<inv_id>` WebSocket from `e2e/fixtures/data.js`
+(hand-written, synthetic). A test fails on an `/api/` call the mock has no
+answer for, and on an uncaught error in the page. It covers boot and login,
+the history and the `?inv=` deep link, the graph search, the copy buttons, the
+Report / Node / Timeline tabs, the phone drawers, and an axe-core scan in both
+themes against a baseline of known violations (`e2e/a11y-baseline.js`). Canvas
+clicks and pixel comparisons are left out (`e2e/README.md`).
+
 Key in-app helpers:
 - `HighlightedText` — tokenises text, matches IOC values against the graph node
   map, wraps matches in clickable spans that call `focusNode(id)`
@@ -1332,6 +1343,8 @@ GitHub Actions (.github/workflows/ci.yml)
   │                   → pytest backend/tests   (golden/regression tests)
   ├─ frontend-build : Node 22 (the image's), npm ci → npm run build
   │                   → npm run build:demo   (static demo, frontend/dist-demo/)
+  ├─ frontend-e2e   : Node 22, npm ci → npx playwright install --with-deps chromium
+  │                   → npm run test:e2e   (browser suite, API and WebSocket mocked)
   └─ docker-image   : docker build, then boot the image with no .env: the app
                       answers, the bootstrap admin logs in, uid 10001, claude CLI
 ```
