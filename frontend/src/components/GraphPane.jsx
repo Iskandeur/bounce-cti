@@ -30,6 +30,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             else if (e.key === 'Escape') { doGraphSearch(''); e.target.blur() }
           }}
           placeholder="Search IOCs…"
+          aria-label="Search the graph"
         />
         {graphSearch && (
           <span className="graph-search-info">
@@ -44,6 +45,9 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
           </span>
         )}
         <span className="toolbar-separator" />
+        {/* One wrapper for the buttons: transparent on desktop, a single
+            scrolling row under the search field on phones. */}
+        <div className="toolbar-actions">
         <button className="toolbar-btn" onClick={() => cyRef.current?.fit(undefined, 80)} title="Fit graph">
           ⊡ Fit
         </button>
@@ -52,6 +56,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
         </button>
         <button
           className={`toolbar-btn${showEdgeLabels ? ' active' : ''}`}
+          aria-pressed={showEdgeLabels}
           onClick={() => setShowEdgeLabels(v => !v)}
           title="Toggle edge labels"
         >
@@ -59,6 +64,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
         </button>
         <button
           className={`toolbar-btn${showPins ? ' active' : ''}`}
+          aria-pressed={showPins}
           onClick={() => setShowPins(v => !v)}
           title="Toggle 📌 pin markers on the graph"
         >
@@ -66,6 +72,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
         </button>
         <button
           className={`toolbar-btn${showNotes ? ' active' : ''}`}
+          aria-pressed={showNotes}
           onClick={() => setShowNotes(v => !v)}
           title="Toggle analyst notes (e.g. 'VPN', 'C2') under each node"
         >
@@ -100,6 +107,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             ✕ clear
           </button>
         )}
+        </div>{/* .toolbar-actions */}
       </div>
 
       {/* Mobile-only toggle for the filter chips. They overlay the lower
