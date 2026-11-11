@@ -338,7 +338,26 @@ backend/
 frontend/
   src/
     main.jsx            # React entrypoint
-    App.jsx             # Main app (Cytoscape graph, sidebar, report/chat/node panels)
+    App.jsx             # MainApp: owns the graph state, the Cytoscape instance, the
+                        #   WebSocket event pump and the investigation actions, and
+                        #   composes the panels below; AppRoot (auth / share routing)
+    components/         # Presentational panels, fed by MainApp through props:
+                        #   Sidebar (NewInvestigationForm, InvestigationHistory,
+                        #   AddSeedPanel, AgentLog), GraphPane (canvas + toolbar +
+                        #   filter chips), ReportTab (LeadsCard, HypothesisCard,
+                        #   BudgetLog), NodeTab (StaticAnalysis), TimelineTab,
+                        #   ActionsPanel, ChatTab, PromptBox, PickedChips,
+                        #   HighlightedText
+    hooks/              # State slices used by MainApp: useRunSettings (model /
+                        #   vertical / effort), useNewInvestigation (IOC / sample /
+                        #   PDF form + submits), useNodeData (lead stats, cross-
+                        #   investigation hits, node note), useQuota, usePanelResize,
+                        #   useTheme, useIsMobile, useServerReconnect
+    lib/                # Pure modules, no React: constants (node colors / shapes,
+                        #   Maltego types), ioc (refang, detectIOCType,
+                        #   verticalFromLocation, parseSeedInput), graph (Cytoscape
+                        #   stylesheet + layout options, toCyNodeData,
+                        #   isAuxReportNode), timeline, reportMarkdown, format
     invUrl.js           # Pure ?inv=<id> URL-sync helper (+ invUrl.test.js, node --test, run in CI)
     Login.jsx           # PIN login screen
     AdminPanel.jsx      # Admin dashboard (users, models, impersonation)
@@ -517,8 +536,10 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
 
 ## Key conventions
 
-- **Frontend is React + Vite, no router**: a handful of components in `frontend/src/`
-  (`App.jsx` is the bulk; `Login`, `AdminPanel`, `ShareModal`, `SharedView` are separate files).
+- **Frontend is React + Vite, no router**: `App.jsx` holds `MainApp`, which owns the
+  graph state and the Cytoscape instance and passes them down as props; the panels live in
+  `frontend/src/components/`, the state slices in `hooks/`, the pure helpers in `lib/`
+  (`Login`, `AdminPanel`, `ShareModal`, `SharedView` stay at the top of `src/`).
   View switching is done with local state, not URLs.
 - **Backend serves the frontend**: In production, FastAPI mounts `frontend/dist/` at `/` as static files.
 - **MCP tools only**: The investigation agent communicates exclusively via MCP tools
@@ -822,7 +843,7 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
   (`cti./osint./dd.`) — one login covers all verticals.
 - **D3 subdomain routing** (Phase 4): the SPA reads its hostname's first label
   (`cti./osint./dd.`, or a `?vertical=` param for dev/shareable links) via
-  `verticalFromLocation()` in `App.jsx` and pre-selects that vertical (shown as a
+  `verticalFromLocation()` in `lib/ioc.js` and pre-selects that vertical (shown as a
   fixed "from subdomain" badge instead of the selector). Topology: `bounce.` =
   showcase, `cti./osint./dd.` = the app with the vertical pinned. Cloudflare DNS
   + the reverse proxy route every app subdomain to the same backend; pair with

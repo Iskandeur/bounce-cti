@@ -3,7 +3,8 @@
 * ``backend/main.py`` ALLOWED_MODELS / ALLOWED_EFFORTS: what the API accepts;
 * ``backend/agent_runner.py`` _MODEL_ALIASES / _VALID_EFFORTS: what the spawn
   passes to ``claude -p``;
-* ``frontend/src/App.jsx``: the new-investigation selectors;
+* ``frontend/src/components/NewInvestigationForm.jsx``: the new-investigation
+  selectors;
 * ``frontend/src/AdminPanel.jsx`` MODEL_LABELS: the per-user whitelist editor.
 
 A model added to the API but not to the form can never be picked; one in the
@@ -42,9 +43,11 @@ def _literal(path: Path, name: str):
     raise AssertionError(f"{name} not found in {path.name}")
 
 
+FORM = ROOT / "frontend" / "src" / "components" / "NewInvestigationForm.jsx"
+
+
 def _app_options(pattern: str) -> list[str]:
-    text = (ROOT / "frontend" / "src" / "App.jsx").read_text(encoding="utf-8")
-    return re.findall(pattern, text)
+    return re.findall(pattern, FORM.read_text(encoding="utf-8"))
 
 
 ALLOWED_MODELS = _literal(ROOT / "backend" / "main.py", "ALLOWED_MODELS")
@@ -86,7 +89,7 @@ def test_a_tier_name_runs_the_newest_model_of_its_tier_on_offer():
 
 def test_tier_labels_name_the_version_they_run():
     """The label is the analyst's only way to know which model "opus" is."""
-    app = (ROOT / "frontend" / "src" / "App.jsx").read_text(encoding="utf-8")
+    app = FORM.read_text(encoding="utf-8")
     admin = (ROOT / "frontend" / "src" / "AdminPanel.jsx").read_text(encoding="utf-8")
     for tier in TIER_ALIASES:
         version = re.escape(_version_label(MODEL_ALIASES[tier]))
