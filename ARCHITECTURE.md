@@ -77,6 +77,9 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   network IOCs as a drop-list. `fmt`: `plain` (default), `hosts`,
   `unbound`, `rpz`, `palo_edl`, `cisco_acl`, `csv`. Defused nodes
   (CDN/parking/sinkhole/Tor/...) excluded unless `include_defused=1`.
+  The tag list is `action_exports._DEFUSED_TAGS`; it holds every tag
+  `defuse_lists.defuse_check` can emit, which
+  `tests/test_action_exports_defused.py` checks from that function's source.
 - `GET    /api/investigations/{id}/actions/detection?fmt=...` — starter
   detection rule. `fmt`: `sigma` (default), `snort`, `yara`. Hashes
   flagged `nsrl_known` and defused indicators are excluded.
