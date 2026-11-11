@@ -390,6 +390,66 @@ button.secondary:hover {
   font-size: 11px;
 }
 
+/* ── Run progress ────────────────────────────────────────────────────────── */
+/* One sentence on the open investigation's run (phase, elapsed time, source
+   calls) and, for a full investigation, a thin bar: calls ÷ pivot-drain
+   budget. The bar's width is the only thing that moves. A run that is over
+   keeps the sentence, in regular weight, with no bar. Text stays on
+   --on-surface: --on-dim falls just short of AA on the dark sidebar. */
+.run-progress {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--on-surface);
+}
+.run-progress-text { margin: 0; }
+.run-progress-phase { color: var(--on-bg); font-weight: 600; }
+.run-progress-time { font-variant-numeric: tabular-nums; }
+.run-progress-calls.over,
+.run-progress-end.paused { color: var(--warning); }
+.run-progress-end.error { color: var(--error); }
+.run-progress-bar {
+  height: 3px;
+  margin-top: 6px;
+  background: var(--surface-3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.run-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  transition: width .4s ease-out;
+}
+.run-progress-bar.over .run-progress-fill { background: var(--warning); }
+@media (prefers-reduced-motion: reduce) {
+  .run-progress-fill { transition: none; }
+}
+/* In the sidebar it sits above the agent log, and sticks to the bottom edge
+   when the log is below the fold, so it is read without scrolling. Stuck, it
+   spans the sidebar's own padding (14px 10px), so nothing of the form it
+   passes over shows around it. */
+.run-progress-sidebar {
+  position: sticky;
+  bottom: -14px;
+  z-index: 1;
+  margin: 10px -10px 0;
+  padding: 8px 10px;
+  background: var(--surface);
+  border-top: 1px solid var(--outline);
+}
+/* Live region for phase changes and the end of a run: read out, never shown. */
+.run-progress-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* ── Event log ───────────────────────────────────────────────────────────── */
 .event-log {
   background: var(--surface-3);
@@ -2402,6 +2462,20 @@ button.secondary:hover {
   }
   .mobile-icon-btn:active { background: var(--surface-3); }
   .mobile-burger { font-size: 18px; line-height: 1; }
+
+  /* Run progress: its own strip under the top bar, the bar flush with the
+     strip's lower edge. The graph below takes what is left. */
+  .run-progress-topbar {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--outline);
+  }
+  .run-progress-topbar .run-progress-bar {
+    height: 2px;
+    margin: 6px -12px -6px;
+    border-radius: 0;
+  }
 
   /* Backdrop covers everything beneath open drawers and dismisses on tap. */
   .mobile-backdrop {

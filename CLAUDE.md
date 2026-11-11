@@ -342,6 +342,14 @@ backend/
                         #     gouv API; free, no key, Licence Ouverte 2.0;
                         #     dirigeants → person nodes → sanctions. dd pool).
                         #   Shared: http_client
+  run_progress.py       # Where a run stands, for GET /api/investigations/{id}/progress
+                        #   (polled by the UI): the run = events since the last
+                        #   agent_starting; phase in flight and finished phases from
+                        #   phase_<name>_starting/_exit; source calls counted as
+                        #   agent_runner._count_cti_calls counts them; ceiling =
+                        #   BOUNCE_TOTAL_CTI_BUDGET, null for a run with no drain
+                        #   loop. Pure compute() + a thin DB reader that never
+                        #   loads tool results. Locked by tests/test_run_progress.py
   tests/                # pytest suite (golden / regression tests, e.g.
                         #   test_seeds.py locks the seed-registry output).
                         #   Run: pytest backend/tests (deps: requirements-dev.txt)
@@ -353,7 +361,8 @@ frontend/
                         #   composes the panels below; AppRoot (auth / share routing)
     components/         # Presentational panels, fed by MainApp through props:
                         #   Sidebar (NewInvestigationForm, InvestigationHistory,
-                        #   AddSeedPanel, AgentLog), GraphPane (canvas + toolbar +
+                        #   AddSeedPanel, RunProgress [the progress line + its
+                        #   live region], AgentLog), GraphPane (canvas + toolbar +
                         #   filter chips), GraphLegend (on-demand key of the canvas:
                         #   the node types and border meanings present in the
                         #   graph), ReportTab (LeadsCard, HypothesisCard,
@@ -366,14 +375,19 @@ frontend/
                         #   investigation hits, node note), useQuota, usePanelResize,
                         #   useTheme, useIsMobile, useServerReconnect,
                         #   useGraphSummary (types / border meanings / defused
-                        #   count of the graph, for the legend and the toolbar)
+                        #   count of the graph, for the legend and the toolbar),
+                        #   useRunProgress (progress of the open investigation:
+                        #   fetch on open, on run-level WebSocket events via
+                        #   poke(), every 10 s while live)
     lib/                # Pure modules, no React: constants (node colors / shapes,
                         #   Maltego types), ioc (refang, detectIOCType,
                         #   verticalFromLocation, parseSeedInput), graph (Cytoscape
                         #   stylesheet + layout options, toCyNodeData,
                         #   isAuxReportNode, readCanvasColors, isDefused), legend
                         #   (shape glyphs, border meanings, summariseGraph),
-                        #   timeline, reportMarkdown, format
+                        #   timeline, reportMarkdown, format, runProgress (phase
+                        #   labels + the words of the progress line;
+                        #   runProgress.test.js, node --test, run in CI)
     invUrl.js           # Pure ?inv=<id> URL-sync helper (+ invUrl.test.js, node --test, run in CI)
     Login.jsx           # PIN login screen
     AdminPanel.jsx      # Admin dashboard (users, models, impersonation)
@@ -557,9 +571,10 @@ Because `main` deploys straight to prod, a merge-gate runs on every PR to `main`
   (catches syntax errors and broken imports).
 - **`backend-tests`** — on Python 3.11 and 3.12, installs `requirements-dev.txt`
   and runs `pytest backend/tests` (golden/regression tests, e.g. the seed-registry lock).
-- **`frontend-build`** — on Node 22 (the image's), `npm ci` + `npm run build`
-  (catches a broken frontend), then `npm run build:demo` (the static demo still
-  builds, snapshots or not).
+- **`frontend-build`** — on Node 22 (the image's), `npm ci`, the front-end unit
+  tests (`node --test "src/**/*.test.js"`: every `*.test.js` under `src/`),
+  `npm run build` (catches a broken frontend), then `npm run build:demo` (the
+  static demo still builds, snapshots or not).
 - **`frontend-e2e`** ("Frontend end-to-end") — on Node 22, `npm ci`,
   `npx playwright install --with-deps chromium`, `npm run test:e2e`: the browser
   suite of `frontend/e2e/` against the Vite dev server, API and WebSocket mocked
@@ -750,6 +765,18 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
   idempotent (`_has_working_hypothesis`, `_has_investigation_summary`,
   pivot-drain convergence) so already-finished work is skipped. The frontend
   polls `GET /api/quota` for the global banner + per-inv countdown.
+- **Run progress has one source** (`backend/run_progress.py`,
+  `GET /api/investigations/{id}/progress`): the UI's progress line reads the
+  phase, the elapsed time and the source calls from that route alone. The run
+  is everything since the last `agent_starting` (a resume, an added seed, a
+  manual pivot and a custom prompt are runs of their own). A new phase needs no change there: any
+  `phase_<name>_starting` / `_exit` pair logged by `_run_claude_phase` shows up,
+  and the client words an unknown name from the name itself (add its label to
+  `PHASE_LABELS` in `frontend/src/lib/runProgress.js`). The ceiling shown is
+  `BOUNCE_TOTAL_CTI_BUDGET` and only for a full investigation: the drain loop
+  alone enforces it, so the count can end above it and the UI says "budget".
+  The WebSocket replays every past event on connect, which is why the client
+  debounces its refresh.
 - **No-first-event watchdog**: a healthy `claude -p` emits its `system` init
   event within seconds; the per-phase `watchdog()` in `_run_claude_phase` kills
   a spawn that emits *no* stream-json for `BOUNCE_AGENT_FIRST_EVENT_TIMEOUT_S`

@@ -60,6 +60,9 @@ says so: browsers do not run its scripts on a `file://` address.
   Node types and edge relations can be filtered, defused nodes (CDN, parking,
   sinkhole…) hidden with one toolbar toggle, and a legend lists the shapes and
   borders the current graph uses.
+- **Run progress**: one line says which phase the agent is in, how long the run
+  has lasted and how many source calls it has made, against the pivot-drain
+  budget; a screen reader hears each phase change and the end of the run.
 - **PIN auth + admin dashboard**: per-user model whitelist, account labels,
   one-click impersonation. Admin PIN is bootstrapped from `ADMIN_PIN` env var
   on first start (see "First login" below).
