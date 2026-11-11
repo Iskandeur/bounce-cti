@@ -38,12 +38,12 @@ DOM fingerprints) building a live infrastructure graph in your browser.
 
 ## Demo
 
-[![Bounce-CTI: paste one IOC, watch the graph build itself](media/demo.jpg)](media/demo.mp4)
+![Bounce-CTI: one IOC pasted, the graph builds itself, defused nodes greyed, a lead turns into a finding once a source corroborates it](media/demo.gif)
 
-**[▶ Watch the 20-second demo](media/demo.mp4)** — one IOC pasted, CDN ranges and
-parked nameservers defused before the pivot, and a lead promoted to a finding
-only once a source corroborates it. Asset provenance and licenses:
-[`media/README.md`](media/README.md).
+One IOC pasted, CDN ranges and parked nameservers defused before the pivot, and
+a lead promoted to a finding only once a source corroborates it (a 15-second
+loop, no sound). The [20-second version with music](media/demo.mp4) opens as a
+file. Asset provenance and licenses: [`media/README.md`](media/README.md).
 
 **A whole investigation to click through, with no login.** `npm run build:demo`
 (in `frontend/`) builds a static, read-only page from the investigations frozen
