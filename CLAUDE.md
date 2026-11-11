@@ -142,6 +142,14 @@ backend/
                         #   x_bounce_relation), malicious observables promoted to
                         #   indicator SDOs w/ STIX patterns, report_types set.
                         #   Locked by tests/test_stix_export.py
+  evidence_match.py     # Evidence → Load: which cached source answers are about a
+                        #   node's value. like_pattern (SQL prefilter, wildcards
+                        #   escaped) + key_mentions (the value as a whole token of
+                        #   the cache key: no longer hostname / IP / hash, API host
+                        #   skipped, percent-decoded, case-insensitive, nothing
+                        #   under 3 characters). Pure; used by
+                        #   graph_store.get_evidence_for_value; locked by
+                        #   tests/test_evidence_match.py
   key_pool.py           # API key rotation pool: round-robin, cooldown on 429,
                         #   per-day quota tracking, graceful degradation
   source_health.py      # Short-TTL dead-source cache (auth_required /

@@ -7,7 +7,7 @@ import hashlib
 from collections import Counter
 from contextlib import contextmanager
 from typing import Any, Optional
-from . import fixtures
+from . import evidence_match, fixtures
 from .config import DB_PATH
 
 # Tags that indicate infrastructure owned/operated by a third party (CDN,
@@ -490,7 +490,8 @@ def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
                                                      "confidence": confidence, "source": source,
                                                      "created_at": now}}
         except sqlite3.IntegrityError:
-            row = c.execute("SELECT metadata, tags, created_at FROM nodes WHERE id=?", (nid,)).fetchone()
+            row = c.execute("SELECT metadata, tags, created_at, source, confidence FROM nodes WHERE id=?",
+                            (nid,)).fetchone()
             existing_md = json.loads(row["metadata"] or "{}")
             original_created_at = row["created_at"]
             # Save old sources_seen before update() overwrites it
@@ -506,9 +507,12 @@ def add_node(inv_id: str, type_: str, value: str, metadata: dict | None = None,
             existing_tags = list(existing_tag_set | set(incoming))
             c.execute("UPDATE nodes SET metadata=?, tags=? WHERE id=?",
                       (json.dumps(existing_md), json.dumps(existing_tags), nid))
+            # The event describes the stored row. An upsert merges metadata, tags
+            # and sources_seen; `source` and `confidence` stay those of the first
+            # report, so a live client and a reload show the same node.
             event = {"kind": "node_updated", "node": {"id": nid, "type": type_, "value": value,
                                                        "metadata": existing_md, "tags": existing_tags,
-                                                       "confidence": confidence, "source": source,
+                                                       "confidence": row["confidence"], "source": row["source"],
                                                        "created_at": original_created_at}}
         c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
                   (inv_id, event["kind"], json.dumps(event), now))
@@ -869,31 +873,44 @@ def get_node_by_id(inv_id: str, node_id: str) -> Optional[dict]:
 
 
 def get_evidence_for_value(value: str) -> list[dict]:
-    """Search the cache table for entries whose key contains the given value.
+    """The cached source answers about a node's value, oldest first.
 
     Returns a list of {cache_key, data, cached_at} dicts with the raw cached data.
     This lets analysts audit what the CTI sources actually returned.
+
+    An answer is kept when its key holds the value as a whole token
+    (backend/evidence_match.py): a substring match would also return the
+    answers about `sub.<value>`, about a longer IP or hash, and, for a short
+    value, most of the cache. A value too short to look up returns nothing.
     """
-    with conn() as c:
-        rows = c.execute(
-            "SELECT key, value, created_at FROM cache WHERE key LIKE ?",
-            (f"%{value}%",),
-        ).fetchall()
+    pattern = evidence_match.like_pattern(value)
+    if pattern is None:
+        return []
     out = []
-    for r in rows:
-        # The cache also holds bookkeeping rows (counters, source health):
-        # those are not a source's answer.
-        if not fixtures.is_source_key(r["key"]):
-            continue
-        try:
-            parsed = json.loads(r["value"])
-        except (json.JSONDecodeError, TypeError):
-            parsed = r["value"]
-        out.append({
-            "cache_key": r["key"],
-            "data": parsed,
-            "cached_at": r["created_at"],
-        })
+    with conn() as c:
+        # Keys first: the SQL pattern is a coarse prefilter, and an answer can
+        # weigh hundreds of KB. Only the keys the matcher accepts are loaded.
+        keys = [r["key"] for r in c.execute(
+            "SELECT key FROM cache WHERE key LIKE ? ESCAPE ? ORDER BY created_at, key",
+            (pattern, evidence_match.LIKE_ESCAPE),
+        )]
+        for key in keys:
+            # The cache also holds bookkeeping rows (counters, source health):
+            # those are not a source's answer.
+            if not fixtures.is_source_key(key) or not evidence_match.key_mentions(key, value):
+                continue
+            r = c.execute("SELECT value, created_at FROM cache WHERE key=?", (key,)).fetchone()
+            if r is None:
+                continue
+            try:
+                parsed = json.loads(r["value"])
+            except (json.JSONDecodeError, TypeError):
+                parsed = r["value"]
+            out.append({
+                "cache_key": key,
+                "data": parsed,
+                "cached_at": r["created_at"],
+            })
     return out
 
 

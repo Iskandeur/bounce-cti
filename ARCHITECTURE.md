@@ -112,7 +112,10 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   `labels`, `confidence`, `sources`, `description`, `first_seen`, `last_seen`)
 - `GET    /api/investigations/{id}/leads` — context-pool leads + corroboration
   telemetry (`corroboration_rate`, per-claim-type breakdown, ctx budget usage)
-- `GET    /api/investigations/{id}/nodes/{node_id}/evidence`
+- `GET    /api/investigations/{id}/nodes/{node_id}/evidence` — the cached source answers
+  about the node's value (`{node_id, value, evidence: [{cache_key, data, cached_at}]}`,
+  oldest first). An answer is returned when its cache key holds the value as a whole
+  token (`backend/evidence_match.py`); a value under 3 characters returns an empty list
 - `POST   /api/investigations/{id}/nodes/{node_id}/tag` — toggle a tag (e.g. `pinned`)
 - `POST   /api/investigations/{id}/nodes/{node_id}/note` — set/clear analyst note
 
@@ -339,7 +342,10 @@ SQLite-backed store. Tables:
 | `quota_state`    | single-row table (`id=1`): `exhausted_until` (epoch), `message`, `last_seen` — Claude-subscription cooldown shared across the host account |
 
 Node IDs are SHA1 hashes of `(investigation_id, type, value)` (lower-cased) —
-so upserts are idempotent.
+so upserts are idempotent. An upsert merges `metadata`, `tags` and
+`metadata.sources_seen`; `source`, `confidence` and `created_at` are written
+once, by the first report. The `node_updated` event carries those stored
+values, so a live client and a reload show the same source and confidence.
 
 `canonical_node_type(type, value, metadata)` disambiguates the TLS-fingerprint
 node types agents tend to conflate: `jarm` (62-hex active server fingerprint)
@@ -357,6 +363,36 @@ inferred merely because a value is a TLS fingerprint.
 schemas. `vertical` defaults to `'cti'`, so legacy rows and any caller that
 doesn't pass one keep the original CTI behaviour (`graph_store.get_vertical()`
 also falls back to `'cti'`).
+
+### `backend/evidence_match.py`
+Decides which cached source answers are about a node's value, for the evidence
+route above. Pure: `like_pattern(value)` gives the coarse SQL prefilter (the
+longest run of the value that percent-encoding leaves alone, with `%`, `_` and
+the escape character escaped), `key_mentions(key, value)` the exact check that
+`graph_store.get_evidence_for_value` runs on each candidate key before it loads
+the answer. Rules, all locked by `tests/test_evidence_match.py`:
+
+- The value must be a whole token of the key: a letter or digit on either side
+  means a longer token (`11.2.3.45` vs `1.2.3.4`, a longer hash vs its prefix),
+  and `.`, `-`, `_`, `@` join when a letter or digit follows them
+  (`sub.example.com`, `example.com.evil.net`, `my-example.com`,
+  `user@example.com` are other indicators than `example.com`). The wildcard
+  queries `%.example.com` / `*.example.com` and a trailing dot are about
+  `example.com`.
+- In an IPv6-shaped value `:` joins too when a hex digit follows it.
+- A URL value must end where the key's URL ends (one trailing `/` tolerated):
+  a deeper path or a query string is another URL. A domain does match a
+  question about a URL on that exact host.
+- The head of the key (verb or source name) and, for `http_client`'s default
+  keys, the API's own host are never a mention: a node `rdap.org` is not
+  evidenced by every RDAP lookup.
+- Case-insensitive for every type (the sources lowercase what they put in their
+  own keys); key and value are percent-decoded before the comparison; the value
+  is compared as plain text, so `%`, `_` and regex metacharacters match
+  themselves.
+- A value under `MIN_VALUE_LEN` (3) characters matches nothing, so the route
+  cannot return the whole cache. Bookkeeping keys (`fixtures.is_source_key`)
+  stay excluded.
 
 ### `backend/auth.py`
 - HMAC-SHA256 of the PIN with a per-deploy secret stored in `data/secret.key`
