@@ -96,7 +96,14 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   dossier (Markdown): sanctions-exposure headline, subject identity, corporate
   hierarchy, officers / PSC, provenance, with the estimated-ownership +
   candidate-match disclaimers (`backend/dd_export.py`).
-- `POST   /api/investigations/{id}/stop` — kill the running agent
+- `POST   /api/investigations/{id}/stop` — stop the run: the agent process of the
+  phase in flight is killed and no later phase starts (nor the next seed of a
+  batch / PDF / sample chain). Status `done`, with a `status_change` event
+  carrying `stopped_by_user: true`, written in the request for any investigation
+  that was `running`; the run then logs one `agent_exit` (`stopped_by_user`,
+  `stopped_during`). Returns `{ok, killed}` (`killed` is false when the stop
+  landed between two phases). Graph and events are kept; resume and rerun work
+  afterwards.
 - `DELETE /api/investigations/{id}` — stops the agent, deletes the investigation and its fixture capture, if any
 - `PATCH  /api/investigations/{id}` — rename (`{title}`); empty/omitted title clears it, falling back to the seed value in the UI
 - `POST   /api/investigations/{id}/rerun` — clears the graph and runs again; an existing fixture capture of the investigation is deleted with it (a fixture set holds one run)
@@ -261,7 +268,16 @@ The runner also exposes:
 - `run_pivot(...)` — pivot from an existing node (used by `/enrich`)
 - `run_add_seed(...)` — chain a peer seed onto the same graph
 - `run_custom_prompt(...)` — analyst-authored prompt with optional selected nodes
-- `stop_investigation(inv_id)` — SIGTERM the spawned process group
+- `stop_investigation(inv_id)` — ends the run: counts the stop (`_stop_count`)
+  and SIGTERMs the spawned process group. A run is several phases, each its own
+  process, and a killed phase returns like a failed one (rc=-15, no `result`
+  event), so every run entry point records the count it started with
+  (`_begin_run`) and checks it after each phase (`_halt_on_user_stop`, next to
+  the quota and ops halts); `_run_claude_phase` spawns nothing for a run whose
+  count has moved. It is a count because a killed phase takes up to a watchdog
+  poll (10 s) to return: a rerun started meanwhile must leave the stop visible to
+  the old run and must itself run on. `stop_count(inv_id)` lets `main.py` end
+  its chains of runs (`_chain_stopped`).
 
 stdout/stderr are pumped into the SQLite `events` table; the WebSocket handler
 polls events and streams them to the browser.

@@ -1,5 +1,6 @@
 """Spawn Claude Code in headless mode to run an investigation."""
 import asyncio
+import contextvars
 import datetime as _dt
 import json
 import os
@@ -354,12 +355,45 @@ async def _iter_stream_lines(stream: asyncio.StreamReader,
 # Used by stop_investigation() to kill a running agent on demand.
 _running_procs: dict[str, asyncio.subprocess.Process] = {}
 
+# A user stop ends the RUN, and a run is several phases, each its own process.
+# Killing the process in flight ends one phase: what a killed phase returns
+# (rc=-15, no result event) reads as a phase that failed, and the workflow went
+# on to the next one. So a stop is also counted here, per investigation, and
+# every run remembers the count it started with (_begin_run). A run whose
+# count has moved was stopped (_stopped_by_user): it spawns nothing more and
+# returns at its next check (_halt_on_user_stop).
+#
+# A count, where a flag would look simpler: a killed phase takes up to a
+# watchdog poll (10 s) to return, and a rerun clicked inside that window is a
+# second run of the same investigation. Clearing a flag when the new run starts
+# would hide the stop from the old one, which would carry on beside it. With a
+# count the old run sees a stop it predates and the new one does not.
+_stop_count: dict[str, int] = {}
+_run_started_at_stop: contextvars.ContextVar[Optional[tuple[str, int]]] = \
+    contextvars.ContextVar("bounce_run_started_at_stop", default=None)
 
-def stop_investigation(inv_id: str) -> bool:
-    """Kill the running agent process for an investigation. Returns True if killed."""
-    proc = _running_procs.pop(inv_id, None)
-    if proc is None or proc.returncode is not None:
-        return False
+
+def stop_count(inv_id: str) -> int:
+    """How many stops this investigation has been asked for. A caller that
+    chains several runs (main.py) keeps the value it started with and ends the
+    chain when it has moved."""
+    return _stop_count.get(inv_id, 0)
+
+
+def _begin_run(inv_id: str) -> None:
+    """First line of every run entry point: stops asked from now on are for
+    this run, earlier ones were for another."""
+    _run_started_at_stop.set((inv_id, stop_count(inv_id)))
+
+
+def _stopped_by_user(inv_id: str) -> bool:
+    """True when a stop was asked for this investigation since the run this
+    task belongs to began. False outside a run (a phase spawned on its own)."""
+    started = _run_started_at_stop.get()
+    return bool(started) and started[0] == inv_id and stop_count(inv_id) != started[1]
+
+
+def _kill_process(proc: asyncio.subprocess.Process) -> None:
     try:
         import signal
         os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
@@ -368,7 +402,34 @@ def stop_investigation(inv_id: str) -> bool:
             proc.kill()
         except Exception:
             pass
+
+
+def stop_investigation(inv_id: str) -> bool:
+    """Stop the run of an investigation: count the stop, so the run ends at its
+    next check, and kill the agent process in flight. Returns True if a process
+    was killed (False between two phases, or when nothing runs).
+
+    Called from a worker thread (the /stop route is sync). The count moves
+    BEFORE the process is looked up: _run_claude_phase registers its process
+    and then reads the count, so one side always sees the other."""
+    _stop_count[inv_id] = _stop_count.get(inv_id, 0) + 1
+    proc = _running_procs.pop(inv_id, None)
+    if proc is None or proc.returncode is not None:
+        return False
+    _kill_process(proc)
     return True
+
+
+def mark_stopped_by_user(inv_id: str) -> None:
+    """Leave a stopped investigation `done`, with the status_change that says a
+    user stopped it. Written by the /stop route at once, in the request: the
+    run itself only notices when its killed phase returns, seconds later, and
+    the sidebar is refreshed right after the request."""
+    gs.set_status(inv_id, "done")
+    with gs.conn() as c:
+        payload = {"kind": "status_change", "status": "done", "stopped_by_user": True}
+        c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
+                  (inv_id, "status_change", json.dumps(payload), time.time()))
 
 
 def _log(inv_id: str, kind: str, msg):
@@ -452,6 +513,27 @@ def _halt_on_ops_error(inv_id: str) -> bool:
         _finalise_model_halt(inv_id, _model_unsupported[inv_id])
         return True
     return False
+
+
+def _halt_on_user_stop(inv_id: str, rc=None, *, during: Optional[str] = None,
+                       phase: Optional[str] = None) -> bool:
+    """End the run if a user stopped it. True when it did.
+
+    Checked after every phase, before the quota and ops halts: the status of a
+    stopped investigation is the one the /stop route wrote, and nothing here
+    writes it again (a rerun may already own the row, see _stop_count). The
+    run only says it ended, on the event its listeners wait for. `phase` is the
+    label the follow-up runs put on their agent_exit, `during` the phase of the
+    main workflow that was in flight."""
+    if not _stopped_by_user(inv_id):
+        return False
+    payload = {"rc": rc, "status": "done", "stopped_by_user": True}
+    if phase:
+        payload["phase"] = phase
+    if during:
+        payload["stopped_during"] = during
+    _log(inv_id, "agent_exit", payload)
+    return True
 
 
 def _clear_ops_errors(inv_id: str) -> None:
@@ -3066,6 +3148,11 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
     {"hit": bool, "reset_at": float|None, "message": str} — when hit is True
     the Claude subscription was exhausted; callers should abort downstream
     phases and surface a resume affordance to the user."""
+    if _stopped_by_user(inv_id):
+        # The run was stopped between two phases: no new process. The caller's
+        # _halt_on_user_stop ends the run on this return.
+        _log(inv_id, f"phase_{phase}_not_started", {"reason": "stopped_by_user"})
+        return (None, False, False, {"hit": False, "reset_at": None, "message": ""})
     claude_path = _resolve_claude_bin()
     # Resolve this investigation's vertical once and use it for both the
     # {core}+{vertical} system prompt and the per-pool tool whitelist (no-op for
@@ -3117,6 +3204,10 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
         return (None, False, False, {"hit": False, "reset_at": None, "message": ""})
 
     _running_procs[inv_id] = proc
+    # A stop that came while the process was being spawned found nothing to
+    # kill (see stop_investigation for why this read cannot miss it).
+    if _stopped_by_user(inv_id):
+        _kill_process(proc)
 
     quota_state = {"hit": False, "reset_at": None, "message": ""}
 
@@ -3315,7 +3406,10 @@ async def _run_claude_phase(inv_id: str, prompt: str, system_prompt: str,
     except Exception:
         has_report = False
 
-    _running_procs.pop(inv_id, None)
+    # Only our own entry: after a stop then a rerun, the slot may already hold
+    # the new run's process, which the next stop must still find.
+    if _running_procs.get(inv_id) is proc:
+        _running_procs.pop(inv_id, None)
     _log(inv_id, f"phase_{phase}_exit", {
         "rc": rc, "saw_result": saw_result["v"], "has_report": has_report,
         "quota_hit": quota_state["hit"],
@@ -3418,6 +3512,7 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
     ground truth for relationships / attribution and to encode them as
     edges and tags rather than inventing them.
     """
+    _begin_run(inv_id)
     _clear_ops_errors(inv_id)  # stale auth / model flags from a prior run
     user_prompt = seeds.investigation_prompt(seed_type, seed_value)
 
@@ -3471,6 +3566,8 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
         inv_id, user_prompt, SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="main"
     )
+    if _halt_on_user_stop(inv_id, rc, during="main"):
+        return
 
     if quota["hit"]:
         _finalise_quota_halt(inv_id, quota)
@@ -3550,6 +3647,8 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 inv_id, hypothesis_prompt, _HYPOTHESIS_SYSTEM_PROMPT, model,
                 env, mcp_cfg_path, phase="hypothesis_write", max_turns=8,
             )
+            if _halt_on_user_stop(inv_id, rc_h, during="hypothesis_write"):
+                return
             _log(inv_id, "phase_hypothesis_write_done", {
                 "rc": rc_h, "saw_result": saw_h,
                 "wh_present_after": _has_working_hypothesis(),
@@ -3757,6 +3856,8 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 inv_id, followup_prompt, _FOLLOWUP_SYSTEM_PROMPT, model, env,
                 mcp_cfg_path, phase="followup", max_turns=60
             )
+            if _halt_on_user_stop(inv_id, rc2, during="followup"):
+                return
             _log(inv_id, "phase2_done", {"rc": rc2, "saw_result": saw2})
             if quota2["hit"]:
                 _finalise_quota_halt(inv_id, quota2)
@@ -3780,6 +3881,8 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
         try:
             quota_c = await _phase_corroborate_leads(
                 inv_id, model, env, mcp_cfg_path)
+            if _halt_on_user_stop(inv_id, during="corroborate_leads"):
+                return
             if quota_c and quota_c.get("hit"):
                 _finalise_quota_halt(inv_id, quota_c)
                 return
@@ -3902,6 +4005,8 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 inv_id, report_prompt, _FOLLOWUP_SYSTEM_PROMPT, model, env,
                 mcp_cfg_path, phase="report_write", max_turns=6,
             )
+            if _halt_on_user_stop(inv_id, rc3, during="report_write"):
+                return
             _log(inv_id, "phase3_report_write_done", {
                 "rc": rc3, "saw_result": saw3,
                 "report_written": _has_investigation_summary(),
@@ -4100,6 +4205,8 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                     mcp_cfg_path, phase=f"pivot_drain_{round_idx + 1}",
                     max_turns=round_turns,
                 )
+                if _halt_on_user_stop(inv_id, rc4, during=f"pivot_drain_{round_idx + 1}"):
+                    return
                 if quota4["hit"]:
                     _finalise_quota_halt(inv_id, quota4)
                     return
@@ -4157,6 +4264,8 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
                 model, env, mcp_cfg_path, phase="lessons_learned",
                 max_turns=6,
             )
+            if _halt_on_user_stop(inv_id, rc_l, during="lessons_learned"):
+                return
             _log(inv_id, "phase_lessons_learned_done", {
                 "rc": rc_l, "saw_result": saw_l,
                 "ll_present_after": _has_lessons_learned(inv_id),
@@ -4177,6 +4286,10 @@ async def run_investigation(inv_id: str, seed_type: str, seed_value: str, model:
         _log(inv_id, "dd_sanctions_sweep_error", {"error": str(e)[:200]})
 
     # ── Final status ──
+    # A stop that found no phase in flight (the DD sweep, the gap between two
+    # phases) ends here, before the status is written.
+    if _halt_on_user_stop(inv_id, rc):
+        return
     # Auth failure can surface in a later phase too — never report a 401-riddled
     # run as `done`.
     if _halt_on_ops_error(inv_id):
@@ -4371,6 +4484,7 @@ async def run_add_seed(inv_id: str, seed_type: str, seed_value: str, model: str 
     the report in place with per-seed summaries and explicit cross-seed
     findings (or an empty list, if nothing is shared).
     """
+    _begin_run(inv_id)
     user_prompt = (
         f"Add new PEER seed: type={seed_type} value={seed_value}\n"
         f"Investigation id: {inv_id}\n\n"
@@ -4421,6 +4535,8 @@ async def run_add_seed(inv_id: str, seed_type: str, seed_value: str, model: str 
         inv_id, user_prompt, _ADD_SEED_SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="add_seed", max_turns=80,
     )
+    if _halt_on_user_stop(inv_id, rc, phase="add_seed"):
+        return
 
     if quota["hit"]:
         _finalise_quota_halt(inv_id, quota)
@@ -4444,6 +4560,7 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
     by the API endpoint, and this function emits agent_exit on completion so
     the frontend sidebar refreshes live.
     """
+    _begin_run(inv_id)
     user_prompt = (
         f"Pivot seed: type={seed_type} value={seed_value}\n"
         f"Investigation id: {inv_id}\n\n"
@@ -4481,6 +4598,8 @@ async def run_pivot(inv_id: str, seed_type: str, seed_value: str, model: str = "
         inv_id, user_prompt, _PIVOT_SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="pivot", max_turns=40
     )
+    if _halt_on_user_stop(inv_id, rc, phase="pivot"):
+        return
 
     if quota["hit"]:
         _finalise_quota_halt(inv_id, quota)
@@ -4551,6 +4670,7 @@ C5. After the report update, stop. Do not chain further actions beyond what was 
 async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus",
                             selected_nodes: list[dict] | None = None):
     """Run a custom analyst prompt on an existing investigation."""
+    _begin_run(inv_id)
     # Fetch existing graph to build context snapshot and conversation history.
     past_prompts: list = []
     graph_snapshot = ""
@@ -4671,6 +4791,8 @@ async def run_custom_prompt(inv_id: str, prompt_text: str, model: str = "opus",
         inv_id, user_prompt, _CUSTOM_PROMPT_SYSTEM_PROMPT, model, env, mcp_cfg_path,
         phase="custom_prompt", max_turns=60,
     )
+    if _halt_on_user_stop(inv_id, rc, phase="custom_prompt"):
+        return
 
     if quota["hit"]:
         _finalise_quota_halt(inv_id, quota)
