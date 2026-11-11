@@ -1280,6 +1280,90 @@ button.secondary:hover {
   user-select: text;
 }
 
+/* ── Provenance (Node tab, share viewer) ─────────────────────────────────
+   Why a node is in the graph, set as running text: where it came from, the
+   edges that tie it to the rest, the cached answers of the sources. No frame,
+   no chip: names are bold words, a state is a coloured word of the sentence,
+   and blue marks what the analyst can open (a neighbour, the rest of the
+   list). */
+.prov {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--on-surface);
+  overflow-wrap: anywhere;
+}
+.prov-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-bg);
+}
+.prov b {
+  font-weight: 600;
+  color: var(--on-bg);
+}
+.prov b.prov-ok { color: var(--success); }
+.prov b.prov-bad { color: var(--error); }
+.prov-ties {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.prov-self { color: var(--on-dim); }
+.prov-rel {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  color: var(--on-bg);
+}
+/* The reason written on an edge is the answer the section exists for: it
+   keeps the text colour, one size down. */
+.prov-reason {
+  display: block;
+  font-size: 11px;
+}
+/* A node or a control written inside the text: a button that reads as a link. */
+.prov button.prov-link {
+  display: inline;
+  width: auto;
+  max-width: 100%;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 2px;
+  font: inherit;
+  color: var(--primary);
+  text-align: left;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.prov button.prov-link:hover {
+  background: none;
+  color: var(--on-bg);
+}
+.prov-link .prov-type { color: var(--on-surface); }
+.prov-link .prov-value,
+.prov button.prov-more { text-decoration: underline; }
+.prov button.prov-more { align-self: flex-start; }
+.prov button.prov-load {
+  width: auto;
+  min-height: 0;
+  margin-left: 8px;
+  padding: 1px 10px;
+  font-size: 11px;
+  vertical-align: baseline;
+}
+@media (max-width: 768px) {
+  .prov { font-size: 13px; }
+  .prov-ties { gap: 10px; }
+  /* Taller tap area for a link inside a line, the line itself unchanged. */
+  .prov button.prov-link { padding: 8px 0; margin: -8px 0; }
+  .prov button.prov-load { min-height: 36px; padding: 6px 12px; }
+}
+
 /* ── Tag chips ───────────────────────────────────────────────────────────── */
 .tag-chip {
   display: inline-block;
@@ -2240,6 +2324,15 @@ button.secondary:hover {
 }
 .evidence-entry[open] .evidence-summary {
   border-bottom: 1px solid var(--border);
+}
+.evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.evidence-date {
+  font-size: 11px;
+  color: var(--on-surface);
 }
 
 /* ── Resize handles ──────────────────────────────────────────────────────── */

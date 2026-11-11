@@ -366,13 +366,17 @@ frontend/
                         #   filter chips), GraphLegend (on-demand key of the canvas:
                         #   the node types and border meanings present in the
                         #   graph), ReportTab (LeadsCard, HypothesisCard,
-                        #   BudgetLog), NodeTab (StaticAnalysis), TimelineTab,
+                        #   BudgetLog), NodeTab (StaticAnalysis, NodeProvenance: where
+                        #   a node came from + the edges that tie it to the graph, as
+                        #   text; also in SharedView), TimelineTab,
                         #   ActionsPanel, ChatTab, PromptBox, PickedChips,
                         #   HighlightedText, CopyLabel (a copy button's label, fixed width)
     hooks/              # State slices used by MainApp: useRunSettings (model /
                         #   vertical / effort), useNewInvestigation (IOC / sample /
                         #   PDF form + submits), useNodeData (lead stats, cross-
-                        #   investigation hits, node note), useQuota, usePanelResize,
+                        #   investigation hits, node note, useNodeTies: the selected
+                        #   node's edges, refreshed on Cytoscape's edge add / remove
+                        #   events), useQuota, usePanelResize,
                         #   useTheme, useIsMobile, useServerReconnect,
                         #   useGraphSummary (types / border meanings / defused
                         #   count of the graph, for the legend and the toolbar),
@@ -385,9 +389,11 @@ frontend/
                         #   stylesheet + layout options, toCyNodeData,
                         #   isAuxReportNode, readCanvasColors, isDefused), legend
                         #   (shape glyphs, border meanings, summariseGraph),
-                        #   timeline, reportMarkdown, format, runProgress (phase
-                        #   labels + the words of the progress line;
-                        #   runProgress.test.js, node --test, run in CI)
+                        #   provenance (a node's origin and its ties to the graph as
+                        #   plain data: edgesOf, nodeTies, nodeOrigin; +
+                        #   provenance.test.js), timeline, reportMarkdown, format,
+                        #   runProgress (phase labels + the words of the progress
+                        #   line; runProgress.test.js, node --test, run in CI)
     invUrl.js           # Pure ?inv=<id> URL-sync helper (+ invUrl.test.js, node --test, run in CI)
     Login.jsx           # PIN login screen
     AdminPanel.jsx      # Admin dashboard (users, models, impersonation)

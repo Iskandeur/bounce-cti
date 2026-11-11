@@ -1,13 +1,31 @@
 import React from 'react'
 import StaticAnalysis from './StaticAnalysis.jsx'
+import NodeProvenance from './NodeProvenance.jsx'
 import { NODE_COLORS, PIVOTABLE } from '../lib/constants.js'
+import { evidenceSource } from '../lib/provenance.js'
 import CopyLabel from './CopyLabel.jsx'
 
-export default function NodeTab({ selected, activeInv, note, evidence, crossInv, copied, actions }) {
+export default function NodeTab({ selected, activeInv, note, evidence, crossInv, ties, copied, actions }) {
   const { noteDraft, setNoteDraft, noteBusy, saveNote } = note
   const { evidenceData, setEvidenceData, evidenceLoading, setEvidenceLoading } = evidence
   const { crossInvHits, crossInvLoading } = crossInv
-  const { togglePin, pivotHere, pivot, copyNodeJson, copyText, openInv } = actions
+  const { togglePin, pivotHere, pivot, copyNodeJson, copyText, openInv, focusNode } = actions
+  // Evidence is loaded on demand and belongs to one node: both the answers and
+  // the "loading" flag carry the node id, so walking to a neighbour from the
+  // provenance never shows the previous node's answers under the new one.
+  const nodeEvidence = selected && evidenceData?.nodeId === selected.id ? evidenceData : null
+  const loadEvidence = async () => {
+    const nodeId = selected.id
+    setEvidenceLoading(nodeId)
+    setEvidenceData(null)
+    let items = null
+    try {
+      const r = await fetch(`/api/investigations/${activeInv}/nodes/${nodeId}/evidence`)
+      if (r.ok) items = (await r.json()).evidence || []
+    } catch (_) { /* reported below as a failed load */ }
+    setEvidenceData({ nodeId, items })
+    setEvidenceLoading(cur => (cur === nodeId ? false : cur))
+  }
   return (
     <>
       {!selected && (
@@ -77,36 +95,6 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
               )}
             </div>
           )}
-
-          {/* Sources seen — multi-source convergence indicator */}
-          {(() => {
-            const ss = (selected.metadata || {}).sources_seen || []
-            const count = ss.length
-            const convergenceColor = count >= 3 ? '#56d364' : count === 2 ? '#e3b341' : '#8b949e'
-            return ss.length > 0 ? (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginBottom: 4 }}>
-                  <span style={{ color: 'var(--on-dim)' }}>Seen by:</span>
-                  <span style={{
-                    fontSize: 10, fontWeight: 'bold', padding: '1px 6px',
-                    borderRadius: 8, background: convergenceColor + '22',
-                    color: convergenceColor, border: `1px solid ${convergenceColor}44`
-                  }}>
-                    {count} source{count !== 1 ? 's' : ''}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {ss.map(s => (
-                    <span key={s} className="source-chip">{s}</span>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--on-dim)' }}>
-                {selected.source && <span>src: <b style={{ color: 'var(--on-surface)' }}>{selected.source}</b></span>}
-              </div>
-            )
-          })()}
 
           {/* Cross-investigation convergence — repeat infrastructure
               across the user's prior investigations. High signal:
@@ -234,6 +222,62 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
           )}
 
 
+          {/* Provenance: where the node came from, the edges that tie it to
+              the graph, then (on demand) what the sources answered. The
+              sources named at the top used to be the "Seen by" chips. */}
+          <NodeProvenance key={selected.id} node={selected} ties={ties} onOpenNode={focusNode} />
+
+          {activeInv && selected.type !== 'report' && (
+            <div className="prov">
+              <p>
+                <b>Evidence (raw data)</b> is what the sources answered about this exact
+                value, as kept in the cache.
+                <button
+                  type="button"
+                  className="btn-sm secondary prov-load"
+                  onClick={loadEvidence}
+                  disabled={evidenceLoading === selected.id}
+                >
+                  {evidenceLoading === selected.id ? 'Loading…' : 'Load'}
+                </button>
+              </p>
+              {nodeEvidence && nodeEvidence.items === null && (
+                <p>The cached answers could not be loaded.</p>
+              )}
+              {nodeEvidence && nodeEvidence.items && nodeEvidence.items.length === 0 && (
+                <p>
+                  No cached answer is about this exact value. An answer to a wider
+                  question (a parent domain, a search) is filed under that question.
+                </p>
+              )}
+              {nodeEvidence && nodeEvidence.items && nodeEvidence.items.length > 0 && (
+                <>
+                  <p>
+                    {nodeEvidence.items.length} cached answer{nodeEvidence.items.length === 1 ? '' : 's'}, oldest first.
+                  </p>
+                  <div className="evidence-list">
+                    {nodeEvidence.items.map((ev, i) => {
+                      const sourceLabel = evidenceSource(ev.cache_key)
+                      return (
+                        <details key={i} className="evidence-entry">
+                          <summary className="evidence-summary" title={ev.cache_key}>
+                            <b>{sourceLabel.length > 40 ? sourceLabel.slice(0, 38) + '…' : sourceLabel}</b>
+                            <span className="evidence-date">
+                              {ev.cached_at ? `cached ${new Date(ev.cached_at * 1000).toLocaleString()}` : ''}
+                            </span>
+                          </summary>
+                          <pre className="meta-pre" style={{ maxHeight: 300, overflow: 'auto' }}>
+                            {JSON.stringify(ev.data, null, 2)}
+                          </pre>
+                        </details>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {selected.type === 'hash' && selected.metadata?.static_analysis && (
             <StaticAnalysis sa={selected.metadata.static_analysis} />
           )}
@@ -243,58 +287,6 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
             <pre className="meta-pre">{JSON.stringify(selected.metadata, null, 2)}</pre>
           </div>
 
-          {/* Evidence — raw source data audit */}
-          {activeInv && selected.type !== 'report' && (
-            <div>
-              <div className="section-label" style={{ margin: '8px 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                Evidence (raw data)
-                <button
-                  className="btn-sm secondary"
-                  style={{ fontSize: 10, padding: '1px 8px' }}
-                  onClick={async () => {
-                    setEvidenceLoading(true)
-                    setEvidenceData(null)
-                    try {
-                      const r = await fetch(`/api/investigations/${activeInv}/nodes/${selected.id}/evidence`)
-                      if (r.ok) {
-                        const d = await r.json()
-                        setEvidenceData(d.evidence || [])
-                      }
-                    } catch (_) {}
-                    setEvidenceLoading(false)
-                  }}
-                >
-                  {evidenceLoading ? 'Loading...' : 'Load'}
-                </button>
-              </div>
-              {evidenceData && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {evidenceData.length === 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--on-dim)' }}>No cached source data found for this value.</div>
-                  )}
-                  {evidenceData.map((ev, i) => {
-                    const keyParts = ev.cache_key.split('|')
-                    const sourceLabel = keyParts.length > 1
-                      ? keyParts[1].replace(/https?:\/\/[^/]+\//, '').split('/').slice(0, 2).join('/')
-                      : ev.cache_key
-                    return (
-                      <details key={i} className="evidence-entry">
-                        <summary className="evidence-summary">
-                          <span className="source-chip">{sourceLabel.length > 40 ? sourceLabel.slice(0, 38) + '...' : sourceLabel}</span>
-                          <span style={{ fontSize: 10, color: 'var(--on-dim)' }}>
-                            {ev.cached_at ? new Date(ev.cached_at * 1000).toLocaleString() : ''}
-                          </span>
-                        </summary>
-                        <pre className="meta-pre" style={{ maxHeight: 300, overflow: 'auto' }}>
-                          {JSON.stringify(ev.data, null, 2)}
-                        </pre>
-                      </details>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
         </>
       )}
     </>

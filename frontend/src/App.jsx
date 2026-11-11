@@ -25,7 +25,7 @@ import useRunProgress from './hooks/useRunProgress.js'
 import useServerReconnect from './hooks/useServerReconnect.js'
 import useRunSettings from './hooks/useRunSettings.js'
 import useNewInvestigation from './hooks/useNewInvestigation.js'
-import { useLeadStats, useCrossInvestigations, useNodeNote } from './hooks/useNodeData.js'
+import { useLeadStats, useCrossInvestigations, useNodeNote, useNodeTies } from './hooks/useNodeData.js'
 import Sidebar from './components/Sidebar.jsx'
 import RunProgress, { RunProgressAnnouncer } from './components/RunProgress.jsx'
 import GraphPane from './components/GraphPane.jsx'
@@ -134,6 +134,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [theme, setTheme] = useTheme()
 
   const cyRef = useRef(null)
+  // Edges touching the selected node, for the Node tab's provenance.
+  const nodeTies = useNodeTies(cyRef, selected)
   const containerRef = useRef(null)
   const activeInvRef = useRef(null)
   const showEdgeLabelsRef = useRef(showEdgeLabels)
@@ -313,6 +315,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (!cy) return
     const node = cy.$id(id)
     if (!node.length) return
+    // One selected node at a time: without this, walking the graph from the
+    // Node tab leaves every visited node highlighted.
+    cy.nodes().unselect()
     node.select()
     cy.animate({ fit: { eles: node.closedNeighborhood(), padding: 80 }, duration: 400 })
     setSelected(node.data())
@@ -1105,8 +1110,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               note={note}
               evidence={{ evidenceData, setEvidenceData, evidenceLoading, setEvidenceLoading }}
               crossInv={crossInv}
+              ties={nodeTies}
               copied={copied}
-              actions={{ togglePin, pivotHere, pivot, copyNodeJson, copyText, openInv }}
+              actions={{ togglePin, pivotHere, pivot, copyNodeJson, copyText, openInv, focusNode }}
             />
           )}
           {rightTab === 'timeline' && (
