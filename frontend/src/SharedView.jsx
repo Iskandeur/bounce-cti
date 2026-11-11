@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { readCanvasColors } from './lib/graph.js'
+import { readCanvasColors, edgeLabel } from './lib/graph.js'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 
@@ -160,7 +160,7 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
             'target-arrow-color': canvas.line,
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
-            'label': ele => ele.data('relation') || '',
+            'label': edgeLabel,
             'font-size': 8,
             'color': canvas.dimText,
             'text-rotation': 'autorotate',

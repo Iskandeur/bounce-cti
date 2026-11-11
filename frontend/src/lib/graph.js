@@ -24,6 +24,17 @@ export function readCanvasColors() {
   }
 }
 
+// The words drawn on an edge: its relation, except for the edge that ties a
+// node to the investigation's own summary. The agent files that one under
+// `known_ioc` on every run, whatever the verdict, and the canvas would read
+// "known IoC" on a benign seed. Only the label changes: the data, the exports
+// and the relation filter keep `known_ioc`.
+export function edgeLabel(ele) {
+  const t = ele.target()
+  if (t.data('type') === 'report' && t.data('value') === 'investigation_summary') return 'summary'
+  return ele.data('relation') || ''
+}
+
 // A defused node, as the toolbar toggle and the legend count it. Reads the
 // per-tag flags toCyNodeData sets, which a live node_tagged event sets too. A
 // seed or a node the analyst pinned stays on the canvas whatever its tags.
@@ -196,7 +207,7 @@ export function buildCyStylesheet({
         'target-arrow-color': canvas('line'),
         'target-arrow-shape': 'triangle',
         'curve-style': 'bezier',
-        'label': ele => showEdgeLabelsRef.current ? (ele.data('relation') || '') : '',
+        'label': ele => showEdgeLabelsRef.current ? edgeLabel(ele) : '',
         'font-size': 8,
         'color': canvas('dimText'),
         'text-rotation': 'autorotate',

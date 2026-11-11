@@ -11,7 +11,7 @@ import { formatCountdown } from './lib/format.js'
 import { iocString, refang, detectIOCType } from './lib/ioc.js'
 import {
   buildCyStylesheet, INITIAL_LAYOUT, RELAYOUT_OPTIONS, HARD_RELAYOUT_OPTIONS,
-  isAuxReportNode, toCyNodeData, readCanvasColors,
+  isAuxReportNode, toCyNodeData, readCanvasColors, edgeLabel,
 } from './lib/graph.js'
 import { transcriptToNotes } from './lib/timeline.js'
 import { reportToMarkdown } from './lib/reportMarkdown.js'
@@ -265,7 +265,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (!cyRef.current) return
     cyRef.current.style()
       .selector('edge')
-      .style('label', ele => showEdgeLabels ? (ele.data('relation') || '') : '')
+      .style('label', ele => showEdgeLabels ? edgeLabel(ele) : '')
       .update()
   }, [showEdgeLabels])
 
