@@ -96,7 +96,9 @@ backend/
                         #     bundle: To/Subject/Body + mailto link). Filters
                         #     out defused indicators by default so accidental
                         #     CDN / Tor / sinkhole blocks don't leak into
-                        #     production drop-lists.
+                        #     production drop-lists. _DEFUSED_TAGS holds every
+                        #     tag defuse_check can emit ("parking" included):
+                        #     tests/test_action_exports_defused.py ties them.
   mitre_mapping.py      # Heuristic MITRE ATT&CK technique mapper:
                         #   TECHNIQUES catalog (44 enterprise techniques),
                         #   _TAG_MAP (node-tag → technique candidates with

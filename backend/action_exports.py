@@ -30,11 +30,23 @@ from typing import Iterable
 
 from .context_pool import is_actionable as _tier_actionable
 
-# Defuse tags we never want in actionable output. Same set as
-# pivot_mapping.bad_tags but inverted intent: here we treat them as
-# *unsafe to action*.
+# Defuse tags we never want in actionable output: a node carrying one is real,
+# and too shared or too dead to block or report. Three sources feed the list,
+# and tests/test_action_exports_defused.py fails when one of them names a tag
+# that is missing here:
+#   - every tag defuse_lists.defuse_check can emit (cdn, parking, sinkhole,
+#     blackhole, dyndns, tor_exit);
+#   - the tags the agent prompt asks for on noise ("parking" on a confirmed
+#     parked domain or lander IP, "shared_hosting"), plus nsrl_known and
+#     legit_service;
+#   - pivot_mapping's bad_tags and graph_store._NOISE_TAGS.
+# "parking" was missing until 2026-11-11 while "parked_domain", which nothing
+# emits, stood in its place: parked domains shipped in blocklists and takedown
+# bundles. "parked_domain" stays as an alias, since tags are free text an agent
+# writes. "parking_ns" is deliberately absent: it marks a domain whose
+# nameservers are a parking provider's, which a live C2 can be.
 _DEFUSED_TAGS = {
-    "cdn", "parked_domain", "sinkhole", "blackhole", "dyndns",
+    "cdn", "parking", "parked_domain", "sinkhole", "blackhole", "dyndns",
     "tor_exit", "nsrl_known", "legit_service", "shared_hosting",
 }
 
