@@ -458,7 +458,9 @@ eval/prospective.py     # Prospective cases (EVAL_PROTOCOL §4.E): seal <batch> 
                         #   LABEL=reason leaves a contaminated seed out at the seal:
                         #   never edit seeds.json (its sha256 ties the stamped arms)
                         #   backend/tests/test_sources_read_only.py: sources only read
-deploy.sh               # Auto-deploy script (callable on the VPS)
+deploy.sh               # Manual deploy, callable on the VPS. The automatic deploy is
+                        #   the inline script of .github/workflows/deploy.yml, which
+                        #   backend/tests/test_deploy_script.py runs in a sandbox
 Dockerfile              # Local one-image run (not used by prod): frontend build
                         #   stage, then backend + claude CLI as non-root `bounce`
 docker-compose.yml      # `docker compose up -d --build`: .env bind-mounted read-only
@@ -510,8 +512,36 @@ This repo has **automatic deployment via GitHub Actions**.
 **Every push to `main` triggers a deploy to the production VPS:**
 
 1. GitHub Actions SSHes into the VPS (secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`)
-2. Runs inline deploy commands (defined in `.github/workflows/deploy.yml`): git pull, install deps if changed, rebuild frontend if changed, **preflight that the `claude` CLI resolves** (fatal if `CLAUDE_BIN` in `.env` is set but not executable — the 2026-06-17 outage was a binary-off-PATH move that only surfaced at the first investigation; best-effort warning otherwise), restart systemd service
+2. Runs inline deploy commands (defined in `.github/workflows/deploy.yml`): **preflight that the `claude` CLI resolves** (fatal if `CLAUDE_BIN` in `.env` is set but not executable — the 2026-06-17 outage was a binary-off-PATH move that only surfaced at the first investigation; best-effort warning otherwise), git pull, install deps if changed, rebuild frontend if changed, restart systemd service **if something it loads changed, or if it is not running**
 3. The service runs behind Caddy (reverse proxy, automatic HTTPS)
+
+Four rules of that script. `backend/tests/test_deploy_script.py` takes the script
+out of the workflow and runs it in a sandbox (a throwaway clone, `sudo` / `npm` /
+`pip` stubbed) for each of them:
+- **One deploy at a time** (`concurrency: deploy-production`). A push that lands
+  during a deploy waits for it; a later push replaces the one that waits (shown as
+  cancelled), which loses nothing: a run deploys `origin/main` as it stands.
+- **A restart only for what the service loads.** A restart ends every
+  investigation in flight. A commit that touches only the paths of the script's
+  `INERT` list restarts nothing: top-level `*.md`, `media/`, `backend/tests/`,
+  `frontend/`, `eval/`, `runs/`, `.github/`, `requirements-dev.txt`,
+  `.env.example`, the ignore files, the Docker files, the licence files. Any other
+  path restarts, a new top-level file or a doc in a new directory included. The
+  test checks the list against `git ls-files`: **a new top-level file fails it
+  until it is classified**, in `INERT` or in the test's `code` set. To restart by
+  hand: `sudo systemctl restart bounce-cti` on the VPS.
+- **The bundle is rebuilt, not restarted for.** A change under `frontend/` (other
+  than `frontend/e2e/`, `frontend/playwright.config.js` and `.md` files) runs
+  `npm ci` + `npm run build`, and the running process serves the new files from
+  disk. A tab that is already open keeps the old bundle until it is reloaded (a
+  restart used to reload every open tab).
+- **A deploy that stops before its restart puts the checkout back.** A failed
+  `npm ci`, build or `pip install` fails the run and resets the checkout to where
+  it was, so the service keeps running code that is still on disk (the MCP
+  processes it spawns read `backend/` from disk) and the next run, or a re-run of
+  the failed job, starts again from the same place. `.git/bounce-deploy-pending`
+  on the VPS exists only while a deploy is unfinished: it holds the commit the run
+  started from, for the case where the run is killed outright.
 
 **WARNING: any commit pushed to `main` goes live immediately.** There is no staging environment, no rollback automation. Before pushing:
 - Make sure the Python backend starts without errors
@@ -558,7 +588,10 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
 
 ### If you need to change the deploy pipeline
 
-- Deploy script: `deploy.sh` (runs on the VPS)
+- Automatic deploy: the inline script of `.github/workflows/deploy.yml` (change it
+  together with `backend/tests/test_deploy_script.py`, which runs it)
+- Manual deploy: `deploy.sh` (runs on the VPS; it has none of the rules above: it
+  restarts on every change and leaves the checkout moved when it fails)
 - GitHub Actions workflows: `.github/workflows/deploy.yml` (deploy),
   `.github/workflows/ci.yml` (merge-gate), `.github/dependabot.yml` (update proposals)
 - Systemd service: `bounce-cti.service` (managed on the VPS, not in this repo)

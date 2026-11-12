@@ -1379,16 +1379,46 @@ Push on main
   │
   ▼
 GitHub Actions (.github/workflows/deploy.yml)
+  │  one run at a time (concurrency: deploy-production): a push that lands
+  │  during a deploy waits for it, a later push replaces the one that waits
   │  SSH into VPS using secrets (VPS_HOST, VPS_USER, VPS_SSH_KEY)
   ▼
 Inline script (defined in deploy.yml, runs on VPS via SSH)
+  ├─ preflight: claude CLI resolves (fatal if CLAUDE_BIN in .env not executable)
   ├─ git fetch + reset to origin/main
   ├─ pip install (only if requirements.txt changed)
-  ├─ npm ci + npm run build (only if frontend/ changed)
-  ├─ preflight: claude CLI resolves (fatal if CLAUDE_BIN in .env not executable)
-  ├─ sudo systemctl restart bounce-cti
+  ├─ npm ci + npm run build (only if frontend/ changed outside e2e/,
+  │     playwright.config.js and .md files)
+  │       any failure up to here: the checkout is reset to where it was,
+  │       the run fails, nothing is restarted
+  ├─ sudo systemctl restart bounce-cti (only if a path outside the script's
+  │     INERT list changed, or the service is not running)
   └─ health check (verify service is running)
 ```
+
+A restart ends every investigation in flight (they come back as
+`error: interrupted` and can be resumed). It is therefore kept for what the
+running service loads: `backend/` (its tests aside), `requirements.txt`,
+`run_mcp.py`, `mcp.json`, `deploy.sh`, and any path nobody classified. The
+script's `INERT` list names what restarts nothing: top-level `*.md`, `media/`,
+`backend/tests/`, `frontend/`, `eval/`, `runs/`, `.github/`,
+`requirements-dev.txt`, `.env.example`, the ignore files, the Docker files and
+the licence files. The bundle is rebuilt and served from disk by the process
+already running, so a tab that is already open keeps the old bundle until it is
+reloaded (a restart reloads every open tab through the `server_shutdown` frame).
+
+The steps are decided on the diff between the checkout and `origin/main`, which
+is only right if the checkout is what the service runs. So a run that stops
+before its restart resets the checkout to where it was: the service finds on
+disk the code it runs (the MCP processes of each investigation are spawned from
+disk), and the next push, or a re-run of the failed job, redoes everything. For
+a run killed outright, `.git/bounce-deploy-pending` holds the commit it started
+from, from the moment the checkout moves until the deploy is over; a run that
+finds the file starts from that commit.
+
+`backend/tests/test_deploy_script.py` extracts the script from the workflow and
+runs it in a sandbox for each of these cases, and checks `INERT` against the
+files of the repository: a new top-level file fails it until it is classified.
 
 ### Production stack
 
