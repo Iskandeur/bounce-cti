@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 
+# One deploy at a time. A push that lands while a deploy runs waits for it,
+# instead of resetting the checkout under its `npm ci` and its build. A third
+# push replaces the one that waits, and nothing is lost: a run deploys
+# origin/main as it stands when it starts, whatever commit triggered it.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -25,41 +33,20 @@ jobs:
             APP="/opt/bounce-cti"
             cd "$APP"
 
-            git fetch origin main
-            BEFORE=$(git rev-parse HEAD)
-            git reset --hard origin/main
-            AFTER=$(git rev-parse HEAD)
-
-            if [ "$BEFORE" = "$AFTER" ]; then
-              echo "==> No changes, nothing to deploy."
-              exit 0
-            fi
-
-            echo "==> Deploying ${BEFORE:0:8} -> ${AFTER:0:8}"
-
-            if git diff --name-only "$BEFORE" "$AFTER" | grep -q "requirements.txt"; then
-              echo "==> requirements.txt changed, installing deps..."
-              "$APP/.venv/bin/pip" install --quiet -r requirements.txt
-            fi
-
-            if git diff --name-only "$BEFORE" "$AFTER" | grep -q "^frontend/"; then
-              echo "==> Frontend changed, rebuilding..."
-              cd "$APP/frontend" && npm ci --silent && npm run build && cd "$APP"
-            fi
-
-            # Preflight: the agent runner cannot run investigations without the
-            # `claude` CLI. The 2026-06-17 outage was a PATH/binary move that only
-            # surfaced at the first investigation (0 nodes), not at deploy. Catch
-            # it here. CLAUDE_BIN in .env is the authoritative path (set to an
-            # absolute location during that incident); a stale value is the
-            # realistic regression, so treat set-but-not-executable as fatal.
+            # Preflight, before anything is touched: the agent runner cannot run
+            # investigations without the `claude` CLI. The 2026-06-17 outage was
+            # a PATH/binary move that only surfaced at the first investigation
+            # (0 nodes), not at deploy. Catch it here. CLAUDE_BIN in .env is the
+            # authoritative path (set to an absolute location during that
+            # incident); a stale value is the realistic regression, so treat
+            # set-but-not-executable as fatal.
             echo "==> Preflight: resolving claude CLI..."
             CLAUDE_BIN_CFG=$(grep -E '^CLAUDE_BIN=' "$APP/.env" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d "\"'" | xargs)
             if [ -n "$CLAUDE_BIN_CFG" ]; then
               if [ -x "$CLAUDE_BIN_CFG" ]; then
                 echo "==> Preflight OK: CLAUDE_BIN=$CLAUDE_BIN_CFG"
               else
-                echo "==> ERROR: CLAUDE_BIN ($CLAUDE_BIN_CFG) from .env is not executable — aborting before restart."
+                echo "==> ERROR: CLAUDE_BIN ($CLAUDE_BIN_CFG) from .env is not executable — aborting before the checkout moves."
                 exit 1
               fi
             elif command -v claude > /dev/null 2>&1; then
@@ -70,13 +57,92 @@ jobs:
               echo "==> Preflight WARN: could not resolve claude as the deploy user (the service user's env may differ). Set CLAUDE_BIN in .env to an absolute path to make this check authoritative."
             fi
 
-            echo "==> Restarting service..."
-            sudo -n /bin/systemctl restart bounce-cti
-            sleep 2
+            # The steps below are decided on what changed between the checkout
+            # as it stands and origin/main. That only holds if the checkout is
+            # what the service runs, so a deploy that stops before its restart
+            # puts the checkout back (RESTORE, in the trap): the service keeps
+            # running code that is still on disk, where the processes it spawns
+            # for each investigation read it, and the next run starts again
+            # from the same place.
+            #
+            # PENDING is for a run that was killed outright, trap included: it
+            # holds the commit that run started from, from the moment the
+            # checkout moves until the deploy is over. A run that finds it
+            # starts from that commit.
+            PENDING="$APP/.git/bounce-deploy-pending"
+            RESTORE=""
+            trap 'rc=$?; if [ "$rc" -ne 0 ] && [ -n "$RESTORE" ]; then echo "==> Deploy stopped before the restart: checkout back to ${RESTORE:0:8}."; git -C "$APP" reset --hard "$RESTORE" && rm -f "$PENDING"; fi' EXIT
+
+            git fetch origin main
+            BEFORE=$(git rev-parse HEAD)
+            if [ -f "$PENDING" ] && git cat-file -e "$(cat "$PENDING")^{commit}" 2>/dev/null; then
+              BEFORE=$(cat "$PENDING")
+              echo "==> An earlier deploy did not finish: starting again from ${BEFORE:0:8}."
+            fi
+            echo "$BEFORE" > "$PENDING"
+            RESTORE="$BEFORE"
+            git reset --hard origin/main
+            AFTER=$(git rev-parse HEAD)
+
+            if [ "$BEFORE" = "$AFTER" ]; then
+              echo "==> No new commit."
+            else
+              echo "==> Deploying ${BEFORE:0:8} -> ${AFTER:0:8}"
+            fi
+            # Raw paths (no quoting of non-ASCII names) and no rename pairing: a
+            # file moved out of backend/ must still show under its old path.
+            CHANGED=$(git -c core.quotePath=false diff --name-only --no-renames "$BEFORE" "$AFTER")
+
+            if echo "$CHANGED" | grep -q "requirements.txt"; then
+              echo "==> requirements.txt changed, installing deps..."
+              "$APP/.venv/bin/pip" install --quiet -r requirements.txt
+            fi
+
+            # The bundle is built from frontend/, minus what only the browser
+            # suite and the docs read.
+            if echo "$CHANGED" | grep "^frontend/" | grep -qvE '^frontend/(e2e/|playwright\.config\.js$|.*\.md$)'; then
+              echo "==> Frontend changed, rebuilding..."
+              # One command per line: `set -e` does not stop on a failure
+              # inside an `a && b && c` list, and a failed `npm ci` used to go
+              # on to the restart and to "Deploy OK".
+              cd "$APP/frontend"
+              npm ci --silent
+              npm run build
+              cd "$APP"
+            fi
+
+            # A restart ends every investigation in flight, so it is kept for
+            # what the running service has loaded. INERT lists the paths it
+            # never loads: top-level docs, tests, the eval tooling, CI, the
+            # Docker files, and frontend/ (the bundle is served from disk,
+            # request by request). Any other path restarts, a new top-level
+            # file included: a path nobody classified counts as code.
+            # backend/tests/test_deploy_script.py checks the list against the
+            # files of the repository.
+            INERT='^([^/]*\.md|media/.*|backend/tests/.*|frontend/.*|eval/.*|runs/.*|\.github/.*|requirements-dev\.txt|\.env\.example|\.gitignore|\.dockerignore|Dockerfile|docker-compose\.yml|LICENSE|NOTICE|THIRD_PARTY_LICENSES)$'
+            RESTART=0
+            if [ -n "$CHANGED" ] && echo "$CHANGED" | grep -qvE "$INERT"; then
+              RESTART=1
+            elif ! sudo -n /bin/systemctl status bounce-cti > /dev/null 2>&1; then
+              echo "==> Service is not running: it will be started."
+              RESTART=1
+            fi
+
+            # From here the new code is what the service runs or is about to:
+            # the checkout stays, whatever happens next.
+            RESTORE=""
+            if [ "$RESTART" = 1 ]; then
+              echo "==> Restarting service..."
+              sudo -n /bin/systemctl restart bounce-cti
+              sleep 2
+            else
+              echo "==> Nothing the service loads changed: no restart."
+            fi
 
             if sudo -n /bin/systemctl status bounce-cti > /dev/null 2>&1; then
+              rm -f "$PENDING"
               echo "==> Deploy OK! Commit: $(git rev-parse --short HEAD)"
             else
-              echo "==> ERROR: service failed to start!"
+              echo "==> ERROR: service is not running!"
               exit 1
             fi
