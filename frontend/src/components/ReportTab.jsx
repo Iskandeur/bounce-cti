@@ -25,7 +25,7 @@ export default function ReportTab({
       )}
       {report && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <span className={`threat-badge threat-${(report.threat_assessment || 'unknown').replace(/\s+/g, '_')}`}>
               {(report.threat_assessment || 'UNKNOWN').toUpperCase()}
             </span>

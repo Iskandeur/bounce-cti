@@ -165,7 +165,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {PIVOTABLE.includes(selected.type) && (
               <>
                 <button
