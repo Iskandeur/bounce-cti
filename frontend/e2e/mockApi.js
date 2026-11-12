@@ -2,7 +2,7 @@
 // from e2e/fixtures/data.js, and /ws/<inv_id> by a mocked WebSocket that sends
 // the graph snapshot, as the real one does on connect.
 import {
-  ME, VERTICALS, QUOTA, INVESTIGATIONS, GRAPHS, TRANSCRIPTS, LEADS,
+  ME, VERTICALS, QUOTA, INVESTIGATIONS, GRAPHS, TRANSCRIPTS, LEADS, PROGRESS,
   crossInvestigations, evidence,
 } from './fixtures/data.js'
 
@@ -19,6 +19,8 @@ const ROUTES = [
     TRANSCRIPTS[inv] ? json(TRANSCRIPTS[inv]) : notFound],
   ['GET', /^\/api\/investigations\/([^/]+)\/leads$/, ([, inv]) =>
     GRAPHS[inv] ? json(LEADS) : notFound],
+  ['GET', /^\/api\/investigations\/([^/]+)\/progress$/, ([, inv]) =>
+    PROGRESS[inv] ? json(PROGRESS[inv]) : notFound],
   ['GET', /^\/api\/investigations\/([^/]+)\/nodes\/([^/]+)\/cross_investigations$/, ([, inv, node]) => {
     const body = crossInvestigations(inv, node)
     return body ? json(body) : notFound
