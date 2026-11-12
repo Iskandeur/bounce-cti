@@ -31,6 +31,18 @@ export const LEAD_STATE_COLOR = {
   unverifiable: '#8b949e', unverified: '#9a8cb8',
 }
 
+// Tags that mark a node as defused: it exists, and it says nothing about the
+// operator (a CDN address, a parking nameserver, a sinkhole…). The backend
+// keeps two lists: the tags defuse_check() emits (backend/defuse_lists.py) and
+// the tags the Actions exports leave out (backend/action_exports.py
+// _DEFUSED_TAGS). This is their union, so "defused" means the same nodes on
+// the canvas and in the Actions tab.
+// backend/tests/test_defuse_tags_in_sync.py fails when the lists part ways.
+export const DEFUSE_TAGS = [
+  'cdn', 'parking', 'parked_domain', 'sinkhole', 'blackhole', 'dyndns',
+  'tor_exit', 'nsrl_known', 'legit_service', 'shared_hosting',
+]
+
 // ── Maltego entity type mapping ──────────────────────────────────────────────
 // Maps bounce-cti node.type -> Maltego entity type string. The paste format is
 // `<maltego_entity_type>#<value>` (one per line). Falsy return = skip this type.

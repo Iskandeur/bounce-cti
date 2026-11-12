@@ -1,8 +1,62 @@
-import { NODE_COLORS, NODE_SHAPES, LEAD_STATES } from './constants.js'
+import { NODE_COLORS, NODE_SHAPES, LEAD_STATES, DEFUSE_TAGS } from './constants.js'
 
-// Cytoscape stylesheet. The label / display functions read the toolbar toggles
-// through refs, so flipping one only needs a style().update().
-export function buildCyStylesheet({ showPinsRef, showNotesRef, showEdgeLabelsRef, filterRelationsRef }) {
+// The colours Cytoscape draws against the canvas, read from the theme
+// variables of styles.css (the --graph-* ones sit next to .graph): the canvas
+// is var(--bg), so whatever has to stand out on it changes with the theme.
+// Cytoscape parses 3- or 6-digit hex, rgb() and colour names only: keep these
+// variables free of var(), color-mix() and 8-digit hex.
+export function readCanvasColors() {
+  const css = getComputedStyle(document.documentElement)
+  const read = (name, fallback) => css.getPropertyValue(name).trim() || fallback
+  return {
+    text: read('--on-bg', '#e6edf3'),        // node label, seed border, selection ring
+    dimText: read('--on-dim', '#768390'),    // edge label
+    canvas: read('--bg', '#0d1117'),         // chip behind an edge label
+    line: read('--graph-line', '#30363d'),   // default node border and edge
+    pin: read('--graph-pin', '#fbbf24'),     // border of a pinned node
+    blue: read('--graph-blue', '#58a6ff'),   // picked ring, search match, resolves_to / has_subdomain
+    orange: read('--graph-orange', '#ffa657'), // co_resolves
+    red: read('--error', '#f85149'),         // known_ioc
+    green: read('--success', '#56d364'),     // same_ns_set
+    // Coloured edges are tints: this multiplies their opacity, so a tint
+    // that is quiet on the dark canvas does not vanish on the white one.
+    edgeTint: parseFloat(read('--graph-edge-tint', '1')) || 1,
+  }
+}
+
+// The words drawn on an edge: its relation, except for the edge that ties a
+// node to the investigation's own summary. The agent files that one under
+// `known_ioc` on every run, whatever the verdict, and the canvas would read
+// "known IoC" on a benign seed. Only the label changes: the data, the exports
+// and the relation filter keep `known_ioc`.
+export function edgeLabel(ele) {
+  const t = ele.target()
+  if (t.data('type') === 'report' && t.data('value') === 'investigation_summary') return 'summary'
+  return ele.data('relation') || ''
+}
+
+// A defused node, as the toolbar toggle and the legend count it. Reads the
+// per-tag flags toCyNodeData sets, which a live node_tagged event sets too. A
+// seed or a node the analyst pinned stays on the canvas whatever its tags.
+export const isDefused = d => !d.seed && !d.pinned && DEFUSE_TAGS.some(t => d[t])
+
+// Cytoscape stylesheet. The label / display / colour functions read the
+// toolbar toggles, the filters and the theme colours through refs, so a change
+// to any of them only needs a style().update().
+export function buildCyStylesheet({
+  showPinsRef, showNotesRef, showEdgeLabelsRef, filterTypesRef, filterRelationsRef,
+  showDefusedRef, canvasColorsRef,
+}) {
+  const canvas = key => () => canvasColorsRef.current[key]
+  // A relation's colour applies to its line and its arrow; line-opacity
+  // covers both (Cytoscape has no opacity of its own for arrows, and rejects
+  // a colour with an alpha channel).
+  const tinted = (key, opacity, extra) => ({
+    'line-color': canvas(key),
+    'target-arrow-color': canvas(key),
+    'line-opacity': () => Math.min(1, opacity * canvasColorsRef.current.edgeTint),
+    ...extra,
+  })
   return [
     {
       selector: 'node',
@@ -24,19 +78,25 @@ export function buildCyStylesheet({ showPinsRef, showNotesRef, showEdgeLabelsRef
           return pinned + base + note
         },
         'text-wrap': 'wrap',
-        'color': '#e6edf3',
+        'color': canvas('text'),
         'font-size': 10,
         'text-valign': 'bottom',
         'text-margin-y': 5,
         'width': ele => ele.data('type') === 'report' ? 38 : 22,
         'height': ele => ele.data('type') === 'report' ? 38 : 22,
         'border-width': 2,
-        'border-color': '#30363d',
+        'border-color': canvas('line'),
+        // The one place that decides whether a node is drawn: its type chip
+        // is off, or it is defused while the toolbar hides defused nodes.
+        // Cytoscape does not draw the edges of a node that is not displayed,
+        // so the edge rule below only carries the relation filter.
+        'display': ele => (filterTypesRef.current.has(ele.data('type'))
+          || (!showDefusedRef.current && isDefused(ele.data()))) ? 'none' : 'element',
       }
     },
     {
       selector: 'node[?seed]',
-      style: { 'width': 32, 'height': 32, 'border-width': 3, 'border-color': '#f0f6fc', 'font-weight': 'bold' }
+      style: { 'width': 32, 'height': 32, 'border-width': 3, 'border-color': canvas('text'), 'font-weight': 'bold' }
     },
     // Context-pool material: an unratified claim from the agent's prior
     // knowledge or from open-web text. Rendered dashed + translucent so it
@@ -63,17 +123,11 @@ export function buildCyStylesheet({ showPinsRef, showNotesRef, showEdgeLabelsRef
         'opacity': 0.4,
       }
     },
-    // Analyst-pinned nodes: gold halo + thicker border, plus an
-    // emoji prefix in the label (turned on/off via showPinsRef).
+    // Analyst-pinned nodes: a thicker gold border, plus an emoji prefix in
+    // the label (turned on/off via showPinsRef).
     {
       selector: 'node[?pinned]',
-      style: {
-        'border-color': '#fbbf24',
-        'border-width': 4,
-        'shadow-blur': 14,
-        'shadow-color': '#fbbf24',
-        'shadow-opacity': 0.55,
-      },
+      style: { 'border-color': canvas('pin'), 'border-width': 4 },
     },
     {
       selector: 'node[?suspicious]',
@@ -103,7 +157,6 @@ export function buildCyStylesheet({ showPinsRef, showNotesRef, showEdgeLabelsRef
         'background-color': '#f5a623',
         'border-color': '#d48806',
         'border-width': 2,
-        'color': '#e6edf3',
         'font-weight': 'bold',
         'font-size': 10,
       }
@@ -120,14 +173,18 @@ export function buildCyStylesheet({ showPinsRef, showNotesRef, showEdgeLabelsRef
         'font-weight': 'bold',
       }
     },
+    // The three rules below mark what the analyst is doing with a node, and
+    // leave its border alone: the border keeps saying what the node is (seed,
+    // tag, lead state, pinned). A search match sits on a flat backdrop; the
+    // node shown in the right panel and the nodes picked for a copy or a
+    // prompt get a ring outside the border, in the text colour and in blue.
     {
       selector: 'node.search-match',
       style: {
-        'border-color': '#58a6ff',
-        'border-width': 4,
-        'shadow-blur': 14,
-        'shadow-color': '#58a6ffbb',
-        'shadow-opacity': 0.9,
+        'underlay-color': canvas('blue'),
+        'underlay-opacity': 0.35,
+        'underlay-padding': 6,
+        'underlay-shape': 'ellipse',
       }
     },
     {
@@ -136,39 +193,25 @@ export function buildCyStylesheet({ showPinsRef, showNotesRef, showEdgeLabelsRef
     },
     {
       selector: 'node:selected',
-      style: {
-        'border-color': '#ffffff',
-        'border-width': 4,
-        'shadow-blur': 18,
-        'shadow-color': '#ffffff55',
-        'shadow-offset-x': 0,
-        'shadow-offset-y': 0,
-        'shadow-opacity': 0.8
-      }
+      style: { 'outline-color': canvas('text'), 'outline-width': 3, 'outline-offset': 2 }
     },
     {
       selector: 'node.picked',
-      style: {
-        'border-color': '#58a6ff',
-        'border-width': 4,
-        'shadow-blur': 14,
-        'shadow-color': '#58a6ffaa',
-        'shadow-opacity': 0.9,
-      }
+      style: { 'outline-color': canvas('blue'), 'outline-width': 3, 'outline-offset': 2 }
     },
     {
       selector: 'edge',
       style: {
         'width': 1.5,
-        'line-color': '#30363d',
-        'target-arrow-color': '#30363d',
+        'line-color': canvas('line'),
+        'target-arrow-color': canvas('line'),
         'target-arrow-shape': 'triangle',
         'curve-style': 'bezier',
-        'label': ele => showEdgeLabelsRef.current ? (ele.data('relation') || '') : '',
+        'label': ele => showEdgeLabelsRef.current ? edgeLabel(ele) : '',
         'font-size': 8,
-        'color': '#8b949e',
+        'color': canvas('dimText'),
         'text-rotation': 'autorotate',
-        'text-background-color': '#0d1117',
+        'text-background-color': canvas('canvas'),
         'text-background-opacity': 1,
         'text-background-padding': 2,
         // Per-relation visibility toggle (Quentin's request: hide
@@ -176,26 +219,11 @@ export function buildCyStylesheet({ showPinsRef, showNotesRef, showEdgeLabelsRef
         'display': ele => filterRelationsRef.current.has(ele.data('relation')) ? 'none' : 'element',
       }
     },
-    {
-      selector: 'edge[relation="resolves_to"]',
-      style: { 'line-color': '#58a6ff66', 'target-arrow-color': '#58a6ff66' }
-    },
-    {
-      selector: 'edge[relation="co_resolves"]',
-      style: { 'line-color': '#ffa65766', 'target-arrow-color': '#ffa65766' }
-    },
-    {
-      selector: 'edge[relation="has_subdomain"]',
-      style: { 'line-color': '#58a6ff44', 'target-arrow-color': '#58a6ff44', 'line-style': 'dashed' }
-    },
-    {
-      selector: 'edge[relation="known_ioc"]',
-      style: { 'line-color': '#f8514988', 'target-arrow-color': '#f8514988', 'width': 2 }
-    },
-    {
-      selector: 'edge[relation="same_ns_set"]',
-      style: { 'line-color': '#56d36466', 'target-arrow-color': '#56d36466', 'width': 2 }
-    },
+    { selector: 'edge[relation="resolves_to"]', style: tinted('blue', 0.4) },
+    { selector: 'edge[relation="co_resolves"]', style: tinted('orange', 0.4) },
+    { selector: 'edge[relation="has_subdomain"]', style: tinted('blue', 0.27, { 'line-style': 'dashed' }) },
+    { selector: 'edge[relation="known_ioc"]', style: tinted('red', 0.53, { 'width': 2 }) },
+    { selector: 'edge[relation="same_ns_set"]', style: tinted('green', 0.4, { 'width': 2 }) },
   ]
 }
 
@@ -297,7 +325,7 @@ export function toCyNodeData(n) {
   // Boolean flags driven by tag presence — each MUST be set explicitly
   // (true OR false) on every update, otherwise an "unpin" or "untag"
   // leaves the previous true value lingering in cytoscape's data merge.
-  const FLAG_TAGS = ['pinned', 'suspicious', 'phishing', 'cdn', 'parking', 'sinkhole', 'seed']
+  const FLAG_TAGS = ['pinned', 'suspicious', 'phishing', 'seed', ...DEFUSE_TAGS]
   const tagSet = new Set(n.tags || [])
   FLAG_TAGS.forEach(t => { d[t] = tagSet.has(t) })
   // Context-pool lifecycle, flattened to a single data field so the cytoscape

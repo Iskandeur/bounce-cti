@@ -57,6 +57,9 @@ says so: browsers do not run its scripts on a `file://` address.
 ## Features
 
 - **Live graph**: Cytoscape canvas updated over WebSocket as the agent pivots.
+  Node types and edge relations can be filtered, defused nodes (CDN, parking,
+  sinkhole…) hidden with one toolbar toggle, and a legend lists the shapes and
+  borders the current graph uses.
 - **PIN auth + admin dashboard**: per-user model whitelist, account labels,
   one-click impersonation. Admin PIN is bootstrapped from `ADMIN_PIN` env var
   on first start (see "First login" below).
@@ -94,7 +97,7 @@ says so: browsers do not run its scripts on a `file://` address.
   (sanctions exposure, company identity, corporate hierarchy, officers/PSC).
 - **Mobile-friendly**: drawer layout, touch-sized targets, single-finger pan.
 - **Light / dark theme**: toggle in the sidebar header (☀ / ☾); the choice is
-  persisted per browser and applied before first paint.
+  persisted per browser and applied before first paint. The graph labels follow it.
 - **Custom prompts on top of an existing graph**: ask the agent to dig further
   with the current graph (and a selection) as context.
 - **Noise defusing**: built-in CDN ranges, parking nameservers, sinkhole IPs

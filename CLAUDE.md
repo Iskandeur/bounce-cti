@@ -354,7 +354,9 @@ frontend/
     components/         # Presentational panels, fed by MainApp through props:
                         #   Sidebar (NewInvestigationForm, InvestigationHistory,
                         #   AddSeedPanel, AgentLog), GraphPane (canvas + toolbar +
-                        #   filter chips), ReportTab (LeadsCard, HypothesisCard,
+                        #   filter chips), GraphLegend (on-demand key of the canvas:
+                        #   the node types and border meanings present in the
+                        #   graph), ReportTab (LeadsCard, HypothesisCard,
                         #   BudgetLog), NodeTab (StaticAnalysis), TimelineTab,
                         #   ActionsPanel, ChatTab, PromptBox, PickedChips,
                         #   HighlightedText, CopyLabel (a copy button's label, fixed width)
@@ -362,12 +364,16 @@ frontend/
                         #   vertical / effort), useNewInvestigation (IOC / sample /
                         #   PDF form + submits), useNodeData (lead stats, cross-
                         #   investigation hits, node note), useQuota, usePanelResize,
-                        #   useTheme, useIsMobile, useServerReconnect
+                        #   useTheme, useIsMobile, useServerReconnect,
+                        #   useGraphSummary (types / border meanings / defused
+                        #   count of the graph, for the legend and the toolbar)
     lib/                # Pure modules, no React: constants (node colors / shapes,
                         #   Maltego types), ioc (refang, detectIOCType,
                         #   verticalFromLocation, parseSeedInput), graph (Cytoscape
                         #   stylesheet + layout options, toCyNodeData,
-                        #   isAuxReportNode), timeline, reportMarkdown, format
+                        #   isAuxReportNode, readCanvasColors, isDefused), legend
+                        #   (shape glyphs, border meanings, summariseGraph),
+                        #   timeline, reportMarkdown, format
     invUrl.js           # Pure ?inv=<id> URL-sync helper (+ invUrl.test.js, node --test, run in CI)
     Login.jsx           # PIN login screen
     AdminPanel.jsx      # Admin dashboard (users, models, impersonation)
@@ -858,7 +864,32 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
 - **Theme**: light/dark is toggled in the sidebar header and persisted in `localStorage`
   (`bounce-theme`); `main.jsx` sets `<html data-theme>` before first paint. The UI is
   CSS-variable-driven, so the theme lives almost entirely in `styles.css` `:root`
-  overrides. The Cytoscape canvas is theme-agnostic (dark label chips read on both).
+  overrides. The Cytoscape canvas follows the theme too: Cytoscape cannot read CSS
+  variables, so `readCanvasColors()` (`lib/graph.js`) reads `--on-bg` (node label, seed
+  border, selection ring), `--on-dim` / `--bg` (edge label and its chip), `--error` /
+  `--success` and the `--graph-*` variables defined next to `.graph` in `styles.css`
+  (default border and edge, pinned border, the blue and orange of rings and edges, the
+  opacity factor of coloured edges) into a ref the stylesheet functions read, and `MainApp`
+  re-reads them and calls `cy.style().update()` when the theme changes. Type colours
+  (`NODE_COLORS`) are the same in both themes.
+- **Cytoscape drops a style value it cannot parse** (a console warning, then the rule
+  does nothing): `shadow-*` does not exist in 3.x, and a colour takes 3- or 6-digit hex,
+  `rgb()` or a name, never 8-digit hex, `var()` or `color-mix()`. Transparency goes in
+  `line-opacity` (line and arrow together), `outline-opacity`, `underlay-opacity`. On the
+  canvas the border says what a node is (seed, tag, lead state, pinned); what the analyst
+  is doing with it never touches the border: a ring (`outline-*`) in the text colour for
+  the selected node and in blue for picked ones, a flat backdrop (`underlay-*`) for a
+  search match.
+- **One rule decides what the canvas draws**: the `display` function of the `node` rule
+  in `buildCyStylesheet` hides a node whose type chip is off, or a defused node while the
+  toolbar's "Defused" toggle is off (`isDefused`: a tag of `DEFUSE_TAGS`, seeds and pinned
+  nodes excepted); the `edge` rule carries the relation filter, and Cytoscape does not draw
+  the edges of a hidden node. All three read refs, so a toggle is a `cy.style().update()`.
+  Never set `display` with `ele.style()`: a bypass wins over the stylesheet, and one filter
+  then shows what another hides. Hidden nodes stay in `cy.nodes()`, so the JSON / Maltego
+  copies and the counts still include them. `DEFUSE_TAGS` (`lib/constants.js`) is the union
+  of the tags `defuse_check` emits and of `action_exports._DEFUSED_TAGS`
+  (`backend/tests/test_defuse_tags_in_sync.py`).
 - **Auth is PIN + session cookie**: Set `ADMIN_PIN=<6-digit>` in the env before the first start
   so the bootstrap promotes that PIN to admin (idempotent; no auto-generation if unset).
   Each investigation is owned by a user; the WebSocket and every `/api/*` route check ownership.
