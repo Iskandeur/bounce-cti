@@ -120,7 +120,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // reload so all stale state (WS, timers, in-flight fetches) is replaced.
   const [serverDown, setServerDown] = useState(false)
   const [quotaState, setQuotaState] = useQuota()
-  const { leftWidth, rightWidth, startDrag } = usePanelResize()
+  const { columns, startDrag } = usePanelResize()
   const isMobile = useIsMobile()
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false)
   const [mobileRightOpen, setMobileRightOpen] = useState(false)
@@ -934,7 +934,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     <>
     <div
       className={`app${isMobile ? ' mobile' : ''}${mobileLeftOpen ? ' drawer-left-open' : ''}${mobileRightOpen ? ' drawer-right-open' : ''}`}
-      style={isMobile ? undefined : { gridTemplateColumns: `${leftWidth}px 5px 1fr 5px ${rightWidth}px` }}
+      style={isMobile ? undefined : { gridTemplateColumns: columns }}
     >
       {serverDown && (
         <div className="server-down-banner" role="status" aria-live="polite">
