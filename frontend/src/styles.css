@@ -9,7 +9,7 @@
   --surface-3: #2d333b;
   --on-bg: #e6edf3;
   --on-surface: #c9d1d9;
-  --on-dim: #768390;
+  --on-dim: #9aa4ae;
   --primary: #79c0ff;
   --primary-dim: #1f3a5c;
   --error: #f85149;
@@ -17,6 +17,9 @@
   --success: #56d364;
   --outline: #30363d;
   --outline-dim: #21262d;
+  /* Share of a type or tag colour in a text written in it (.type-ink); the
+     rest is the text colour. */
+  --ink-mix: 50%;
   --radius: 8px;
   --radius-sm: 4px;
   --radius-lg: 12px;
@@ -34,14 +37,15 @@
   --surface-3: #e2e7ec;
   --on-bg: #1f2328;
   --on-surface: #3d444d;
-  --on-dim: #636c76;
-  --primary: #0969da;
+  --on-dim: #59636e;
+  --primary: #0757ba;
   --primary-dim: #ddf4ff;
-  --error: #cf222e;
-  --warning: #9a6700;
-  --success: #1a7f37;
+  --error: #a40e26;
+  --warning: #7d4e00;
+  --success: #116329;
   --outline: #d1d9e0;
   --outline-dim: #e4e8ec;
+  --ink-mix: 35%;
 }
 :root[data-theme="light"] button:hover { background: var(--primary); color: #ffffff; }
 :root[data-theme="light"] .share-btn:hover,
@@ -88,6 +92,7 @@ html, body, #root {
   margin-bottom: 6px;
 }
 .logo span { color: var(--primary); }
+h1.logo { line-height: normal; }
 
 /* ── Logo mark (4-point star) ──────────────────────────────────────────── */
 /* The source PNG is a near-white star on transparency, so on the light theme
@@ -616,6 +621,16 @@ button.secondary:hover {
   line-height: 1.6;
 }
 .filter-chip:hover { opacity: 0.85; }
+/* A type that is filtered out: the dim text colour, struck through. */
+.filter-chip.off { color: var(--on-dim); text-decoration: line-through; }
+
+/* Text written in the colour of a node type or of a tag (--type). These
+   colours are picked for the canvas and for borders; as text, several fall
+   under 4.5:1 (1.2:1 for the lightest on the light theme). The text takes a
+   share of the colour (--ink-mix, per theme) and the rest from the text
+   colour, which holds 4.5:1 on every surface of both themes, on the tinted
+   background of a badge too. The border and the tint keep the full colour. */
+.type-ink { color: color-mix(in srgb, var(--type, var(--on-dim)) var(--ink-mix), var(--on-bg)); }
 
 /* ── Legend ──────────────────────────────────────────────────────────────── */
 .legend {
@@ -779,19 +794,17 @@ button.secondary:hover {
   line-height: 1.45;
   border-left: 2px solid #f5a62366;  /* warm amber, dim */
   padding: 2px 0 2px 8px;
-  opacity: 0.85;
 }
-.hypothesis-card[open] {
-  opacity: 1;
-}
-/* Once the full report renders below, the hypothesis is mostly history —
-   dim it further so it doesn't compete with the live report. */
+/* Once the full report renders below, the hypothesis is mostly history: its
+   label and category go to the dim text colour so it doesn't compete with the
+   live report. Dimmed by colour, never by opacity, which takes the text under
+   the 4.5:1 contrast the rest of the panel holds. */
 .hypothesis-card.superseded {
-  opacity: 0.6;
   border-left-color: var(--outline-dim);
 }
-.hypothesis-card.superseded[open] {
-  opacity: 0.85;
+.hypothesis-card.superseded .hypothesis-label,
+.hypothesis-card.superseded .hypothesis-cat {
+  color: var(--on-dim);
 }
 /* Lots of new nodes have arrived since the hypothesis was pinned — the
    guess may no longer match the graph. Use the warning hue to flag it. */
@@ -811,7 +824,7 @@ button.secondary:hover {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #f5a623;
+  color: var(--warning);
   font-weight: 700;
 }
 .hypothesis-card .hypothesis-cat {
@@ -820,7 +833,7 @@ button.secondary:hover {
 }
 .hypothesis-card .hypothesis-conf {
   font-size: 11px;
-  opacity: 0.7;
+  color: var(--on-dim);
   border: 1px solid var(--outline-dim);
   border-radius: 8px;
   padding: 0 5px;
@@ -828,11 +841,10 @@ button.secondary:hover {
 .hypothesis-card .hypothesis-meta {
   margin-left: auto;
   font-size: 11px;
-  opacity: 0.6;
+  color: var(--on-dim);
 }
 .hypothesis-card .hypothesis-meta .hypothesis-stale {
   color: var(--warning, #e3b341);
-  opacity: 1;
 }
 .hypothesis-card .hypothesis-body {
   margin-top: 4px;
@@ -1278,13 +1290,19 @@ button.secondary:hover {
   background: var(--surface-2);
   color: var(--on-dim);
 }
-.tag-cdn    { background: #1f6feb22; border-color: #1f6feb; color: var(--primary); }
-.tag-parking { background: var(--surface-2); border-color: #484f58; color: var(--on-dim); }
-.tag-suspicious, .tag-phishing, .tag-c2 { background: #f8514922; border-color: var(--error); color: #ff7b72; }
-.tag-dyndns { background: #e3b34122; border-color: var(--warning); color: var(--warning); }
-.tag-benign { background: #56d36422; border-color: var(--success); color: var(--success); }
-.tag-seed   { background: #f0f6fc22; border-color: #f0f6fc; color: #f0f6fc; }
-.tag-sinkhole { background: #f8514912; border-color: var(--error); color: var(--error); }
+/* A coloured tag: border in the tag's colour, a tint of it behind, and the
+   text as .type-ink writes it. */
+.tag-cdn, .tag-suspicious, .tag-phishing, .tag-c2, .tag-dyndns, .tag-benign, .tag-sinkhole {
+  border-color: var(--type);
+  background: color-mix(in srgb, var(--type) 13%, transparent);
+  color: color-mix(in srgb, var(--type) var(--ink-mix), var(--on-bg));
+}
+.tag-cdn { --type: var(--primary); }
+.tag-suspicious, .tag-phishing, .tag-c2, .tag-sinkhole { --type: var(--error); }
+.tag-dyndns { --type: var(--warning); }
+.tag-benign { --type: var(--success); }
+.tag-parking { background: var(--surface-2); border-color: var(--outline); color: var(--on-dim); }
+.tag-seed { background: color-mix(in srgb, var(--on-bg) 13%, transparent); border-color: var(--on-bg); color: var(--on-bg); }
 
 /* ── Metadata pre ────────────────────────────────────────────────────────── */
 .meta-pre {

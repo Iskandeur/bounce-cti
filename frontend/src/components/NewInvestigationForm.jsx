@@ -176,15 +176,15 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
         </>
       ) : verticals.length > 1 && (
         <>
-          <div className="section-label">Vertical</div>
-          <select value={vertical} onChange={e => setVertical(e.target.value)}
+          <label className="section-label" htmlFor="new-inv-vertical">Vertical</label>
+          <select id="new-inv-vertical" value={vertical} onChange={e => setVertical(e.target.value)}
                   title="Investigation lens. CTI = threat-infrastructure attribution. OSINT = identity / entity footprint correlation. DD = company / KYB due diligence.">
             {verticals.map(v => <option key={v.name} value={v.name}>{v.label}</option>)}
           </select>
         </>
       )}
-      <div className="section-label">Model</div>
-      <select value={model} onChange={e => setModel(e.target.value)}>
+      <label className="section-label" htmlFor="new-inv-model">Model</label>
+      <select id="new-inv-model" value={model} onChange={e => setModel(e.target.value)}>
         {(!allowedModels || allowedModels.includes('sonnet')) && <option value="sonnet">Sonnet (current: 5.5 — recommended)</option>}
         {(!allowedModels || allowedModels.includes('opus')) && <option value="opus">Opus (current: 5 — smarter, slower)</option>}
         {(!allowedModels || allowedModels.includes('haiku')) && <option value="haiku">Haiku (current: 5.5 — faster, lighter)</option>}
@@ -194,8 +194,8 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
         {(!allowedModels || allowedModels.includes('opus-4.8')) && <option value="opus-4.8">Opus 4.8</option>}
         {(!allowedModels || allowedModels.includes('opus-4.7')) && <option value="opus-4.7">Opus 4.7</option>}
       </select>
-      <div className="section-label">Thinking effort</div>
-      <select value={effort} onChange={e => setEffort(e.target.value)}
+      <label className="section-label" htmlFor="new-inv-effort">Thinking effort</label>
+      <select id="new-inv-effort" value={effort} onChange={e => setEffort(e.target.value)}
               title="Extended-thinking budget for the agent. Higher = deeper reasoning, slower & more quota. 'Default' lets the model decide.">
         <option value="">Default (model decides)</option>
         <option value="low">Low — fast, shallow</option>

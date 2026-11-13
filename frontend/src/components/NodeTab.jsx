@@ -17,11 +17,11 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
         <>
           <div className="node-header">
             <span
-              className="type-badge"
+              className="type-badge type-ink"
               style={{
+                '--type': NODE_COLORS[selected.type] || '#8b949e',
                 background: (NODE_COLORS[selected.type] || '#8b949e') + '2a',
                 borderColor: NODE_COLORS[selected.type] || '#8b949e',
-                color: NODE_COLORS[selected.type] || '#8b949e'
               }}
             >
               {selected.type}

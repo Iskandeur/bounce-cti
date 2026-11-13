@@ -15,7 +15,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
   // canvas stays usable; desktop always shows them (CSS gates the toggle).
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   return (
-    <div className={`graph${mobileFiltersOpen ? ' mobile-filters-open' : ''}`}>
+    <main aria-label="Graph" className={`graph${mobileFiltersOpen ? ' mobile-filters-open' : ''}`}>
       <div id="cy" ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
       {/* Graph toolbar (search integrated) */}
@@ -148,11 +148,12 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             return (
               <button
                 key={type}
-                className="filter-chip"
+                className={`filter-chip${active ? ' type-ink' : ' off'}`}
+                aria-pressed={active}
                 onClick={() => toggleFilterType(type)}
                 style={active
-                  ? { background: color + '33', borderColor: color, color }
-                  : { background: 'transparent', borderColor: color + '66', color: color + '88' }
+                  ? { '--type': color, background: color + '33', borderColor: color }
+                  : { background: 'transparent', borderColor: color + '66' }
                 }
               >
                 {type}
@@ -187,6 +188,6 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
       </div>{/* .filter-bars */}
 
       <GraphLegend summary={summary} />
-    </div>
+    </main>
   )
 }

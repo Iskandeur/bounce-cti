@@ -41,15 +41,20 @@ repository is public. Never paste a real investigation, a real name or a key
 into it. The shapes follow `backend/main.py`; when a route's answer changes,
 change the fixture with it.
 
-## Accessibility baseline
+## Accessibility
 
-`a11y.spec.js` runs axe-core on the main screen (dark and light theme) and on
-the login screen. The rules the app violates today are listed in
-`a11y-baseline.js`, each with the reason it is tolerated for now. A violated
-rule missing from that list fails the suite. The check is per rule: one more
-element breaking a listed rule passes, and a listed rule that stopped firing is
-not reported. To fix a rule, fix the app and delete its line. An axe-core
-update can add rules, and with them new failures.
+`a11y.spec.js` runs axe-core, in the dark and the light theme, on the main
+screen (Report tab of the fixture investigation) and on each other tab of the
+right panel (Node on a tagged node, Timeline, Actions, Chat), and on the login
+screen. It fails on any violated rule. `a11y-baseline.js` is the list of
+tolerated rules; it is empty. A rule goes there only when its fix cannot be in
+the same change, with the reason. An axe-core update can add rules, and with
+them new failures.
+
+axe checks what is on the page when it runs, and leaves out what it cannot
+measure (text over a translucent background, such as the graph toolbar). A
+running or failed investigation, the admin panel, the modals and the shared
+view are not opened by this test.
 
 ## What the suite does not cover
 

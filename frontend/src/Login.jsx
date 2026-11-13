@@ -28,12 +28,13 @@ export default function Login({ onAuth }) {
   }
 
   return (
-    <div className="auth-screen">
+    <main className="auth-screen">
       <div className="auth-card">
-        <span className="logo-mark logo-mark-auth" role="img" aria-label="Bounce-CTI" />
-        <div className="logo">BOUNCE<span>CTI</span></div>
-        <div className="auth-label">Sign in</div>
+        <span className="logo-mark logo-mark-auth" aria-hidden="true" />
+        <h1 className="logo" aria-label="Bounce-CTI">BOUNCE<span>CTI</span></h1>
+        <label className="auth-label" htmlFor="auth-pin">Sign in</label>
         <input
+          id="auth-pin"
           className="auth-pin-input"
           type="password"
           inputMode="numeric"
@@ -54,6 +55,6 @@ export default function Login({ onAuth }) {
           Access is invite-only. Ask an admin for a PIN.
         </p>
       </div>
-    </div>
+    </main>
   )
 }

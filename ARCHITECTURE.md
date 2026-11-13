@@ -1231,7 +1231,7 @@ request and the `/ws/<inv_id>` WebSocket from `e2e/fixtures/data.js`
 answer for, and on an uncaught error in the page. It covers boot and login,
 the history and the `?inv=` deep link, the graph search, the copy buttons, the
 Report / Node / Timeline tabs, the phone drawers, and an axe-core scan in both
-themes against a baseline of known violations (`e2e/a11y-baseline.js`). Canvas
+themes that tolerates no violated rule (`e2e/a11y-baseline.js` is empty). Canvas
 clicks and pixel comparisons are left out (`e2e/README.md`).
 
 Key in-app helpers:

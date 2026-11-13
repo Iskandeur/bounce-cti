@@ -72,7 +72,7 @@ export default function TimelineTab({ cyRef, agentNotes, selected, focusNode, ex
                     <div className="timeline-content">
                       <div className="timeline-header">
                         <span className="timeline-time">{tsStr}</span>
-                        <span className="timeline-type" style={{ color }}>{tn.type}</span>
+                        <span className="timeline-type type-ink" style={{ '--type': color }}>{tn.type}</span>
                         {tn.sources_seen.length >= 2 && (
                           <span className="timeline-src-count" title={`Seen by: ${tn.sources_seen.join(', ')}`}>
                             {tn.sources_seen.length} sources
@@ -167,9 +167,9 @@ export default function TimelineTab({ cyRef, agentNotes, selected, focusNode, ex
                     <div className="timeline-content">
                       <div className="timeline-header">
                         <span className="timeline-time">{tsStr}</span>
-                        <span className="timeline-mod-label" style={{ color }}>{label}</span>
+                        <span className="timeline-mod-label type-ink" style={{ '--type': color }}>{label}</span>
                         {tn.nodeType && tn._kind !== 'report_updated' && (
-                          <span className="timeline-type" style={{ color }}>{tn.nodeType}</span>
+                          <span className="timeline-type type-ink" style={{ '--type': color }}>{tn.nodeType}</span>
                         )}
                       </div>
                       <div className="timeline-value">

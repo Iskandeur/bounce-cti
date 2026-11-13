@@ -17,8 +17,9 @@ const eventLabel = (e) => {
 export default function AgentLog({ events }) {
   return (
     <>
-      <div className="section-label">Agent log</div>
-      <div className="event-log">
+      <div className="section-label" id="agent-log-label">Agent log</div>
+      {/* Focusable: the log scrolls, and the keyboard must be able to scroll it. */}
+      <div className="event-log" role="log" aria-labelledby="agent-log-label" tabIndex={0}>
         {events.length === 0 && <div className="event-line" style={{ color: 'var(--on-dim)' }}>No events yet</div>}
         {events.map((e, i) => (
           <div key={i} className={eventClass(e)}>{eventLabel(e)}</div>
