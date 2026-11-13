@@ -66,6 +66,15 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
   after page reload (live WebSocket events only cover the current session).
   Entries are tagged `reasoning` / `tool` / `tool_result` / `phase` so the
   client can render the audit trail with full agent text and per-tool inputs.
+- `GET    /api/investigations/{id}/progress` — where the current run stands
+  (`backend/run_progress.py`): `run` (`kind`: `investigation` / `add_seed` /
+  `pivot` / `custom_prompt`, `started_at`, `ended_at`, `end_status`,
+  `stopped_by_user`), `phase` (the one in flight, null between phases and once
+  the run is over), `phases` (finished ones, in order), `drain` (`round`,
+  `max_rounds`), `source_calls` (whole investigation, the pivot-drain loop's
+  own counter), `source_calls_run`, `ceiling` (`BOUNCE_TOTAL_CTI_BUDGET`, null
+  for a run with no drain loop), `status`, `running`, `vertical`, `now`.
+  Read-only and small; the UI polls it every 10 s while the run is live.
 - `GET    /api/investigations/{id}/nodes/{node_id}/cross_investigations` —
   list every prior investigation owned by the caller where the same
   `(type, value)` IOC already appeared. Powers the Node-tab "Also seen in
@@ -182,9 +191,10 @@ FastAPI app. All `/api/*` and `/ws/*` are gated by a session cookie except
 
 **Live events**
 
-- `WS /ws/{id}` — snapshot on connect, then incremental events
-  (`node_added`, `node_updated`, `edge_added`, `node_tagged`, `agent_*`,
-  `status_change`, `server_shutdown` on graceful restart)
+- `WS /ws/{id}` — the graph snapshot on connect, then every event the
+  investigation has logged so far (replayed from the first), then new ones as
+  they are written (`node_added`, `node_updated`, `edge_added`, `node_tagged`,
+  `agent_*`, `phase_*`, `status_change`, `server_shutdown` on graceful restart)
 
 ### `backend/agent_runner.py`
 Spawns `claude -p` (Claude Code headless) with:
@@ -286,6 +296,37 @@ polls events and streams them to the browser.
 paths are converted from `C:\…` to `/mnt/c/…` so WSL `claude` can invoke them
 via Windows interop. A separate `mcp-launcher-{module}.log` is written under
 `data/` for each MCP server start to debug timeouts.
+
+### `backend/run_progress.py`
+Where a run stands, for `GET /api/investigations/{id}/progress`. Computed from
+the `events` table and the investigation row, so every client reads the same
+answer and it survives a reload.
+
+- **This run** is everything logged since the last `agent_starting`. A rerun
+  deletes the earlier events; a resume, an added seed, a manual pivot and a
+  custom prompt keep them and log their own `agent_starting`, so each is a run
+  of its own (its `kind` comes from that event's `phase` field).
+- **Phases** come from `phase_<name>_starting` / `phase_<name>_exit`. The other
+  `phase_*` kinds are bookkeeping; `phase_pivot_drain_starting` is the drain
+  loop's header (it carries `max_rounds` and `total_cti_budget`, which win over
+  the environment the route reads later). A phase name the module has never
+  seen goes through untouched; the client gives it readable words.
+- **A run ends** at `agent_exit` or at a `status_change` to anything but
+  `running` (quota halt, ops error, service restart, stop). A phase starting
+  after that reopens it: `POST /stop` kills the phase in flight and
+  `run_investigation` then goes on with its next phase.
+- **Source calls** are counted as `agent_runner._count_cti_calls` counts them
+  (`tool_use` blocks of the vertical's source pool, over the whole
+  investigation); a test holds the two equal. `ceiling` is
+  `BOUNCE_TOTAL_CTI_BUDGET`, which the pivot-drain loop alone compares to that
+  count: the earlier phases are not capped by it and the count can end above
+  it. A run with no drain loop reports `ceiling: null`. Context-pool calls
+  (`mcp__ctx__*`) have their own budget and are left out.
+- Cost: the control events of the current run plus the `agent_assistant` rows;
+  the large tool results (`agent_user` rows) are never read.
+
+`compute` and `count_source_calls` are pure; locked by
+`backend/tests/test_run_progress.py`.
 
 ### `backend/seeds.py`
 Seed registry — the single source of truth for per-seed-type behaviour. Replaces
@@ -1172,9 +1213,9 @@ switching is local state.
 |-------------------|-------------------------------------------------------------------------------------------|
 | `main.jsx`        | React entrypoint                                                                          |
 | `App.jsx`         | `MainApp`: owns the graph state, the Cytoscape instance, the WebSocket event pump and the investigation actions, and composes the panels; `AppRoot` routes between login, share link and app |
-| `components/`     | Panels fed by `MainApp` through props: `Sidebar` (`NewInvestigationForm`, `InvestigationHistory`, `AddSeedPanel`, `AgentLog`), `GraphPane` (canvas, toolbar, filter chips), `GraphLegend` (opened on demand: the node types present, each in its shape and colour, and the border meanings present), `ReportTab` (`LeadsCard`, `HypothesisCard`, `BudgetLog`), `NodeTab` (`StaticAnalysis`), `TimelineTab`, `ActionsPanel`, `ChatTab`, `PromptBox`, `PickedChips`, `HighlightedText`, `CopyLabel` (the label of a copy button: both texts stacked, so the button keeps one width) |
-| `hooks/`          | State slices of `MainApp`: `useRunSettings`, `useNewInvestigation`, `useNodeData` (lead stats, cross-investigation hits, node note), `useQuota`, `usePanelResize`, `useTheme`, `useIsMobile`, `useServerReconnect`, `useGraphSummary` (node types, border meanings and defused count of the graph) |
-| `lib/`            | Pure modules: `constants`, `ioc` (refang, IOC type detection, subdomain vertical), `graph` (Cytoscape stylesheet, layout options, node data, the theme colours of the canvas, `isDefused`), `legend` (shape glyphs, border meanings, graph summary), `timeline`, `reportMarkdown`, `format` |
+| `components/`     | Panels fed by `MainApp` through props: `Sidebar` (`NewInvestigationForm`, `InvestigationHistory`, `AddSeedPanel`, `RunProgress`, `AgentLog`), `GraphPane` (canvas, toolbar, filter chips), `GraphLegend` (opened on demand: the node types present, each in its shape and colour, and the border meanings present), `ReportTab` (`LeadsCard`, `HypothesisCard`, `BudgetLog`), `NodeTab` (`StaticAnalysis`), `TimelineTab`, `ActionsPanel`, `ChatTab`, `PromptBox`, `PickedChips`, `HighlightedText`, `CopyLabel` (the label of a copy button: both texts stacked, so the button keeps one width) |
+| `hooks/`          | State slices of `MainApp`: `useRunSettings`, `useNewInvestigation`, `useNodeData` (lead stats, cross-investigation hits, node note), `useQuota`, `usePanelResize`, `useTheme`, `useIsMobile`, `useServerReconnect`, `useGraphSummary` (node types, border meanings and defused count of the graph), `useRunProgress` (the progress document of the open investigation: fetched on open, on run-level WebSocket events, and every 10 s while the run is live) |
+| `lib/`            | Pure modules: `constants`, `ioc` (refang, IOC type detection, subdomain vertical), `graph` (Cytoscape stylesheet, layout options, node data, the theme colours of the canvas, `isDefused`), `legend` (shape glyphs, border meanings, graph summary), `timeline`, `reportMarkdown`, `format`, `runProgress` (phase labels, the words of the progress line and of its announcements; `runProgress.test.js`, `node --test`, run in CI) |
 | `Login.jsx`       | PIN login                                                                                 |
 | `AdminPanel.jsx`  | Admin dashboard: users, allowed-models per user, impersonation                            |
 | `ShareModal.jsx`  | Build a share link (section opt-in + expiry + label)                                      |
@@ -1200,10 +1241,20 @@ Key in-app helpers:
 - `applyFilters(ft)` — hides/shows node types and their incident edges
 - WebSocket handler — dispatches `snapshot/node_added/edge_added/node_tagged/...`
   events to Cytoscape
+- `RunProgress` — one sentence on the open investigation's run: the phase in
+  plain words, the time since the run started (ticking on the server's clock)
+  and the source calls made; a full investigation adds a thin bar, calls ÷
+  pivot-drain budget (`role="progressbar"`). A run that is over leaves one
+  quiet sentence (for good in the sidebar, for a minute in the phone strip,
+  which takes room from the graph). It sits above the agent log (sticky, so it is read without
+  scrolling the sidebar) and, under 768px, in a strip under the top bar.
+  `RunProgressAnnouncer` is the polite live region: it speaks on a phase change
+  and at the end of a run, and stays silent on ticks and tool calls
 
 UI panels:
 1. **Left sidebar**: new investigation form (single seed or batch, PDF upload,
-   model selector), investigation history, agent event log, share manager.
+   model selector), investigation history, run progress line, agent event
+   log, share manager.
 2. **Center graph**: Cytoscape canvas + floating toolbar (Fit / Relayout /
    Labels / Pins / Notes / Defused / Export / Copy-to-Maltego / STIX / PDF) +
    node-type filter chips + edge-relation filter + a legend opened from the
@@ -1365,7 +1416,9 @@ GitHub Actions (.github/workflows/ci.yml)
   │                   → import backend.main
   ├─ backend-tests  : Python 3.11 and 3.12, pip install -r requirements-dev.txt
   │                   → pytest backend/tests   (golden/regression tests)
-  ├─ frontend-build : Node 22 (the image's), npm ci → npm run build
+  ├─ frontend-build : Node 22 (the image's), npm ci
+  │                   → node --test "src/**/*.test.js"   (front-end unit tests)
+  │                   → npm run build
   │                   → npm run build:demo   (static demo, frontend/dist-demo/)
   ├─ frontend-e2e   : Node 22, npm ci → npx playwright install --with-deps chromium
   │                   → npm run test:e2e   (browser suite, API and WebSocket mocked)

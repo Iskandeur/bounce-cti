@@ -3,10 +3,12 @@ import NewInvestigationForm from './NewInvestigationForm.jsx'
 import InvestigationHistory from './InvestigationHistory.jsx'
 import AddSeedPanel from './AddSeedPanel.jsx'
 import AgentLog from './AgentLog.jsx'
+import RunProgress from './RunProgress.jsx'
 
 export default function Sidebar({
   mobileLeftOpen, theme, setTheme, isAdmin, setAdminOpen, onLogout, settings, allowedModels, form,
   invs, activeInv, quotaState, invActions, mergePickerSrc, setMergePickerSrc, onAddSeed, setShareOpen, events,
+  runProgress,
 }) {
   return (
     <div className={`sidebar${mobileLeftOpen ? ' mobile-open' : ''}`}>
@@ -32,6 +34,9 @@ export default function Sidebar({
           setShareOpen={setShareOpen}
         />
       )}
+
+      {/* Summary of the run, kept in view above the raw log it sums up. */}
+      <RunProgress progress={runProgress} placement="sidebar" />
 
       <AgentLog events={events} />
     </div>

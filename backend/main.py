@@ -19,6 +19,7 @@ from typing import Optional
 from . import graph_store as gs
 from . import auth
 from . import demo_snapshot
+from . import run_progress
 from . import seeds
 from . import verticals
 from .agent_runner import (
@@ -864,6 +865,24 @@ def transcript(inv_id: str, user_id: int = Depends(current_user)):
             phase = kind[len("phase_"):-len(f"_{stage}")]
             out.append({"kind": "phase", "ts": ts, "phase": phase, "stage": stage})
     return {"investigation_id": inv_id, "entries": out}
+
+
+@app.get("/api/investigations/{inv_id}/progress")
+def investigation_progress(inv_id: str, user_id: int = Depends(current_user)):
+    """Where the investigation's current run stands (backend/run_progress.py).
+
+    The run is everything logged since the last `agent_starting` event. Returns
+    its kind and start, the phase in flight (null between phases and once the
+    run is over), the phases already finished, the source calls counted the way
+    the pivot-drain loop counts them, and that loop's budget (`ceiling`, null
+    for a run with no drain loop). Read-only and small: the UI polls it while
+    the investigation runs.
+    """
+    _require_owner(inv_id, user_id)
+    doc = run_progress.read_progress(inv_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return doc
 
 
 @app.get("/api/quota")

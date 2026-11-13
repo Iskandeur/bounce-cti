@@ -14,17 +14,20 @@ import {
   isAuxReportNode, toCyNodeData, readCanvasColors, edgeLabel,
 } from './lib/graph.js'
 import { transcriptToNotes } from './lib/timeline.js'
+import { isProgressEvent } from './lib/runProgress.js'
 import { reportToMarkdown } from './lib/reportMarkdown.js'
 import useIsMobile from './hooks/useIsMobile.js'
 import useTheme from './hooks/useTheme.js'
 import useGraphSummary from './hooks/useGraphSummary.js'
 import usePanelResize from './hooks/usePanelResize.js'
 import useQuota from './hooks/useQuota.js'
+import useRunProgress from './hooks/useRunProgress.js'
 import useServerReconnect from './hooks/useServerReconnect.js'
 import useRunSettings from './hooks/useRunSettings.js'
 import useNewInvestigation from './hooks/useNewInvestigation.js'
 import { useLeadStats, useCrossInvestigations, useNodeNote } from './hooks/useNodeData.js'
 import Sidebar from './components/Sidebar.jsx'
+import RunProgress, { RunProgressAnnouncer } from './components/RunProgress.jsx'
 import GraphPane from './components/GraphPane.jsx'
 import ReportTab from './components/ReportTab.jsx'
 import NodeTab from './components/NodeTab.jsx'
@@ -120,6 +123,10 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   // reload so all stale state (WS, timers, in-flight fetches) is replaced.
   const [serverDown, setServerDown] = useState(false)
   const [quotaState, setQuotaState] = useQuota()
+  // Where the open investigation's run stands (phase, elapsed, source calls).
+  // The WebSocket handler below calls pokeRunProgress on run-level events.
+  const { progress: runProgress, announcement: runAnnouncement, poke: pokeRunProgress } =
+    useRunProgress(activeInv, invs.find(i => i.id === activeInv)?.status)
   const { columns, startDrag } = usePanelResize()
   const isMobile = useIsMobile()
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false)
@@ -478,6 +485,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         return
       }
       handleEvent(evt)
+      if (isProgressEvent(evt.kind)) pokeRunProgress()
       // ── Collect agent notes for the investigation timeline ──
       const evtTs = evt._ts || (Date.now() / 1000)
       if (evt.kind === 'agent_assistant') {
@@ -978,6 +986,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           <span className="mobile-burger" aria-hidden="true">⌘</span>
         </button>
       </div>
+      {/* Run progress on phones: under the top bar, readable without a drawer. */}
+      {isMobile && <RunProgress progress={runProgress} placement="topbar" />}
       {/* ── MOBILE BACKDROP — taps close any open drawer ── */}
       {(mobileLeftOpen || mobileRightOpen) && (
         <div
@@ -1006,6 +1016,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         onAddSeed={submitAddSeed}
         setShareOpen={setShareOpen}
         events={events}
+        runProgress={isMobile ? null : runProgress}
       />
 
       {/* ── LEFT RESIZE HANDLE ── */}
@@ -1145,6 +1156,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         )}
       </div>
     </div>
+    <RunProgressAnnouncer text={runAnnouncement} />
     {/* Modals live OUTSIDE .app on purpose. On mobile, .sidebar/.details
         get a `transform` (slide-in drawers), which makes them a containing
         block for any descendant `position: fixed` element — so a modal

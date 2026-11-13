@@ -145,6 +145,37 @@ export const LEADS = {
   leads: [],
 }
 
+// GET /api/investigations/<id>/progress (backend/run_progress.py). By default
+// the run of each investigation is over: 12 minutes 4 seconds, 61 source calls
+// against the pivot-drain budget of 82.
+const runOver = (inv, started) => ({
+  investigation_id: inv, status: 'done', running: false, vertical: 'cti', now: started + 86400,
+  run: {
+    kind: 'investigation', started_at: started, ended_at: started + 724,
+    end_status: 'done', stopped_by_user: false,
+  },
+  phase: null,
+  phases: [{ name: 'main', started_at: started, ended_at: started + 724 }],
+  drain: null, source_calls: 61, source_calls_run: 61, ceiling: 82,
+})
+export const PROGRESS = {
+  [INV_DOMAIN]: runOver(INV_DOMAIN, T0 + 3600),
+  [INV_IP]: runOver(INV_IP, T0),
+}
+
+// The same endpoint while a run is live, for the tests that override the
+// route: 2 minutes 5 seconds in, the phase named by `phase` in flight.
+export const runningProgress = (inv, phase) => ({
+  investigation_id: inv, status: 'running', running: true, vertical: 'cti', now: T0 + 7325,
+  run: {
+    kind: 'investigation', started_at: T0 + 7200, ended_at: null,
+    end_status: null, stopped_by_user: false,
+  },
+  phase: { name: phase, started_at: T0 + 7300 },
+  phases: [{ name: 'main', started_at: T0 + 7200, ended_at: T0 + 7300 }],
+  drain: { round: 2, max_rounds: 3 }, source_calls: 61, source_calls_run: 61, ceiling: 82,
+})
+
 // GET /api/investigations/<id>/nodes/<node_id>/cross_investigations:
 // 192.0.2.10 is in both investigations, nothing else is.
 export const crossInvestigations = (invId, nodeId) => {
