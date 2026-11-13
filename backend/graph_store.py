@@ -418,8 +418,8 @@ def reconcile_orphaned_running() -> int:
 
     Called at startup. A service restart (deploy) or an OOM/disk-full kill ends
     the agent subprocess, but the investigation row stays `running` forever — a
-    zombie the UI shows as in-progress and no `/stop` can clear (the proc isn't
-    in this process's `_running_procs`). Since a restart means every prior
+    zombie the UI shows as in-progress (a `/stop` now flips any `running` row to
+    `done`, but nobody is there to click it). Since a restart means every prior
     `running` row has lost its worker, mark them all terminal so the user can
     rerun. Returns the number reconciled."""
     now = time.time()

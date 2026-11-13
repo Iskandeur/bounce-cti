@@ -24,7 +24,7 @@ from . import verticals
 from .agent_runner import (
     run_investigation, run_pivot, run_add_seed, run_custom_prompt,
     stop_investigation, resume_investigation, quota_block_active,
-    reset_fixture_capture,
+    reset_fixture_capture, stop_count, mark_stopped_by_user,
 )
 from .refang import refang
 
@@ -430,6 +430,14 @@ def admin_eval_judge(req: EvalJudgeReq, _: int = Depends(current_admin)):
 
 
 # ── Core routes (all scoped to user_id) ────────────────────────────────────
+def _chain_stopped(inv_id: str, stops_at_start: int) -> bool:
+    """Several routes chain runs on one investigation: the first seed, then one
+    add-seed run per other seed. A user stop ends the run in flight
+    (agent_runner) and, through this check before each next seed, the chain.
+    `stops_at_start` is `stop_count(inv_id)` read when the chain was created."""
+    return stop_count(inv_id) != stops_at_start
+
+
 def _require_owner(inv_id: str, user_id: int):
     owner = gs.get_investigation_owner(inv_id)
     # owner may be None for legacy investigations; only the user's own ones are accessible
@@ -708,10 +716,13 @@ async def start_batch(req: BatchStartReq, user_id: int = Depends(current_user)):
             gs.add_node(inv_id, _st, _sv, metadata={}, source="batch",
                         tags=["seed", "pending_seed"])
 
-        async def _combined_chain(_iid=inv_id, _primary=(st0, sv0), _extras=extra_seeds):
+        async def _combined_chain(_iid=inv_id, _primary=(st0, sv0), _extras=extra_seeds,
+                                  _stops=stop_count(inv_id)):
             import json as _json, time as _time
             await run_investigation(_iid, _primary[0], _primary[1], model=model)
             for _st, _sv in _extras:
+                if _chain_stopped(_iid, _stops):
+                    return
                 gs.set_status(_iid, "running")
                 # Clear the pending_seed marker now that this seed is being
                 # actively investigated. The node was pre-registered above so
@@ -897,15 +908,19 @@ async def resume_inv(inv_id: str, user_id: int = Depends(current_user)):
 
 @app.post("/api/investigations/{inv_id}/stop")
 def stop_inv(inv_id: str, user_id: int = Depends(current_user)):
+    """Stop the run of an investigation: the phase in flight is killed and no
+    later phase starts (agent_runner.stop_investigation). `killed` says whether
+    a process was killed; a stop that lands between two phases kills none and
+    still ends the run, so the status is written for any investigation that
+    was `running`. The graph and the events are kept; resume and rerun work
+    afterwards."""
     _require_owner(inv_id, user_id)
+    with gs.conn() as c:
+        row = c.execute("SELECT status FROM investigations WHERE id=?", (inv_id,)).fetchone()
+    was_running = bool(row) and row["status"] == "running"
     killed = stop_investigation(inv_id)
-    if killed:
-        gs.set_status(inv_id, "done")
-        import json as _json, time as _time
-        with gs.conn() as c:
-            payload = {"kind": "status_change", "status": "done", "stopped_by_user": True}
-            c.execute("INSERT INTO events(investigation_id, kind, payload, created_at) VALUES (?,?,?,?)",
-                      (inv_id, "status_change", _json.dumps(payload), _time.time()))
+    if killed or was_running:
+        mark_stopped_by_user(inv_id)
     return {"ok": True, "killed": killed}
 
 
@@ -1419,6 +1434,8 @@ async def from_pdf(
         "uploaded_at": time.time(),
     })
 
+    stops = stop_count(inv_id)  # read here, in the request: see _chain_stopped
+
     async def _chain():
         import json as _json
         # First pass gets the full report text so the agent encodes the
@@ -1430,6 +1447,8 @@ async def from_pdf(
             report_context=text,
         )
         for it in extras:
+            if _chain_stopped(inv_id, stops):
+                return
             gs.set_status(inv_id, "running")
             with gs.conn() as c:
                 payload = {"kind": "status_change", "status": "running",
@@ -1473,9 +1492,13 @@ async def add_pdf_seeds(
         "uploaded_at": time.time(),
     })
 
+    stops = stop_count(inv_id)  # read here, in the request: see _chain_stopped
+
     async def _chain():
         import json as _json
         for it in seeds:
+            if _chain_stopped(inv_id, stops):
+                return
             gs.set_status(inv_id, "running")
             with gs.conn() as c:
                 payload = {"kind": "status_change", "status": "running",
@@ -1576,6 +1599,8 @@ async def from_sample(
         "uploaded_at": time.time(),
     })
 
+    stops = stop_count(inv_id)  # read here, in the request: see _chain_stopped
+
     async def _chain():
         import json as _json
         await run_investigation(
@@ -1583,6 +1608,8 @@ async def from_sample(
             report_context=report_text or "",
         )
         for it in extras:
+            if _chain_stopped(inv_id, stops):
+                return
             gs.set_status(inv_id, "running")
             with gs.conn() as c:
                 payload = {"kind": "status_change", "status": "running",

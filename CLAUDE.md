@@ -792,6 +792,26 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
   (`_finalise_model_halt`). Auth and model halts share `_halt_on_ops_error`,
   which `run_investigation`, `run_add_seed`, `run_pivot` and
   `run_custom_prompt` all call before reporting `done`.
+- **A user stop ends the whole run** (`stop_investigation`,
+  `_halt_on_user_stop`): `POST /api/investigations/{id}/stop` used to kill the
+  `claude -p` process in flight and write `done`, and nothing told the workflow.
+  A killed phase returns like a failed one (rc=-15, no `result` event), so
+  `run_investigation` went on to spawn the report-write and lessons-learned
+  phases (plus follow-up and drain when a report node existed) and ended
+  `error rc=-15` over the route's `done` (reproduced 2026-11-11 with a fake CLI).
+  Now each stop is counted per investigation (`_stop_count`), every run entry
+  point records the count it started with (`_begin_run`, a ContextVar), and a run
+  whose count has moved returns at its next check: after every phase, before the
+  quota / ops halts, and inside `_run_claude_phase` before a spawn. The route
+  writes the status (`done` + `status_change` with `stopped_by_user`) in the
+  request, for any `running` investigation, because the run only notices when
+  its killed phase returns (up to a watchdog poll, 10 s); the run writes no
+  status, only one `agent_exit` with `stopped_by_user`. It is a count because a
+  flag cleared at the next run would lose a stop followed by a quick rerun. The
+  chains in `main.py` (batch combined, from PDF, add seeds, from sample) read
+  `stop_count` and do not start the next seed (`_chain_stopped`). **A new phase,
+  or a new run entry point, needs its `_halt_on_user_stop` check / `_begin_run`
+  call**; `tests/test_user_stop.py` covers the existing ones.
 - **Shodan is free-first, credits are guarded**: a Membership grants only 100 query
   credits/month for the whole instance, but nearly the entire API is free — `internetdb_ip`
   (no key at all), `shodan_host`, `shodan_host_count` (count + facets for *any* query,
