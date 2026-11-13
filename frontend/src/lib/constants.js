@@ -20,8 +20,10 @@ export const NODE_SHAPES = {
   ja3: 'heptagon', ja3s: 'octagon', threat_actor: 'star',
   lead: 'round-tag'
 }
-export const STATUS_COLOR = { running: '#e3b341', done: '#56d364', cleared: '#8b949e',
-                       error: '#f85149', quota_exceeded: '#d29922' }
+// Theme tokens, so a status reads on the light theme too (the fixed greens and
+// ambers of the dark theme were at 1.7:1 on a light surface).
+export const STATUS_COLOR = { running: 'var(--warning)', done: 'var(--success)', cleared: 'var(--on-dim)',
+                       error: 'var(--error)', quota_exceeded: 'var(--warning)' }
 
 // Context-pool lead lifecycle (backend/context_pool.py), in precedence order:
 // a resolved verdict wins over the initial `unverified`.

@@ -38,8 +38,8 @@ export default function InvestigationHistory({ invs, activeInv, quotaState, acti
                 )}
               </div>
               <div className="inv-item-meta">
-                <span className="inv-status-dot" style={{ background: STATUS_COLOR[i.status] || '#8b949e' }} />
-                <span className="inv-status-text" style={{ color: STATUS_COLOR[i.status] || '#8b949e' }}>
+                <span className="inv-status-dot" style={{ background: STATUS_COLOR[i.status] || 'var(--on-dim)' }} />
+                <span className="inv-status-text" style={{ color: STATUS_COLOR[i.status] || 'var(--on-dim)' }}>
                   {i.status === 'quota_exceeded'
                     ? (i.quota_reset_at
                         ? `quota — ${formatCountdown(i.quota_reset_at) || 'ready'}`

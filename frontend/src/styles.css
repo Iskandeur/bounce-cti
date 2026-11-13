@@ -9,7 +9,7 @@
   --surface-3: #2d333b;
   --on-bg: #e6edf3;
   --on-surface: #c9d1d9;
-  --on-dim: #768390;
+  --on-dim: #9aa4ae;
   --primary: #79c0ff;
   --primary-dim: #1f3a5c;
   --error: #f85149;
@@ -34,12 +34,12 @@
   --surface-3: #e2e7ec;
   --on-bg: #1f2328;
   --on-surface: #3d444d;
-  --on-dim: #636c76;
-  --primary: #0969da;
+  --on-dim: #59636e;
+  --primary: #0757ba;
   --primary-dim: #ddf4ff;
-  --error: #cf222e;
-  --warning: #9a6700;
-  --success: #1a7f37;
+  --error: #a40e26;
+  --warning: #7d4e00;
+  --success: #116329;
   --outline: #d1d9e0;
   --outline-dim: #e4e8ec;
 }
@@ -88,6 +88,7 @@ html, body, #root {
   margin-bottom: 6px;
 }
 .logo span { color: var(--primary); }
+h1.logo { line-height: normal; }
 
 /* ── Logo mark (4-point star) ──────────────────────────────────────────── */
 /* The source PNG is a near-white star on transparency, so on the light theme
@@ -779,19 +780,17 @@ button.secondary:hover {
   line-height: 1.45;
   border-left: 2px solid #f5a62366;  /* warm amber, dim */
   padding: 2px 0 2px 8px;
-  opacity: 0.85;
 }
-.hypothesis-card[open] {
-  opacity: 1;
-}
-/* Once the full report renders below, the hypothesis is mostly history —
-   dim it further so it doesn't compete with the live report. */
+/* Once the full report renders below, the hypothesis is mostly history: its
+   label and category go to the dim text colour so it doesn't compete with the
+   live report. Dimmed by colour, never by opacity, which takes the text under
+   the 4.5:1 contrast the rest of the panel holds. */
 .hypothesis-card.superseded {
-  opacity: 0.6;
   border-left-color: var(--outline-dim);
 }
-.hypothesis-card.superseded[open] {
-  opacity: 0.85;
+.hypothesis-card.superseded .hypothesis-label,
+.hypothesis-card.superseded .hypothesis-cat {
+  color: var(--on-dim);
 }
 /* Lots of new nodes have arrived since the hypothesis was pinned — the
    guess may no longer match the graph. Use the warning hue to flag it. */
@@ -811,7 +810,7 @@ button.secondary:hover {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #f5a623;
+  color: var(--warning);
   font-weight: 700;
 }
 .hypothesis-card .hypothesis-cat {
@@ -820,7 +819,7 @@ button.secondary:hover {
 }
 .hypothesis-card .hypothesis-conf {
   font-size: 11px;
-  opacity: 0.7;
+  color: var(--on-dim);
   border: 1px solid var(--outline-dim);
   border-radius: 8px;
   padding: 0 5px;
@@ -828,11 +827,10 @@ button.secondary:hover {
 .hypothesis-card .hypothesis-meta {
   margin-left: auto;
   font-size: 11px;
-  opacity: 0.6;
+  color: var(--on-dim);
 }
 .hypothesis-card .hypothesis-meta .hypothesis-stale {
   color: var(--warning, #e3b341);
-  opacity: 1;
 }
 .hypothesis-card .hypothesis-body {
   margin-top: 4px;

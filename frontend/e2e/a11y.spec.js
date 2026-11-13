@@ -4,8 +4,7 @@ import { INV_DOMAIN } from './fixtures/data.js'
 import { BASELINE } from './a11y-baseline.js'
 
 // Runs axe-core on the page as it stands and fails on every violated rule that
-// is outside `tolerated`. A tolerated rule that no longer fires passes: the
-// agent log, for one, scrolls or not with the height of the window.
+// is outside `tolerated` (e2e/a11y-baseline.js, empty today).
 async function expectNoNewViolation(page, tolerated = Object.keys(BASELINE)) {
   const { violations } = await new AxeBuilder({ page }).analyze()
   const unlisted = violations
@@ -15,7 +14,7 @@ async function expectNoNewViolation(page, tolerated = Object.keys(BASELINE)) {
 }
 
 for (const theme of ['dark', 'light']) {
-  test(`main screen, ${theme} theme: no violation outside the baseline`, async ({ page }) => {
+  test(`main screen, ${theme} theme: no violation`, async ({ page }) => {
     await setTheme(page, theme)
     await page.goto(`/?inv=${INV_DOMAIN}`)
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
@@ -28,10 +27,9 @@ for (const theme of ['dark', 'light']) {
 test.describe('signed out', () => {
   test.use({ authenticated: false })
 
-  // The login screen breaks two of the baseline rules only: hold it to those.
-  test('login screen: no violation outside the baseline', async ({ page }) => {
+  test('login screen: no violation', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByPlaceholder('••••••')).toBeVisible()
-    await expectNoNewViolation(page, ['color-contrast', 'region'])
+    await expectNoNewViolation(page)
   })
 })

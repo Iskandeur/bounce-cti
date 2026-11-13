@@ -405,8 +405,8 @@ frontend/
                         #   answers /api/ and the /ws/<id> WebSocket from the
                         #   hand-written, synthetic fixtures/data.js. harness.js fails
                         #   a test on an /api/ call with no mock and on an uncaught
-                        #   page error. a11y-baseline.js lists the axe rules violated
-                        #   today (a rule outside it fails). `npm run test:e2e`;
+                        #   page error. a11y.spec.js fails on any axe rule violated;
+                        #   a11y-baseline.js, the tolerated ones, is empty. `npm run test:e2e`;
                         #   what it leaves out is in e2e/README.md
   playwright.config.js  # Starts the Vite dev server for the suite (127.0.0.1:5199,
                         #   --strictPort, never an already-running one)
@@ -579,7 +579,7 @@ Because `main` deploys straight to prod, a merge-gate runs on every PR to `main`
   `npx playwright install --with-deps chromium`, `npm run test:e2e`: the browser
   suite of `frontend/e2e/` against the Vite dev server, API and WebSocket mocked
   (no backend). A new `/api/` call in the frontend needs a fixture there, and a
-  new axe rule violation fails it.
+  axe rule violation fails it (no rule is tolerated: `e2e/a11y-baseline.js` is empty).
 - **`docker-image`** — builds the image and boots it with no `.env`: the app
   answers, the bootstrap admin (a random `ADMIN_PIN`) logs in, the process runs
   as uid 10001 and the `claude` CLI is on its PATH. It proves packaging, not
@@ -948,7 +948,10 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
 - **Theme**: light/dark is toggled in the sidebar header and persisted in `localStorage`
   (`bounce-theme`); `main.jsx` sets `<html data-theme>` before first paint. The UI is
   CSS-variable-driven, so the theme lives almost entirely in `styles.css` `:root`
-  overrides. The Cytoscape canvas follows the theme too: Cytoscape cannot read CSS
+  overrides. Text tokens hold 4.5:1 on every surface token of their theme (`--on-dim`,
+  `--primary`, `--warning`, `--success`, `--error` on `--bg` to `--surface-3`): dim a
+  text with `--on-dim`, never with `opacity`, and take a status colour from a token,
+  never a fixed hex (`STATUS_COLOR` in `lib/constants.js`). The Cytoscape canvas follows the theme too: Cytoscape cannot read CSS
   variables, so `readCanvasColors()` (`lib/graph.js`) reads `--on-bg` (node label, seed
   border, selection ring), `--on-dim` / `--bg` (edge label and its chip), `--error` /
   `--success` and the `--graph-*` variables defined next to `.graph` in `styles.css`

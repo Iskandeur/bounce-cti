@@ -1040,7 +1040,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
       <div className="resize-handle" onMouseDown={startDrag('right')} title="Drag to resize" />
 
       {/* ── RIGHT PANEL ── */}
-      <div className={`details${mobileRightOpen ? ' mobile-open' : ''}`}>
+      <aside aria-label="Investigation details" className={`details${mobileRightOpen ? ' mobile-open' : ''}`}>
         {/* Tab bar */}
         <div className="panel-tabs">
           <button
@@ -1154,7 +1154,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
             submitCustomPrompt={submitCustomPrompt}
           />
         )}
-      </div>
+      </aside>
     </div>
     <RunProgressAnnouncer text={runAnnouncement} />
     {/* Modals live OUTSIDE .app on purpose. On mobile, .sidebar/.details
