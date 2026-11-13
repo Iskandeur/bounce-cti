@@ -604,6 +604,10 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
   `frontend/src/components/`, the state slices in `hooks/`, the pure helpers in `lib/`
   (`Login`, `AdminPanel`, `ShareModal`, `SharedView` stay at the top of `src/`).
   View switching is done with local state, not URLs.
+  The desktop grid columns come from `panelColumns` (`hooks/usePanelResize.js`): each
+  side panel has the width it was dragged to, and in a window too narrow for both
+  (769 to about 1100px at the default widths) they share what is left once the graph
+  has 340px, never under the minimum of their handle (180 / 220px).
 - **Backend serves the frontend**: In production, FastAPI mounts `frontend/dist/` at `/` as static files.
 - **MCP tools only**: The investigation agent communicates exclusively via MCP tools
   (graph + cti servers). Bash/Edit/Write/Read/Glob/Grep/Web* are explicitly disallowed.
