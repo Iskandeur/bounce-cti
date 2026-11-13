@@ -148,11 +148,12 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             return (
               <button
                 key={type}
-                className="filter-chip"
+                className={`filter-chip${active ? ' type-ink' : ' off'}`}
+                aria-pressed={active}
                 onClick={() => toggleFilterType(type)}
                 style={active
-                  ? { background: color + '33', borderColor: color, color }
-                  : { background: 'transparent', borderColor: color + '66', color: color + '88' }
+                  ? { '--type': color, background: color + '33', borderColor: color }
+                  : { background: 'transparent', borderColor: color + '66' }
                 }
               >
                 {type}

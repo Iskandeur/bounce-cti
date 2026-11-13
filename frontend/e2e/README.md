@@ -43,15 +43,18 @@ change the fixture with it.
 
 ## Accessibility
 
-`a11y.spec.js` runs axe-core on the main screen (dark and light theme, Report
-tab open on the fixture investigation) and on the login screen, and fails on
-any violated rule. `a11y-baseline.js` is the list of tolerated rules; it is
-empty. A rule goes there only when its fix cannot be in the same change, with
-the reason. An axe-core update can add rules, and with them new failures.
+`a11y.spec.js` runs axe-core, in the dark and the light theme, on the main
+screen (Report tab of the fixture investigation) and on each other tab of the
+right panel (Node on a tagged node, Timeline, Actions, Chat), and on the login
+screen. It fails on any violated rule. `a11y-baseline.js` is the list of
+tolerated rules; it is empty. A rule goes there only when its fix cannot be in
+the same change, with the reason. An axe-core update can add rules, and with
+them new failures.
 
-axe checks what is on the page when it runs: the other tabs of the right panel,
-a running or failed investigation, the admin panel and the modals are not
-opened by this test.
+axe checks what is on the page when it runs, and leaves out what it cannot
+measure (text over a translucent background, such as the graph toolbar). A
+running or failed investigation, the admin panel, the modals and the shared
+view are not opened by this test.
 
 ## What the suite does not cover
 

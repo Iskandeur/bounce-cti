@@ -951,7 +951,10 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
   overrides. Text tokens hold 4.5:1 on every surface token of their theme (`--on-dim`,
   `--primary`, `--warning`, `--success`, `--error` on `--bg` to `--surface-3`): dim a
   text with `--on-dim`, never with `opacity`, and take a status colour from a token,
-  never a fixed hex (`STATUS_COLOR` in `lib/constants.js`). The Cytoscape canvas follows the theme too: Cytoscape cannot read CSS
+  never a fixed hex (`STATUS_COLOR` in `lib/constants.js`). A text in the colour of a node type or of a tag
+  goes through `.type-ink` (`--type` = the colour): the type colours are picked for the
+  canvas and several are unreadable as text (1.2:1 on the light theme), so the text takes
+  `--ink-mix` of the colour and the rest from `--on-bg`; borders and tints keep the full colour. The Cytoscape canvas follows the theme too: Cytoscape cannot read CSS
   variables, so `readCanvasColors()` (`lib/graph.js`) reads `--on-bg` (node label, seed
   border, selection ring), `--on-dim` / `--bg` (edge label and its chip), `--error` /
   `--success` and the `--graph-*` variables defined next to `.graph` in `styles.css`
