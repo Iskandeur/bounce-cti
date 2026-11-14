@@ -80,25 +80,10 @@ test.describe('a laptop-height window, 1280x600', () => {
     await open(page, api, { running: false })
 
     const field = await page.getByPlaceholder('Paste any IOC (auto-detected)').boundingBox()
-    const button = await page.getByRole('button', { name: '+ Add' }).boundingBox()
+    const button = await page.getByRole('button', { name: 'Add', exact: true }).boundingBox()
     expect(field.width).toBeGreaterThan(button.width * 2)
   })
 })
-
-// The container the query reads is the whole panel (its width less the 1px
-// border). The icons of IOC / Sample / PDF show from a panel of 272px up, and
-// the default 260px has the three words alone.
-for (const [width, icons] of [[260, 'none'], [271, 'none'], [272, 'block']]) {
-  test(`a sidebar of ${width}px ${icons === 'none' ? 'drops' : 'shows'} the icons of the three form modes`, async ({ page }) => {
-    await page.addInitScript(w => localStorage.setItem('bounce.leftWidth', String(w)), width)
-    await page.goto('/')
-    await expect(historyItem(page, 'example.com')).toBeVisible()
-
-    expect((await page.locator('.sidebar').boundingBox()).width).toBe(width)
-    const shown = await page.locator('.seg-icon').evaluateAll(els => els.map(el => getComputedStyle(el).display))
-    expect(shown).toEqual([icons, icons, icons])
-  })
-}
 
 test.describe('phone', () => {
   test.use({ viewport: { width: 375, height: 812 } })

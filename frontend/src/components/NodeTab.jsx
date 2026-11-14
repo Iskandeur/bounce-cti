@@ -4,6 +4,7 @@ import NodeProvenance from './NodeProvenance.jsx'
 import { NODE_COLORS, PIVOTABLE } from '../lib/constants.js'
 import { evidenceSource } from '../lib/provenance.js'
 import CopyLabel from './CopyLabel.jsx'
+import Icon from './Icon.jsx'
 
 export default function NodeTab({ selected, activeInv, note, evidence, crossInv, ties, copied, actions }) {
   const { noteDraft, setNoteDraft, noteBusy, saveNote } = note
@@ -64,11 +65,12 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
               <button
                 className={`btn-sm annot-pin${(selected.tags || []).includes('pinned') ? ' on' : ''}`}
                 onClick={() => togglePin(selected)}
+                aria-pressed={(selected.tags || []).includes('pinned')}
                 title={(selected.tags || []).includes('pinned')
                   ? 'Unpin this node'
                   : 'Pin this node — highlights it on the graph for quick triage'}
               >
-                {(selected.tags || []).includes('pinned') ? '📌 Pinned' : '📌 Pin'}
+                <Icon name={(selected.tags || []).includes('pinned') ? 'boxChecked' : 'box'} />Pin
               </button>
               <input
                 className="annot-note-input"
@@ -82,7 +84,8 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
                   if (e.key === 'Enter') { e.preventDefault(); saveNote(); e.target.blur() }
                   if (e.key === 'Escape') { setNoteDraft((selected.metadata?.user_note) || ''); e.target.blur() }
                 }}
-                placeholder="Note (ex. VPN, C2, sinkhole)…"
+                placeholder="Note (e.g. VPN, C2, sinkhole)…"
+                aria-label="Analyst note on this node"
                 maxLength={120}
                 disabled={noteBusy}
               />
@@ -91,7 +94,8 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
                   className="btn-sm secondary annot-clear"
                   onClick={() => { setNoteDraft(''); saveNote() }}
                   title="Clear note"
-                >✕</button>
+                  aria-label="Clear note"
+                ><Icon name="close" solo /></button>
               )}
             </div>
           )}
@@ -116,8 +120,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
               {!crossInvLoading && crossInvHits && crossInvHits.length > 0 && (
                 <div className="cross-inv-block">
                   <div className="cross-inv-header">
-                    <span className="cross-inv-icon">↺</span>
-                    <span className="cross-inv-title">
+                                        <span className="cross-inv-title">
                       Also seen in {crossInvHits.length} prior investigation{crossInvHits.length !== 1 ? 's' : ''}
                     </span>
                   </div>
@@ -162,7 +165,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
                   onClick={() => pivotHere(selected)}
                   title="Run another agent pass on this graph from this node (enrich in place)"
                 >
-                  ↳ Pivot here
+                  Pivot here
                 </button>
                 <button
                   className="btn-sm secondary"
@@ -170,7 +173,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
                   onClick={() => pivot(selected)}
                   title="Send this IOC to the new-investigation form (creates a fresh graph)"
                 >
-                  ⎘ New inv
+                  New inv
                 </button>
               </>
             )}
@@ -179,7 +182,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
               style={{ flex: 1 }}
               onClick={() => copyNodeJson(selected)}
             >
-              <CopyLabel done={copied === 'node-json'}>↓ Copy JSON</CopyLabel>
+              <CopyLabel done={copied === 'node-json'}><Icon name="copy" />Copy JSON</CopyLabel>
             </button>
           </div>
 
@@ -203,7 +206,8 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
                       className="btn-sm secondary hash-copy-btn"
                       onClick={() => copyText(name)}
                       title="Copy filename"
-                    >⧉</button>
+                      aria-label="Copy filename"
+                    ><Icon name="copy" solo /></button>
                   </div>
                 ) : (
                   <div className="hash-detail-row muted">no filename in metadata</div>
@@ -216,7 +220,8 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
                   className="btn-sm secondary hash-copy-btn"
                   onClick={() => copyText(selected.value)}
                   title="Copy hash"
-                >⧉</button>
+                  aria-label="Copy hash"
+                ><Icon name="copy" solo /></button>
               </div>
             </div>
           )}

@@ -1,5 +1,6 @@
 import React from 'react'
 import { parseSeedInput } from '../lib/ioc.js'
+import Icon from './Icon.jsx'
 
 export default function NewInvestigationForm({ form, settings, allowedModels }) {
   const {
@@ -27,7 +28,6 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
           onClick={() => setInputMode('ioc')}
           title="Paste a single IOC or a list — type is auto-detected"
         >
-          <span className="seg-icon" aria-hidden="true">◆</span>
           IOC
         </button>
         <button
@@ -38,7 +38,6 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
           onClick={() => setInputMode('sample')}
           title="Upload a malware sample / dropper / archive, or paste a malicious command line"
         >
-          <span className="seg-icon" aria-hidden="true">⚙</span>
           Sample
         </button>
         <button
@@ -49,7 +48,6 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
           onClick={() => setInputMode('pdf')}
           title="Upload an existing CTI report — extracts IOCs and feeds the report text to the agent"
         >
-          <span className="seg-icon" aria-hidden="true">📄</span>
           PDF
         </button>
       </div>
@@ -80,7 +78,8 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
                   type="button"
                   className={`switch-track${batchCombined ? ' on' : ''}`}
                   onClick={() => setBatchCombined(v => !v)}
-                  aria-label="Toggle combined mode"
+                  aria-pressed={batchCombined}
+                  aria-label="Combined: all IOCs on one graph"
                 >
                   <span className="switch-thumb" />
                 </button>
@@ -98,24 +97,24 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
             type="file"
             accept="application/pdf,.pdf"
             onChange={e => { setPdfFile(e.target.files?.[0] || null); setPdfError('') }}
-            hidden
+            className="file-input"
           />
           <label htmlFor="pdf-file-input" className="pdf-drop-target">
             {pdfFile ? (
               <>
-                <span className="pdf-drop-icon" aria-hidden="true">📄</span>
+                <span className="pdf-drop-icon"><Icon name="upload" solo /></span>
                 <span className="pdf-drop-name" title={pdfFile.name}>
                   {pdfFile.name.length > 38 ? pdfFile.name.slice(0, 36) + '…' : pdfFile.name}
                 </span>
                 <span className="pdf-drop-meta">
-                  {(pdfFile.size / 1024).toFixed(1)} KB · cliquer pour changer
+                  {(pdfFile.size / 1024).toFixed(1)} KB · click to replace
                 </span>
               </>
             ) : (
               <>
-                <span className="pdf-drop-icon" aria-hidden="true">⬆</span>
-                <span className="pdf-drop-name">Choisir un PDF de rapport CTI</span>
-                <span className="pdf-drop-meta">Le texte est lu par l'agent (max 25 MB)</span>
+                <span className="pdf-drop-icon"><Icon name="upload" solo /></span>
+                <span className="pdf-drop-name">Choose a CTI report PDF</span>
+                <span className="pdf-drop-meta">The agent reads its text (max 25 MB)</span>
               </>
             )}
           </label>
@@ -132,12 +131,12 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
               setSampleFile(e.target.files?.[0] || null)
               setSampleError('')
             }}
-            hidden
+            className="file-input"
           />
           <label htmlFor="sample-file-input" className="pdf-drop-target">
             {sampleFile ? (
               <>
-                <span className="pdf-drop-icon" aria-hidden="true">⚙</span>
+                <span className="pdf-drop-icon"><Icon name="upload" solo /></span>
                 <span className="pdf-drop-name" title={sampleFile.name}>
                   {sampleFile.name.length > 38 ? sampleFile.name.slice(0, 36) + '…' : sampleFile.name}
                 </span>
@@ -147,7 +146,7 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
               </>
             ) : (
               <>
-                <span className="pdf-drop-icon" aria-hidden="true">⬆</span>
+                <span className="pdf-drop-icon"><Icon name="upload" solo /></span>
                 <span className="pdf-drop-name">Drop an executable / dropper / archive</span>
                 <span className="pdf-drop-meta">Hashed locally — file is not stored (max 25 MB)</span>
               </>
@@ -205,6 +204,8 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
         <option value="max">Max — deepest, slowest</option>
       </select>
       <button
+        type="button"
+        className="btn-primary"
         onClick={
           inputMode === 'pdf'    ? startFromPdf
           : inputMode === 'sample' ? startFromSample
@@ -217,13 +218,13 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
         }
       >
         {inputMode === 'pdf'
-          ? (pdfBusy ? 'Analyse du PDF…' : 'Importer le rapport →')
+          ? (pdfBusy ? 'Reading the PDF…' : 'Import the report')
           : inputMode === 'sample'
-          ? (sampleBusy ? 'Hashing & extracting…' : (sampleFile ? 'Submit sample →' : 'Investigate command →'))
+          ? (sampleBusy ? 'Hashing & extracting…' : (sampleFile ? 'Submit sample' : 'Investigate command'))
           : (() => {
               const n = parseSeedInput(seedText).length
-              if (n <= 1) return 'Investigate →'
-              return `Launch ${n} IOC${n > 1 ? 's' : ''} →`
+              if (n <= 1) return 'Investigate'
+              return `Launch ${n} IOCs`
             })()}
       </button>
     </>
