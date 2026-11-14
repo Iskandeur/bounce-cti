@@ -120,6 +120,15 @@ test('origin tells an agent-only node, an edge stub and a tag promotion apart', 
   assert.deepEqual([none.kind, none.sourceCount, none.createdAt, none.confidence], ['none', 0, null, null])
 })
 
+test('a report node with no source named is a note of the run, whoever wrote it', () => {
+  assert.equal(nodeOrigin({ type: 'report', value: 'investigation_summary', source: 'agent' }).kind, 'report')
+  assert.equal(nodeOrigin({ type: 'report', value: 'sanctions_screen' }).kind, 'report')
+  // A report node the agent tied to a source keeps that source.
+  const sourced = nodeOrigin({ type: 'report', value: 'otx_pulse_context', source: 'otx' })
+  assert.equal(sourced.kind, 'source')
+  assert.deepEqual(sourced.sources, ['otx'])
+})
+
 test('a lead is a hypothesis, with its verdict when the metadata carries one', () => {
   const fresh = nodeOrigin({
     type: 'lead', source: 'parametric_memory', confidence: 0.35, tags: ['unverified'],

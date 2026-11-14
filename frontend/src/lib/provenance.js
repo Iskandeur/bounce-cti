@@ -86,6 +86,9 @@ const NOT_A_SOURCE = new Set(['agent', 'edge_autostub', 'tag_promotion'])
 // node was added, `others` the names recorded since. `kind` says which
 // sentence is true:
 //   'lead'   a context-pool hypothesis (the agent's memory or open-web text)
+//   'report' a report node with no source named: a note of the run on the
+//            investigation (the summary, a hypothesis, a budget note), written
+//            by the agent or by the server
 //   'agent'  added by the agent with no source tool named
 //   'stub'   created because an edge named it (edge_autostub)
 //   'tag'    created from a tag on another node (tag_promotion)
@@ -122,6 +125,8 @@ export function nodeOrigin(node) {
       verifiableBy: Array.isArray(md.verifiable_by) ? md.verifiable_by.map(String) : [],
       falsifier: md.falsifier || '',
     }
+  } else if (n.type === 'report' && sources.length === 0) {
+    origin.kind = 'report'
   } else if (source === 'agent') {
     origin.kind = 'agent'
   } else if (source === 'edge_autostub') {

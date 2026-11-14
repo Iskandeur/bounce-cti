@@ -112,6 +112,7 @@ function Origin({ node }) {
       {o.kind === 'source' && (
         <>Added{on}, with <Names names={o.sources} /> named as its source{o.sources.length === 1 ? '' : 's'}. </>
       )}
+      {o.kind === 'report' && <>Written{on} during the run, as a note on the investigation. It names no source of its own. </>}
       {o.kind === 'agent' && <>Added{on} by the agent, which named no source tool. </>}
       {o.kind === 'stub' && <>Created{on} as the end of an edge: nothing had been reported about this node itself. </>}
       {o.kind === 'tag' && <>Created{on} by tag promotion{o.tagEvidence ? ` (${o.tagEvidence})` : ''}. </>}
