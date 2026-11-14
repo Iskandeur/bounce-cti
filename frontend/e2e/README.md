@@ -51,6 +51,22 @@ tolerated rules; it is empty. A rule goes there only when its fix cannot be in
 the same change, with the reason. An axe-core update can add rules, and with
 them new failures.
 
+`buttons.spec.js` measures the rules of the buttons on the same screens (and at
+375px): an accessible name, at least 24x24px to press, no glyph in a label, a
+toggle that keeps its label and flips `aria-pressed`, a 2px focus ring, a
+disabled button that is dimmed and has no hover, and the contrast of each
+control when hovered, in both themes (4.5:1 for text, 3:1 for an icon alone).
+The sources are checked against the same rules by `src/lib/icons.test.js`.
+
+`button-style.spec.js` measures the look (the "Buttons" block of
+`src/styles.css`): one filled button in each panel and each dialog (the share
+dialog and the admin panel included, with routes of its own for what they
+fetch), no button that moves or changes size when hovered or pressed, 4.5:1 for
+every kind of button at rest, hovered and pressed in both themes, the check
+mark of "copied" that draws itself, and a busy button that changes its label,
+keeps its width and runs a line under it. The last two are also run under
+`prefers-reduced-motion`. `src/lib/buttons.test.js` checks the stylesheet.
+
 axe checks what is on the page when it runs, and leaves out what it cannot
 measure (text over a translucent background, such as the graph toolbar). A
 running or failed investigation, the admin panel, the modals and the shared
@@ -67,5 +83,6 @@ view are not opened by this test.
 - Starting, rerunning or deleting an investigation, uploads, the chat, the
   Actions tab, the admin panel, the share modal, the shared view, the demo build.
 - Firefox and WebKit.
-- On a phone (375x812): the drawers, sideways scrolling, the toolbar's two rows
-  and the 11px floor on text sizes. Nothing else of the phone layout.
+- On a phone (375x812): the drawers, sideways scrolling, the toolbar's two rows,
+  the 11px floor on text sizes, and the heights of the history and of the agent
+  log in the sidebar drawer. Nothing else of the phone layout.

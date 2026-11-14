@@ -366,13 +366,21 @@ frontend/
                         #   filter chips), GraphLegend (on-demand key of the canvas:
                         #   the node types and border meanings present in the
                         #   graph), ReportTab (LeadsCard, HypothesisCard,
-                        #   BudgetLog), NodeTab (StaticAnalysis), TimelineTab,
+                        #   BudgetLog), NodeTab (StaticAnalysis, NodeProvenance: where
+                        #   a node came from + the edges that tie it to the graph, as
+                        #   text; also in SharedView), TimelineTab,
                         #   ActionsPanel, ChatTab, PromptBox, PickedChips,
-                        #   HighlightedText, CopyLabel (a copy button's label, fixed width)
+                        #   HighlightedText, CopyLabel (a copy button's label, fixed width),
+                        #   BusyLabel (the label of a button while its action runs,
+                        #   same width),
+                        #   Icon (one icon of lib/icons.js: inline SVG, 1em, currentColor,
+                        #   aria-hidden)
     hooks/              # State slices used by MainApp: useRunSettings (model /
                         #   vertical / effort), useNewInvestigation (IOC / sample /
                         #   PDF form + submits), useNodeData (lead stats, cross-
-                        #   investigation hits, node note), useQuota, usePanelResize,
+                        #   investigation hits, node note, useNodeTies: the selected
+                        #   node's edges, refreshed on Cytoscape's edge add / remove
+                        #   events), useQuota, usePanelResize,
                         #   useTheme, useIsMobile, useServerReconnect,
                         #   useGraphSummary (types / border meanings / defused
                         #   count of the graph, for the legend and the toolbar),
@@ -385,9 +393,16 @@ frontend/
                         #   stylesheet + layout options, toCyNodeData,
                         #   isAuxReportNode, readCanvasColors, isDefused), legend
                         #   (shape glyphs, border meanings, summariseGraph),
-                        #   timeline, reportMarkdown, format, runProgress (phase
-                        #   labels + the words of the progress line;
-                        #   runProgress.test.js, node --test, run in CI)
+                        #   provenance (a node's origin and its ties to the graph as
+                        #   plain data: edgesOf, nodeTies, nodeOrigin; +
+                        #   provenance.test.js), timeline, reportMarkdown, format,
+                        #   runProgress (phase labels + the words of the progress
+                        #   line; runProgress.test.js, node --test, run in CI), icons (the icon
+                        #   set + which buttons take an icon; icons.test.js checks every
+                        #   button of the sources against it), pressable (keyboard-button
+                        #   props for an element that is not a <button>, and busyProps
+                        #   for a button whose action runs; buttons.test.js checks the
+                        #   button rules of styles.css)
     invUrl.js           # Pure ?inv=<id> URL-sync helper (+ invUrl.test.js, node --test, run in CI)
     Login.jsx           # PIN login screen
     AdminPanel.jsx      # Admin dashboard (users, models, impersonation)
@@ -619,10 +634,48 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
   `frontend/src/components/`, the state slices in `hooks/`, the pure helpers in `lib/`
   (`Login`, `AdminPanel`, `ShareModal`, `SharedView` stay at the top of `src/`).
   View switching is done with local state, not URLs.
+  The sidebar has two zones: `.sidebar-main` (form, history, add IOC) scrolls, and
+  `.sidebar-run` (progress line, agent log; only while an investigation is open) keeps
+  the foot at a height of its own. In `.sidebar-main` only the history can shrink; a
+  new block there that is a scroll container keeps its height through
+  `.sidebar-main > * { flex-shrink: 0 }` (the agent log was once the one block free to
+  shrink, and was 14px tall). Pinned by `frontend/e2e/sidebar.spec.js`.
   The desktop grid columns come from `panelColumns` (`hooks/usePanelResize.js`): each
   side panel has the width it was dragged to, and in a window too narrow for both
   (769 to about 1100px at the default widths) they share what is left once the graph
   has 340px, never under the minimum of their handle (180 / 220px).
+- **Buttons follow one set of rules** (`lib/icons.js`, `components/Icon.jsx`, the "What
+  every button shares" block of `styles.css`). Icons come from `ICONS` only: no glyph, no
+  emoji, no arrow after a verb (a system font draws each one differently). An icon stands
+  alone where there is no room for a word (the button then has an `aria-label`); next to a
+  label it is kept for copy, download, upload, open elsewhere, add, delete and dismiss. A
+  toggle keeps one label and says its state with `aria-pressed` and a box, empty or ticked.
+  A hover rule of a button is written `:hover:where(:not(:disabled))` and sets both colour
+  and background (the base `button:hover` paints a background, so a rule that sets only a
+  colour ends up unreadable). An element that is clicked and is not a `<button>` takes
+  `pressable()` (`lib/pressable.js`). UI text is English. `src/lib/icons.test.js` checks
+  the sources and `e2e/buttons.spec.js` the rendered page: name, 24x24px, focus ring,
+  disabled look, contrast when hovered, in both themes.
+- **A button is a neutral outline, and three classes say more** (the "Buttons" block of
+  `styles.css`). `.btn-primary` is filled with the accent: one per panel or dialog, its
+  main action ("Investigate", "Run prompt" / "Send", "Sign in", "Create a link and copy
+  it", "Create user & generate PIN"). `.btn-lead` has the accent ink and outline: the
+  first action of a row ("Pivot here", "Add", "Share"). `.btn-danger` has red ink and
+  outline: what destroys ("Delete user and all their data", "Revoke"); nothing is filled
+  red, the confirmation being the browser's `confirm()`. A toggle that is on
+  (`aria-pressed="true"`, or `aria-expanded` on an icon button) has the accent outline on
+  the accent tint, the Pin toggle, the format in use and the batch switch included; no
+  class says it. `.btn-sm`, `.auth-btn`, `.toolbar-btn`, `.icon-btn` set a size only.
+  Hover and press change colours and nothing else: no transform, no shadow, no change of
+  size, and a transition of 100ms on colours. Two animations exist, each tied to an
+  event: the check mark of "copied" draws itself in 180ms (`.tick-draw`, set by
+  `CopyLabel`), and a 2px line runs under a busy button (`aria-busy`). A button whose
+  action takes time takes `busyProps(busy, onPress)` (`lib/pressable.js`) and wraps its
+  label in `<BusyLabel>`: it stays enabled-looking, ignores a second press and keeps its
+  width. Both animations stop under `prefers-reduced-motion`. `src/lib/buttons.test.js`
+  checks the stylesheet and `e2e/button-style.spec.js` the rendered page: the one filled
+  button of each panel, 4.5:1 at rest, hovered and pressed for every kind in both themes,
+  nothing that moves, the check mark, the busy state.
 - **Backend serves the frontend**: In production, FastAPI mounts `frontend/dist/` at `/` as static files.
 - **MCP tools only**: The investigation agent communicates exclusively via MCP tools
   (graph + cti servers). Bash/Edit/Write/Read/Glob/Grep/Web* are explicitly disallowed.

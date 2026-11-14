@@ -1,4 +1,6 @@
 import React from 'react'
+import Icon from './Icon.jsx'
+import { pressable } from '../lib/pressable.js'
 import HighlightedText from './HighlightedText.jsx'
 import LeadsCard from './LeadsCard.jsx'
 import HypothesisCard from './HypothesisCard.jsx'
@@ -47,43 +49,43 @@ export default function ReportTab({
               ) : null
             })()}
             <button
-              className="btn-sm secondary export-btn"
+              className="btn-sm export-btn"
               style={{ marginLeft: 'auto' }}
               onClick={copyReportMarkdown}
               title="Copy the full report as markdown (paste into ticket / chat)"
             >
-              <CopyLabel done={copied === 'report-md'}>↓ Copy MD</CopyLabel>
+              <CopyLabel done={copied === 'report-md'}><Icon name="copy" />Copy MD</CopyLabel>
             </button>
             {activeInv && (
               <button
-                className="btn-sm secondary export-btn"
+                className="btn-sm export-btn"
                 onClick={() => window.open(`/api/investigations/${activeInv}/pdf`, '_blank')}
                 title="Download a structured PDF report for sharing"
               >
-                PDF
+                <Icon name="download" />PDF
               </button>
             )}
             {activeInv && (
               <button
-                className="btn-sm secondary export-btn"
+                className="btn-sm export-btn"
                 onClick={() => window.open(`/api/investigations/${activeInv}/stix`, '_blank')}
                 title="Download STIX 2.1 bundle (JSON) for threat intel sharing"
               >
-                STIX
+                <Icon name="download" />STIX
               </button>
             )}
             {activeInv && (
               <button
-                className="btn-sm secondary export-btn"
+                className="btn-sm export-btn"
                 onClick={() => window.open(`/api/investigations/${activeInv}/csv`, '_blank')}
                 title="Download observables as STIX-flavoured CSV (ready for an OpenCTI workbench)"
               >
-                CSV
+                <Icon name="download" />CSV
               </button>
             )}
             {activeInv && (
               <button
-                className="btn-sm secondary export-btn"
+                className="btn-sm export-btn"
                 onClick={async () => {
                   try {
                     const r = await fetch(`/api/investigations/${activeInv}/osint_dossier`,
@@ -100,12 +102,12 @@ export default function ReportTab({
                 }}
                 title="Download an OSINT identity dossier (Markdown): accounts, identifiers, connections, provenance"
               >
-                Dossier
+                <Icon name="download" />Dossier
               </button>
             )}
             {activeInv && (
               <button
-                className="btn-sm secondary export-btn"
+                className="btn-sm export-btn"
                 onClick={async () => {
                   try {
                     const r = await fetch(`/api/investigations/${activeInv}/kyb_dossier`,
@@ -122,16 +124,16 @@ export default function ReportTab({
                 }}
                 title="Download a KYB / Due-Diligence dossier (Markdown): sanctions exposure, identity, corporate hierarchy, officers/PSC, provenance"
               >
-                KYB
+                <Icon name="download" />KYB
               </button>
             )}
             {activeInv && (
               <button
-                className="btn-sm export-btn share-btn"
+                className="btn-sm export-btn btn-lead"
                 onClick={() => setShareOpen(true)}
                 title="Generate a share link (graph-only, with optional report/timeline/evidence/chats)"
               >
-                ↗ Partager
+                Share
               </button>
             )}
           </div>
@@ -228,7 +230,7 @@ export default function ReportTab({
                               <span
                                 key={j}
                                 className={`ioc-chip${nodeId ? ' clickable' : ''}`}
-                                onClick={nodeId ? () => focusNode(nodeId) : undefined}
+                                {...pressable(nodeId ? () => focusNode(nodeId) : undefined)}
                               >
                                 {iocString(sv)}
                               </span>
@@ -352,7 +354,7 @@ export default function ReportTab({
                     <span
                       key={i}
                       className={`ioc-chip${nodeId ? ' clickable' : ''}`}
-                      onClick={nodeId ? () => focusNode(nodeId) : undefined}
+                      {...pressable(nodeId ? () => focusNode(nodeId) : undefined)}
                     >
                       {label}
                     </span>
@@ -378,7 +380,7 @@ export default function ReportTab({
             <div>
               <div className="section-label" style={{ margin: '12px 0 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>Analyst prompts ({report.prompt_history.length})</span>
-                <button className="btn-sm secondary" style={{ fontSize: 10, padding: '1px 8px' }} onClick={() => setRightTab('chat')}>Open Chat →</button>
+                <button className="btn-sm btn-inline" onClick={() => setRightTab('chat')}>Open Chat</button>
               </div>
             </div>
           )}

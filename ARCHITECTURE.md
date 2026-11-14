@@ -1213,9 +1213,9 @@ switching is local state.
 |-------------------|-------------------------------------------------------------------------------------------|
 | `main.jsx`        | React entrypoint                                                                          |
 | `App.jsx`         | `MainApp`: owns the graph state, the Cytoscape instance, the WebSocket event pump and the investigation actions, and composes the panels; `AppRoot` routes between login, share link and app |
-| `components/`     | Panels fed by `MainApp` through props: `Sidebar` (`NewInvestigationForm`, `InvestigationHistory`, `AddSeedPanel`, `RunProgress`, `AgentLog`), `GraphPane` (canvas, toolbar, filter chips), `GraphLegend` (opened on demand: the node types present, each in its shape and colour, and the border meanings present), `ReportTab` (`LeadsCard`, `HypothesisCard`, `BudgetLog`), `NodeTab` (`StaticAnalysis`), `TimelineTab`, `ActionsPanel`, `ChatTab`, `PromptBox`, `PickedChips`, `HighlightedText`, `CopyLabel` (the label of a copy button: both texts stacked, so the button keeps one width) |
-| `hooks/`          | State slices of `MainApp`: `useRunSettings`, `useNewInvestigation`, `useNodeData` (lead stats, cross-investigation hits, node note), `useQuota`, `usePanelResize`, `useTheme`, `useIsMobile`, `useServerReconnect`, `useGraphSummary` (node types, border meanings and defused count of the graph), `useRunProgress` (the progress document of the open investigation: fetched on open, on run-level WebSocket events, and every 10 s while the run is live) |
-| `lib/`            | Pure modules: `constants`, `ioc` (refang, IOC type detection, subdomain vertical), `graph` (Cytoscape stylesheet, layout options, node data, the theme colours of the canvas, `isDefused`), `legend` (shape glyphs, border meanings, graph summary), `timeline`, `reportMarkdown`, `format`, `runProgress` (phase labels, the words of the progress line and of its announcements; `runProgress.test.js`, `node --test`, run in CI) |
+| `components/`     | Panels fed by `MainApp` through props: `Sidebar` (`NewInvestigationForm`, `InvestigationHistory`, `AddSeedPanel`, `RunProgress`, `AgentLog`), `GraphPane` (canvas, toolbar, filter chips), `GraphLegend` (opened on demand: the node types present, each in its shape and colour, and the border meanings present), `ReportTab` (`LeadsCard`, `HypothesisCard`, `BudgetLog`), `NodeTab` (`StaticAnalysis`, `NodeProvenance`), `TimelineTab`, `ActionsPanel`, `ChatTab`, `PromptBox`, `PickedChips`, `HighlightedText`, `CopyLabel` (the label of a copy button: both texts stacked, so the button keeps one width; the check mark of "copied" draws itself), `BusyLabel` (the same for a button whose action runs), `Icon` (one icon of `lib/icons.js` as an inline SVG: 1em, `currentColor`, hidden from assistive technology) |
+| `hooks/`          | State slices of `MainApp`: `useRunSettings`, `useNewInvestigation`, `useNodeData` (lead stats, cross-investigation hits, node note, `useNodeTies`: the selected node's edges), `useQuota`, `usePanelResize`, `useTheme`, `useIsMobile`, `useServerReconnect`, `useGraphSummary` (node types, border meanings and defused count of the graph), `useRunProgress` (the progress document of the open investigation: fetched on open, on run-level WebSocket events, and every 10 s while the run is live) |
+| `lib/`            | Pure modules: `constants`, `ioc` (refang, IOC type detection, subdomain vertical), `graph` (Cytoscape stylesheet, layout options, node data, the theme colours of the canvas, `isDefused`), `legend` (shape glyphs, border meanings, graph summary), `provenance` (a node's origin and ties as plain data, `provenance.test.js`), `timeline`, `reportMarkdown`, `format`, `runProgress` (phase labels, the words of the progress line and of its announcements; `runProgress.test.js`, `node --test`, run in CI), `icons` (the icon set, 16x16 stroke paths, and the rule for which buttons take one; `icons.test.js` checks the sources against it), `pressable` (the props that make an element other than a `<button>` a keyboard button, and `busyProps`, those of a button while its action runs; `buttons.test.js` checks the button rules of `styles.css`: nothing moves on hover or press, transitions of 110ms at most, both animations off under reduced motion) |
 | `Login.jsx`       | PIN login                                                                                 |
 | `AdminPanel.jsx`  | Admin dashboard: users, allowed-models per user, impersonation                            |
 | `ShareModal.jsx`  | Build a share link (section opt-in + expiry + label)                                      |
@@ -1237,7 +1237,25 @@ clicks and pixel comparisons are left out (`e2e/README.md`).
 Key in-app helpers:
 - `HighlightedText` — tokenises text, matches IOC values against the graph node
   map, wraps matches in clickable spans that call `focusNode(id)`
-- `focusNode(id)` — selects a node in Cytoscape + animates fit to its neighborhood
+- `focusNode(id)` — selects a node in Cytoscape (and only that one) + animates fit to its neighborhood
+- `NodeProvenance` (Node tab, share viewer) — why a node is in the graph, as
+  text. First where it came from: the source names recorded when it was added
+  (`source`), the names recorded since (`metadata.sources_seen`), the date
+  (`created_at`) and the confidence. The wording follows the tier: a `lead` is
+  a hypothesis from the agent's memory or from open-web text, with its verdict
+  and the tool that gave it (`verdict_evidence_tool` / `_value`); a node with
+  source `agent`, `edge_autostub` or `tag_promotion` says so, and those three
+  are not counted as sources. Then how it is tied to the graph: one line per
+  edge, `this <type>` on the selected node's side, the relation as named on
+  the canvas, the neighbour as a button that calls `focusNode`, and the edge's
+  `evidence` under it. Edges with evidence first, 12 shown, the rest behind a
+  control that gives their exact count. `lib/provenance.js` builds the data
+  (`edgesOf`, `nodeTies`, `nodeOrigin`); `useNodeTies` re-reads the edges on
+  Cytoscape's edge `add` / `remove` events, so the list follows a running
+  investigation (an `edge_added` event writes to Cytoscape and seldom touches
+  React state). In
+  the Node tab the cached source answers ("Evidence (raw data)", loaded on
+  demand, kept per node) are the last level of the same section.
 - `applyFilters(ft)` — hides/shows node types and their incident edges
 - WebSocket handler — dispatches `snapshot/node_added/edge_added/node_tagged/...`
   events to Cytoscape
@@ -1246,15 +1264,19 @@ Key in-app helpers:
   and the source calls made; a full investigation adds a thin bar, calls ÷
   pivot-drain budget (`role="progressbar"`). A run that is over leaves one
   quiet sentence (for good in the sidebar, for a minute in the phone strip,
-  which takes room from the graph). It sits above the agent log (sticky, so it is read without
-  scrolling the sidebar) and, under 768px, in a strip under the top bar.
+  which takes room from the graph). It sits above the agent log, at the foot of
+  the sidebar, and, under 768px, in a strip under the top bar.
   `RunProgressAnnouncer` is the polite live region: it speaks on a phase change
   and at the end of a run, and stays silent on ticks and tool calls
 
 UI panels:
 1. **Left sidebar**: new investigation form (single seed or batch, PDF upload,
-   model selector), investigation history, run progress line, agent event
-   log, share manager.
+   model selector), investigation history, add IOC and share for the open
+   investigation: one column that scrolls. Under it, while an investigation is
+   open, its run keeps the foot of the panel at a height of its own: the
+   progress line and the agent event log (7 lines or more during a run, up to
+   7 once it is over). On a phone the drawer scrolls as one column, the log
+   at its end.
 2. **Center graph**: Cytoscape canvas + floating toolbar (Fit / Relayout /
    Labels / Pins / Notes / Defused / Export / Copy-to-Maltego / STIX / PDF) +
    node-type filter chips + edge-relation filter + a legend opened from the
@@ -1265,8 +1287,9 @@ UI panels:
    rule each; hidden nodes stay in the copies and the counts.
 3. **Right panel**: tabs — Report (investigation summary with clickable IOCs,
    finding cards with source chips, pivot suggestions), Chat (free-form
-   custom-prompt history), Node (metadata, copy JSON, pivot/enrich, pin,
-   note), Timeline (chronological agent activity).
+   custom-prompt history), Node (provenance: origin, ties to the graph with
+   the reason on each edge, cached source answers on demand; metadata, copy
+   JSON, pivot/enrich, pin, note), Timeline (chronological agent activity).
 
 ## Data flow (investigation lifecycle)
 

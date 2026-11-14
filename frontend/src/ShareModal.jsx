@@ -1,4 +1,8 @@
 import React, { useEffect, useState } from 'react'
+import Icon from './components/Icon.jsx'
+import CopyLabel from './components/CopyLabel.jsx'
+import BusyLabel from './components/BusyLabel.jsx'
+import { busyProps } from './lib/pressable.js'
 
 // Sections an analyst can opt into when sharing. `graph` is implicit (always
 // included server-side). `chats` is OFF by default — sharing prompt history
@@ -75,15 +79,15 @@ export default function ShareModal({ inv, onClose }) {
   }
 
   const revoke = async (token) => {
-    if (!confirm('Révoquer ce lien ? Les destinataires perdront l’accès immédiatement.')) return
+    if (!confirm('Revoke this link? Its recipients lose access at once.')) return
     await fetch(`/api/shares/${token}`, { method: 'DELETE', credentials: 'same-origin' })
     loadShares()
   }
 
   const fmt = (sh) => {
-    if (sh.revoked) return 'révoqué'
-    if (sh.expires_at && sh.expires_at * 1000 < Date.now()) return 'expiré'
-    if (sh.expires_at) return `expire ${new Date(sh.expires_at * 1000).toLocaleDateString()}`
+    if (sh.revoked) return 'revoked'
+    if (sh.expires_at && sh.expires_at * 1000 < Date.now()) return 'expired'
+    if (sh.expires_at) return `expires ${new Date(sh.expires_at * 1000).toLocaleDateString()}`
     return 'permanent'
   }
 
@@ -91,8 +95,8 @@ export default function ShareModal({ inv, onClose }) {
     <div className="admin-overlay" onClick={onClose}>
       <div className="admin-modal share-modal" onClick={e => e.stopPropagation()}>
         <div className="admin-header">
-          <h2>Partager cette investigation</h2>
-          <button className="admin-close" onClick={onClose} aria-label="Close">✕</button>
+          <h2>Share this investigation</h2>
+          <button className="admin-close" onClick={onClose} aria-label="Close" title="Close"><Icon name="close" solo /></button>
         </div>
 
         <div className="share-inv-meta">
@@ -101,7 +105,7 @@ export default function ShareModal({ inv, onClose }) {
         </div>
 
         <div className="admin-section">
-          <div className="admin-section-title">Inclure</div>
+          <div className="admin-section-title">Include</div>
           <div className="share-sections">
             {SECTIONS.map(s => (
               <label key={s.key} className={`share-section${sections.has(s.key) ? ' on' : ''}${s.danger ? ' danger' : ''}`}>
@@ -113,7 +117,7 @@ export default function ShareModal({ inv, onClose }) {
                 <div className="share-section-text">
                   <div className="share-section-label">
                     {s.label}
-                    {s.danger && <span className="share-tag-danger" title="Off by default">sensible</span>}
+                    {s.danger && <span className="share-tag-danger" title="Off by default">sensitive</span>}
                   </div>
                   <div className="share-section-desc">{s.desc}</div>
                 </div>
@@ -124,21 +128,21 @@ export default function ShareModal({ inv, onClose }) {
 
         <div className="admin-section share-options-row">
           <label className="share-option">
-            <span>Expiration</span>
+            <span>Expires</span>
             <select value={expiresIn} onChange={e => setExpiresIn(e.target.value)}>
-              <option value="">Jamais</option>
-              <option value="1">1 jour</option>
-              <option value="7">7 jours</option>
-              <option value="30">30 jours</option>
-              <option value="90">90 jours</option>
+              <option value="">Never</option>
+              <option value="1">1 day</option>
+              <option value="7">7 days</option>
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
             </select>
           </label>
           <label className="share-option" style={{ flex: 1 }}>
-            <span>Étiquette (interne)</span>
+            <span>Label (internal)</span>
             <input
               value={label}
               onChange={e => setLabel(e.target.value)}
-              placeholder="ex. SOC partner FR"
+              placeholder="e.g. SOC partner FR"
               maxLength={60}
             />
           </label>
@@ -146,13 +150,13 @@ export default function ShareModal({ inv, onClose }) {
 
         {err && <div className="auth-error" style={{ marginBottom: 10 }}>{err}</div>}
 
-        <button className="auth-btn" disabled={busy} onClick={create}>
-          {busy ? 'Création…' : 'Générer un lien et le copier'}
+        <button className="auth-btn btn-primary" {...busyProps(busy, create)}>
+          <BusyLabel busy={busy} label="Creating…">Create a link and copy it</BusyLabel>
         </button>
 
         {shares.length > 0 && (
           <div className="admin-section" style={{ marginTop: 18 }}>
-            <div className="admin-section-title">Liens existants ({shares.length})</div>
+            <div className="admin-section-title">Existing links ({shares.length})</div>
             <div className="share-list">
               {shares.map(sh => {
                 const url = sh.url || `${window.location.origin}/?share=${sh.token}`
@@ -169,11 +173,11 @@ export default function ShareModal({ inv, onClose }) {
                       ))}
                     </div>
                     <div className="share-row-actions">
-                      <button className="btn-sm secondary" onClick={() => copy(sh)} disabled={sh.revoked}>
-                        {justCopied === sh.token ? '✓ copié' : 'Copier'}
+                      <button className="btn-sm" onClick={() => copy(sh)} disabled={sh.revoked}>
+                        <CopyLabel done={justCopied === sh.token}><Icon name="copy" />Copy</CopyLabel>
                       </button>
-                      <button className="btn-sm secondary" onClick={() => revoke(sh.token)} disabled={sh.revoked}>
-                        Révoquer
+                      <button className="btn-sm btn-danger" onClick={() => revoke(sh.token)} disabled={sh.revoked}>
+                        <Icon name="trash" />Revoke
                       </button>
                     </div>
                   </div>

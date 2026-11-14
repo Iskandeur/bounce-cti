@@ -33,13 +33,13 @@ test('the legend lists the node types of this graph with their counts', async ({
 
 test('the Defused toggle counts the defused nodes, and exports keep every node', async ({ page }) => {
   // One node of the fixture carries a defuse tag: 198.51.100.7, tagged cdn.
-  const on = page.getByRole('button', { name: '◌ Defused on (1)' })
-  const off = page.getByRole('button', { name: '◌ Defused off (1)' })
+  // The label is the same pressed or not: the state is in aria-pressed.
+  const toggle = page.getByRole('button', { name: 'Defused (1)' })
 
-  await expect(on).toHaveAttribute('aria-pressed', 'true')
-  await on.click()
-  await expect(off).toHaveAttribute('aria-pressed', 'false')
-  await expect(jsonButton(page)).toContainText(`↓ JSON (${DRAWN_NODES[INV_DOMAIN]})`)
-  await off.click()
-  await expect(on).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(jsonButton(page)).toContainText(`JSON (${DRAWN_NODES[INV_DOMAIN]})`)
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
 })

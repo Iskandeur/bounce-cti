@@ -1,5 +1,7 @@
 import React from 'react'
 import PickedChips from './PickedChips.jsx'
+import BusyLabel from './BusyLabel.jsx'
+import { busyProps } from '../lib/pressable.js'
 
 // Custom prompt pinned at the bottom of the right panel (every tab but Chat).
 export default function PromptBox({ cyRef, pickedIds, customPrompt, setCustomPrompt, promptBusy, submitCustomPrompt }) {
@@ -24,14 +26,14 @@ export default function PromptBox({ cyRef, pickedIds, customPrompt, setCustomPro
       onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitCustomPrompt() }}
     />
     <button
-      className="auth-btn"
-      disabled={promptBusy || !customPrompt.trim()}
-      onClick={submitCustomPrompt}
+      className="auth-btn btn-primary"
+      disabled={!promptBusy && !customPrompt.trim()}
+      {...busyProps(promptBusy, submitCustomPrompt)}
       style={{ marginTop: 4, width: '100%' }}
     >
-      {promptBusy ? 'Sending…' : (pickedIds.size > 0
-        ? `Run on ${pickedIds.size} selected →`
-        : 'Run prompt →')}
+      <BusyLabel busy={promptBusy} label="Sending…">
+        {pickedIds.size > 0 ? `Run on ${pickedIds.size} selected` : 'Run prompt'}
+      </BusyLabel>
     </button>
   </div>
   )

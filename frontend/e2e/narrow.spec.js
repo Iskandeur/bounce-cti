@@ -32,6 +32,10 @@ test('the sidebar at 180px keeps its header buttons and the three form modes in 
   expect((await sidebar.boundingBox()).width).toBe(180)
 
   expect(await sidewaysScroll(sidebar)).toBe(0)
+  // Its two zones: the scrolling column, and the run of the open investigation.
+  expect(await sidewaysScroll(sidebar.locator('.sidebar-main'))).toBe(0)
+  expect(await sidewaysScroll(sidebar.locator('.sidebar-run'))).toBe(0)
+  await expectInside(sidebar.locator('.sidebar-main button, .sidebar-main label.btn-sm, .sidebar-main input:not([hidden])'), sidebar)
   await expect(sidebar.locator('.logo-actions button')).toHaveCount(3)
   await expectInside(sidebar.locator('.logo-actions button'), sidebar)
   // IOC / Sample / PDF: three options on one row, the last one whole.

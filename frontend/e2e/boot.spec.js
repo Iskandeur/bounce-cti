@@ -36,7 +36,7 @@ test.describe('signed in', () => {
         metadata: {}, tags: [], confidence: 0.8, source: 'agent', created_at: 1767229200,
       },
     })
-    await expect(jsonButton(page)).toContainText(`↓ JSON (${DRAWN_NODES[INV_IP] + 1})`)
+    await expect(jsonButton(page)).toContainText(`JSON (${DRAWN_NODES[INV_IP] + 1})`)
   })
 })
 
