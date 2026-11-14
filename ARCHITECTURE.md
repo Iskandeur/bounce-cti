@@ -1264,15 +1264,19 @@ Key in-app helpers:
   and the source calls made; a full investigation adds a thin bar, calls ÷
   pivot-drain budget (`role="progressbar"`). A run that is over leaves one
   quiet sentence (for good in the sidebar, for a minute in the phone strip,
-  which takes room from the graph). It sits above the agent log (sticky, so it is read without
-  scrolling the sidebar) and, under 768px, in a strip under the top bar.
+  which takes room from the graph). It sits above the agent log, at the foot of
+  the sidebar, and, under 768px, in a strip under the top bar.
   `RunProgressAnnouncer` is the polite live region: it speaks on a phase change
   and at the end of a run, and stays silent on ticks and tool calls
 
 UI panels:
 1. **Left sidebar**: new investigation form (single seed or batch, PDF upload,
-   model selector), investigation history, run progress line, agent event
-   log, share manager.
+   model selector), investigation history, add IOC and share for the open
+   investigation: one column that scrolls. Under it, while an investigation is
+   open, its run keeps the foot of the panel at a height of its own: the
+   progress line and the agent event log (7 lines or more during a run, up to
+   7 once it is over). On a phone the drawer scrolls as one column, the log
+   at its end.
 2. **Center graph**: Cytoscape canvas + floating toolbar (Fit / Relayout /
    Labels / Pins / Notes / Defused / Export / Copy-to-Maltego / STIX / PDF) +
    node-type filter chips + edge-relation filter + a legend opened from the
