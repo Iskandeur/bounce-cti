@@ -77,8 +77,10 @@ export function activity(progress) {
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 // The call figures. With a ceiling (a full investigation, whose pivot drain
-// spends the budget): calls of the whole investigation against it. Without
-// one (added seed, manual pivot, custom prompt): the calls of this run.
+// spends the budget): calls of the whole investigation over the ceiling,
+// "41 / 82 source calls", the same words above it ("98 / 82"; `over` colours
+// it). Without one (added seed, manual pivot, custom prompt): the calls of
+// this run.
 export function callFigures(progress) {
   if (!progress) return null
   const ceiling = progress.ceiling
@@ -90,9 +92,7 @@ export function callFigures(progress) {
   const over = used > ceiling
   return {
     used, ceiling, over,
-    text: over
-      ? `${plural(used, 'source call')}, over the budget of ${ceiling}`
-      : `${plural(used, 'source call')} of a budget of ${ceiling}`,
+    text: `${used} / ${ceiling} source calls`,
   }
 }
 

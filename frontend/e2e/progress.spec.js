@@ -14,7 +14,7 @@ test('a finished run leaves one sentence: how it ended and the calls it made', a
   await page.goto(`/?inv=${INV_DOMAIN}`)
   await expectGraphDrawn(page, INV_DOMAIN)
 
-  await expect(sidebarLine(page)).toHaveText('Run finished in 12m 04s. 61 source calls of a budget of 82.')
+  await expect(sidebarLine(page)).toHaveText('Run finished in 12m 04s. 61 / 82 source calls.')
   await expect(sidebarLine(page).getByRole('progressbar')).toHaveCount(0)
   // An investigation opened after its run ended is not announced.
   await expect(page.locator('.run-progress-live')).toHaveText('')
@@ -33,7 +33,7 @@ test('a live run says its phase, its length and its calls against the budget', a
   const bar = line.getByRole('progressbar')
   await expect(bar).toHaveAttribute('aria-valuenow', '61')
   await expect(bar).toHaveAttribute('aria-valuemax', '82')
-  await expect(bar).toHaveAttribute('aria-valuetext', '61 source calls of a budget of 82')
+  await expect(bar).toHaveAttribute('aria-valuetext', '61 / 82 source calls')
 
   // A phase event on the socket asks the endpoint again, and the new phase is
   // told to assistive technology once.

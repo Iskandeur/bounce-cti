@@ -774,7 +774,8 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
   and the client words an unknown name from the name itself (add its label to
   `PHASE_LABELS` in `frontend/src/lib/runProgress.js`). The ceiling shown is
   `BOUNCE_TOTAL_CTI_BUDGET` and only for a full investigation: the drain loop
-  alone enforces it, so the count can end above it and the UI says "budget".
+  alone enforces it, so the count can end above it and the UI writes "41 / 82 source calls"
+  (the tooltip says what 82 is).
   The WebSocket replays every past event on connect, which is why the client
   debounces its refresh.
 - **No-first-event watchdog**: a healthy `claude -p` emits its `system` init

@@ -101,11 +101,11 @@ test('what the agent is doing', () => {
 
 test('call figures against the budget, exact', () => {
   assert.deepEqual(callFigures(doc()),
-    { used: 12, ceiling: 82, over: false, text: '12 source calls of a budget of 82' })
-  assert.equal(callFigures(doc({ source_calls: 1 })).text, '1 source call of a budget of 82')
+    { used: 12, ceiling: 82, over: false, text: '12 / 82 source calls' })
+  assert.equal(callFigures(doc({ source_calls: 1 })).text, '1 / 82 source calls')
   assert.equal(callFigures(doc({ source_calls: 82 })).over, false)
   assert.deepEqual(callFigures(doc({ source_calls: 98 })),
-    { used: 98, ceiling: 82, over: true, text: '98 source calls, over the budget of 82' })
+    { used: 98, ceiling: 82, over: true, text: '98 / 82 source calls' })
 })
 
 test('a run with no drain loop shows its own calls and no budget', () => {
