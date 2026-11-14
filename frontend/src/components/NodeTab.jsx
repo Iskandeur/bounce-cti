@@ -63,7 +63,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
           {selected.type !== 'report' && (
             <div className="annot-row">
               <button
-                className={`btn-sm annot-pin${(selected.tags || []).includes('pinned') ? ' on' : ''}`}
+                className="btn-sm annot-pin"
                 onClick={() => togglePin(selected)}
                 aria-pressed={(selected.tags || []).includes('pinned')}
                 title={(selected.tags || []).includes('pinned')
@@ -91,7 +91,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
               />
               {noteDraft && (
                 <button
-                  className="btn-sm secondary annot-clear"
+                  className="btn-sm annot-clear"
                   onClick={() => { setNoteDraft(''); saveNote() }}
                   title="Clear note"
                   aria-label="Clear note"
@@ -160,7 +160,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
             {PIVOTABLE.includes(selected.type) && (
               <>
                 <button
-                  className="btn-sm"
+                  className="btn-sm btn-lead"
                   style={{ flex: 1 }}
                   onClick={() => pivotHere(selected)}
                   title="Run another agent pass on this graph from this node (enrich in place)"
@@ -168,7 +168,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
                   Pivot here
                 </button>
                 <button
-                  className="btn-sm secondary"
+                  className="btn-sm"
                   style={{ flex: 1 }}
                   onClick={() => pivot(selected)}
                   title="Send this IOC to the new-investigation form (creates a fresh graph)"
@@ -178,7 +178,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
               </>
             )}
             <button
-              className="btn-sm secondary"
+              className="btn-sm"
               style={{ flex: 1 }}
               onClick={() => copyNodeJson(selected)}
             >
@@ -203,7 +203,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
                     <span className="hash-detail-label">filename</span>
                     <span className="hash-detail-value" title={String(name)}>{String(name)}</span>
                     <button
-                      className="btn-sm secondary hash-copy-btn"
+                      className="btn-sm hash-copy-btn"
                       onClick={() => copyText(name)}
                       title="Copy filename"
                       aria-label="Copy filename"
@@ -217,7 +217,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
                 <span className="hash-detail-label">hash</span>
                 <span className="hash-detail-value mono" title={selected.value}>{selected.value}</span>
                 <button
-                  className="btn-sm secondary hash-copy-btn"
+                  className="btn-sm hash-copy-btn"
                   onClick={() => copyText(selected.value)}
                   title="Copy hash"
                   aria-label="Copy hash"
@@ -239,7 +239,7 @@ export default function NodeTab({ selected, activeInv, note, evidence, crossInv,
                 value, as kept in the cache.
                 <button
                   type="button"
-                  className="btn-sm secondary prov-load"
+                  className="btn-sm prov-load"
                   onClick={loadEvidence}
                   disabled={evidenceLoading === selected.id}
                 >
