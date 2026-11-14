@@ -67,5 +67,6 @@ view are not opened by this test.
 - Starting, rerunning or deleting an investigation, uploads, the chat, the
   Actions tab, the admin panel, the share modal, the shared view, the demo build.
 - Firefox and WebKit.
-- On a phone (375x812): the drawers, sideways scrolling, the toolbar's two rows
-  and the 11px floor on text sizes. Nothing else of the phone layout.
+- On a phone (375x812): the drawers, sideways scrolling, the toolbar's two rows,
+  the 11px floor on text sizes, and the heights of the history and of the agent
+  log in the sidebar drawer. Nothing else of the phone layout.
