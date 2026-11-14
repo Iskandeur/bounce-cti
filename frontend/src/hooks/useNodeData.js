@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { edgesOf, nodeTies } from '../lib/provenance.js'
 
 export function useLeadStats(activeInv, nodeCount) {
   // Context-pool leads + corroboration telemetry for the active investigation
@@ -45,6 +46,29 @@ export function useCrossInvestigations(activeInv, selected) {
     return () => { cancelled = true }
   }, [activeInv, selected?.id, selected?.type])
   return { crossInvHits, crossInvLoading }
+}
+
+export function useNodeTies(cyRef, selected) {
+  // The edges that tie the selected node to the graph, as plain data for the
+  // Node tab's provenance (lib/provenance.js). `selected` is the node's data
+  // as taken at click time, and an edge that streams in afterwards is written
+  // to Cytoscape, seldom to React state: Cytoscape's own add / remove events
+  // refresh the list for as long as the node stays selected.
+  const [ties, setTies] = useState([])
+  const id = selected?.id
+  useEffect(() => {
+    const cy = cyRef.current
+    if (!cy || !id) { setTies([]); return }
+    const refresh = () => setTies(nodeTies(id, edgesOf(cy, id)))
+    const onEdge = evt => {
+      const e = evt.target
+      if (e.data('source') === id || e.data('target') === id) refresh()
+    }
+    refresh()
+    cy.on('add remove', 'edge', onEdge)
+    return () => { try { cy.off('add remove', 'edge', onEdge) } catch (_) { /* instance destroyed */ } }
+  }, [cyRef, id])
+  return ties
 }
 
 export function useNodeNote(activeInv, selected) {

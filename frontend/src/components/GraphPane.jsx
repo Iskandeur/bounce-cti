@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { NODE_COLORS } from '../lib/constants.js'
 import CopyLabel from './CopyLabel.jsx'
 import GraphLegend from './GraphLegend.jsx'
+import Icon from './Icon.jsx'
 
 // Graph canvas with its toolbar (search, layout, display toggles, exports),
 // the node-type / edge-relation filter chips and the legend.
@@ -38,11 +39,11 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             {searchMatches} match{searchMatches !== 1 ? 'es' : ''}
             {searchMatches > 0 && (
               <>
-                <button className="graph-search-action" onClick={focusNextSearchMatch} title="Focus next (Enter)">↵</button>
-                <button className="graph-search-action" onClick={selectAllSearchMatches} title="Select all matches (Shift+Enter)">☐⁺</button>
+                <button className="graph-search-action" onClick={focusNextSearchMatch} title="Focus next (Enter)" aria-label="Focus the next match"><Icon name="next" solo /></button>
+                <button className="graph-search-action" onClick={selectAllSearchMatches} title="Select all matches (Shift+Enter)" aria-label="Select all matches"><Icon name="boxChecked" solo /></button>
               </>
             )}
-            <button className="graph-search-action" onClick={() => doGraphSearch('')} title="Clear search">✕</button>
+            <button className="graph-search-action" onClick={() => doGraphSearch('')} title="Clear search" aria-label="Clear search"><Icon name="close" solo /></button>
           </span>
         )}
         <span className="toolbar-separator" />
@@ -50,34 +51,34 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             scrolling row under the search field on phones. */}
         <div className="toolbar-actions">
         <button className="toolbar-btn" onClick={() => cyRef.current?.fit(undefined, 80)} title="Fit graph">
-          ⊡ Fit
+          Fit
         </button>
         <button className="toolbar-btn" onClick={hardRelayout} title="Re-run layout (randomize)">
-          ⟳ Relayout
+          Relayout
         </button>
         <button
           className={`toolbar-btn${showEdgeLabels ? ' active' : ''}`}
           aria-pressed={showEdgeLabels}
           onClick={() => setShowEdgeLabels(v => !v)}
-          title="Toggle edge labels"
+          title={`${showEdgeLabels ? 'Hide' : 'Show'} the relation written on each edge`}
         >
-          {showEdgeLabels ? '⌗ Labels on' : '⌗ Labels off'}
+          <Icon name={showEdgeLabels ? 'boxChecked' : 'box'} />Labels
         </button>
         <button
           className={`toolbar-btn${showPins ? ' active' : ''}`}
           aria-pressed={showPins}
           onClick={() => setShowPins(v => !v)}
-          title="Toggle 📌 pin markers on the graph"
+          title={`${showPins ? 'Hide' : 'Show'} the pin markers on the graph`}
         >
-          {showPins ? '📌 Pins on' : '📌 Pins off'}
+          <Icon name={showPins ? 'boxChecked' : 'box'} />Pins
         </button>
         <button
           className={`toolbar-btn${showNotes ? ' active' : ''}`}
           aria-pressed={showNotes}
           onClick={() => setShowNotes(v => !v)}
-          title="Toggle analyst notes (e.g. 'VPN', 'C2') under each node"
+          title={`${showNotes ? 'Hide' : 'Show'} analyst notes (e.g. 'VPN', 'C2') under each node`}
         >
-          {showNotes ? '✎ Notes on' : '✎ Notes off'}
+          <Icon name={showNotes ? 'boxChecked' : 'box'} />Notes
         </button>
         {summary.defused > 0 && (
           <button
@@ -86,7 +87,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             onClick={() => setShowDefused(v => !v)}
             title={`${showDefused ? 'Hide' : 'Show'} the ${summary.defused} defused node(s): CDN, parking, sinkhole, Tor exit, shared hosting and the like. Seeds and pinned nodes stay on the canvas, exports keep every node`}
           >
-            {`◌ Defused ${showDefused ? 'on' : 'off'} (${summary.defused})`}
+            <Icon name={showDefused ? 'boxChecked' : 'box'} />{`Defused (${summary.defused})`}
           </button>
         )}
         <button
@@ -97,7 +98,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             ? `Copy ${pickedIds.size} selected node(s) as JSON`
             : `Copy all ${nodeCount} node(s) as JSON — ctrl+click nodes to narrow`}
         >
-          <CopyLabel done={copied === 'graph-json'}>{`↓ JSON (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}</CopyLabel>
+          <CopyLabel done={copied === 'graph-json'}><Icon name="copy" />{`JSON (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}</CopyLabel>
         </button>
         <button
           className="toolbar-btn hide-on-mobile"
@@ -107,7 +108,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             ? `Copy ${pickedIds.size} selected node(s) in Maltego paste format`
             : `Copy all ${nodeCount} node(s) in Maltego paste format — ctrl+click nodes to narrow`}
         >
-          <CopyLabel done={copied === 'maltego'}>{`⟶ Maltego (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}</CopyLabel>
+          <CopyLabel done={copied === 'maltego'}><Icon name="copy" />{`Maltego (${pickedIds.size > 0 ? pickedIds.size : nodeCount})`}</CopyLabel>
         </button>
         {pickedIds.size > 0 && (
           <button
@@ -115,7 +116,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
             onClick={() => setPickedIds(new Set())}
             title="Clear selection (back to all-nodes default)"
           >
-            ✕ clear
+            <Icon name="close" />Clear selection
           </button>
         )}
         </div>{/* .toolbar-actions */}
@@ -129,9 +130,8 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
           className="filter-toggle-btn mobile-only"
           onClick={() => setMobileFiltersOpen(v => !v)}
           aria-expanded={mobileFiltersOpen}
-          aria-label={mobileFiltersOpen ? 'Hide type filters' : 'Show type filters'}
         >
-          {mobileFiltersOpen ? '✕ filters' : '⚑ filters'}
+          Filters
         </button>
       )}
 
@@ -176,6 +176,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
               <button
                 key={rel}
                 className={`filter-chip relation-chip${active ? '' : ' off'}`}
+                aria-pressed={active}
                 onClick={() => toggleFilterRelation(rel)}
                 title={active ? `Hide ${rel} edges` : `Show ${rel} edges`}
               >

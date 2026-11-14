@@ -1,6 +1,7 @@
 import React from 'react'
 import { STATUS_COLOR } from '../lib/constants.js'
 import { formatCountdown } from '../lib/format.js'
+import Icon from './Icon.jsx'
 
 export default function InvestigationHistory({ invs, activeInv, quotaState, actions, mergePickerSrc, setMergePickerSrc }) {
   const { openInv, stopInv, resumeInv, renameInv, rerunInv, mergeInv, deleteInv } = actions
@@ -21,12 +22,16 @@ export default function InvestigationHistory({ invs, activeInv, quotaState, acti
                 : undefined}
             >
               <div className="inv-item-main">
-                <span
+                {/* The row opens on a click anywhere; this button is the same
+                    action for the keyboard and for assistive technology. */}
+                <button
+                  type="button"
                   className={`inv-seed${i.title ? ' has-title' : ''}`}
                   title={i.title ? `${i.title} — seed: ${i.seed_value}` : i.seed_value}
+                  aria-current={activeInv === i.id ? 'true' : undefined}
                 >
                   {i.title || i.seed_value}
-                </span>
+                </button>
                 {extraSeeds > 0 && (
                   <span className="inv-seed-count" title={`${seedCount} seeds in this investigation`}>
                     +{extraSeeds}
@@ -49,7 +54,7 @@ export default function InvestigationHistory({ invs, activeInv, quotaState, acti
                 {i.model && <span className="inv-model-badge">{i.model}</span>}
                 <span className="inv-actions">
                   {i.status === 'running' && (
-                    <button className="icon-btn warning" title="Stop" onClick={e => stopInv(i.id, e)}>■</button>
+                    <button className="icon-btn warning" title="Stop" aria-label="Stop" onClick={e => stopInv(i.id, e)}><Icon name="stop" solo /></button>
                   )}
                   {i.status === 'quota_exceeded' && (
                     <button
@@ -58,15 +63,17 @@ export default function InvestigationHistory({ invs, activeInv, quotaState, acti
                         ? `Claude quota cooldown — resumes in ${formatCountdown(quotaState.exhausted_until) || 'a moment'}`
                         : 'Resume this investigation from where it stopped'}
                       disabled={quotaState.exhausted}
+                      aria-label="Resume"
                       onClick={e => resumeInv(i.id, e)}
-                    >▶</button>
+                    ><Icon name="play" solo /></button>
                   )}
                   <button
                     className="icon-btn"
                     title={i.title ? `Rename (current: ${i.title})` : 'Rename'}
+                    aria-label="Rename"
                     onClick={e => renameInv(i.id, i.title, i.seed_value, e)}
-                  >✎</button>
-                  <button className="icon-btn" title="Rerun" onClick={e => rerunInv(i.id, e)}>↺</button>
+                  ><Icon name="edit" solo /></button>
+                  <button className="icon-btn" title="Rerun" aria-label="Rerun" onClick={e => rerunInv(i.id, e)}><Icon name="rerun" solo /></button>
                   {/* Merge into another of my investigations. Backend dedups
                       nodes (type, value) and edges (src, dst, relation),
                       unioning metadata + tags + sources_seen. Disabled while
@@ -76,13 +83,15 @@ export default function InvestigationHistory({ invs, activeInv, quotaState, acti
                     title={i.status === 'running'
                       ? 'Stop the investigation before merging'
                       : 'Merge into another investigation'}
+                    aria-label="Merge into another investigation"
+                    aria-expanded={mergePickerSrc === i.id}
                     disabled={i.status === 'running'}
                     onClick={e => {
                       e.stopPropagation()
                       setMergePickerSrc(prev => prev === i.id ? null : i.id)
                     }}
-                  >⇆</button>
-                  <button className="icon-btn danger" title="Delete" onClick={e => deleteInv(i.id, e)}>✕</button>
+                  ><Icon name="merge" solo /></button>
+                  <button className="icon-btn danger" title="Delete" aria-label="Delete" onClick={e => deleteInv(i.id, e)}><Icon name="trash" solo /></button>
                 </span>
               </div>
               {/* Inline target picker. Listing only other invs owned by the
@@ -95,6 +104,7 @@ export default function InvestigationHistory({ invs, activeInv, quotaState, acti
                   <span className="inv-merge-label">Merge into:</span>
                   <select
                     className="inv-merge-select"
+                    aria-label="Merge destination"
                     defaultValue=""
                     onChange={e => {
                       const dst = e.target.value
@@ -128,8 +138,9 @@ export default function InvestigationHistory({ invs, activeInv, quotaState, acti
                   <button
                     className="icon-btn"
                     title="Cancel"
+                    aria-label="Cancel the merge"
                     onClick={() => setMergePickerSrc(null)}
-                  >✕</button>
+                  ><Icon name="close" solo /></button>
                 </div>
               )}
             </div>

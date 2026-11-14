@@ -105,6 +105,13 @@ says so: browsers do not run its scripts on a `file://` address.
   with the current graph (and a selection) as context.
 - **Noise defusing**: built-in CDN ranges, parking nameservers, sinkhole IPs
   and DynDNS TLDs — agent must call `defuse()` before pivoting on infrastructure.
+- **Provenance of every node**: the Node tab says in plain text where a node
+  came from (the sources named when it was added and since, the date, the
+  confidence; a lead is called a hypothesis, with its verdict), lists the edges
+  that tie it to the graph with the reason written on those that carry one,
+  every neighbour one click away, and shows on demand the cached source answers
+  about that exact value. The share viewer and the static demo carry the first
+  two.
 - **Leads, separated from facts**: the agent can also draw on its own prior
   knowledge and on the open web — useful for naming a campaign, routing a
   company to the right registry, or connecting a handle to a public project,

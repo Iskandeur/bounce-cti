@@ -85,7 +85,7 @@ export default function useNewInvestigation({ model, effort, vertical, activeInv
       openInv(d.id)
       setPdfFile(null)
       if (pdfFileInputRef.current) pdfFileInputRef.current.value = ''
-      setEvents(e => [`▶ PDF "${d.filename}": ${d.extracted_iocs.length} IOC(s) extraits, ${d.seeds_queued} en file`, ...e])
+      setEvents(e => [`▶ PDF "${d.filename}": ${d.extracted_iocs.length} IOC(s) extracted, ${d.seeds_queued} queued`, ...e])
     } catch (e) {
       setPdfError(String(e.message || e).slice(0, 200))
     } finally {

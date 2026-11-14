@@ -3,6 +3,7 @@ import Login from './Login.jsx'
 import AdminPanel from './AdminPanel.jsx'
 import ShareModal from './ShareModal.jsx'
 import SharedView from './SharedView.jsx'
+import Icon from './components/Icon.jsx'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 import { nextInvSearch } from './invUrl.js'
@@ -25,7 +26,7 @@ import useRunProgress from './hooks/useRunProgress.js'
 import useServerReconnect from './hooks/useServerReconnect.js'
 import useRunSettings from './hooks/useRunSettings.js'
 import useNewInvestigation from './hooks/useNewInvestigation.js'
-import { useLeadStats, useCrossInvestigations, useNodeNote } from './hooks/useNodeData.js'
+import { useLeadStats, useCrossInvestigations, useNodeNote, useNodeTies } from './hooks/useNodeData.js'
 import Sidebar from './components/Sidebar.jsx'
 import RunProgress, { RunProgressAnnouncer } from './components/RunProgress.jsx'
 import GraphPane from './components/GraphPane.jsx'
@@ -134,6 +135,8 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
   const [theme, setTheme] = useTheme()
 
   const cyRef = useRef(null)
+  // Edges touching the selected node, for the Node tab's provenance.
+  const nodeTies = useNodeTies(cyRef, selected)
   const containerRef = useRef(null)
   const activeInvRef = useRef(null)
   const showEdgeLabelsRef = useRef(showEdgeLabels)
@@ -313,6 +316,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
     if (!cy) return
     const node = cy.$id(id)
     if (!node.length) return
+    // One selected node at a time: without this, walking the graph from the
+    // Node tab leaves every visited node highlighted.
+    cy.nodes().unselect()
     node.select()
     cy.animate({ fit: { eles: node.closedNeighborhood(), padding: 80 }, duration: 400 })
     setSelected(node.data())
@@ -971,7 +977,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           aria-expanded={mobileLeftOpen}
           onClick={() => { setMobileLeftOpen(v => !v); setMobileRightOpen(false) }}
         >
-          <span className="mobile-burger" aria-hidden="true">☰</span>
+          <Icon name="menu" solo />
         </button>
         <div className="mobile-topbar-title">
           <span className="logo-mark mobile-topbar-logo" aria-hidden="true" />
@@ -983,7 +989,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           aria-expanded={mobileRightOpen}
           onClick={() => { setMobileRightOpen(v => !v); setMobileLeftOpen(false) }}
         >
-          <span className="mobile-burger" aria-hidden="true">⌘</span>
+          <Icon name="panel" solo />
         </button>
       </div>
       {/* Run progress on phones: under the top bar, readable without a drawer. */}
@@ -1045,18 +1051,21 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         <div className="panel-tabs">
           <button
             className={`panel-tab${rightTab === 'report' ? ' active' : ''}`}
+            aria-pressed={rightTab === 'report'}
             onClick={() => setRightTab('report')}
           >
             Report
           </button>
           <button
             className={`panel-tab${rightTab === 'node' ? ' active' : ''}`}
+            aria-pressed={rightTab === 'node'}
             onClick={() => setRightTab('node')}
           >
             Node
           </button>
           <button
             className={`panel-tab${rightTab === 'timeline' ? ' active' : ''}`}
+            aria-pressed={rightTab === 'timeline'}
             onClick={() => setRightTab('timeline')}
           >
             Timeline
@@ -1064,6 +1073,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           {activeVertical === 'cti' && (
             <button
               className={`panel-tab${rightTab === 'actions' ? ' active' : ''}`}
+            aria-pressed={rightTab === 'actions'}
               onClick={() => setRightTab('actions')}
               title="Operational deliverables — blocklists, takedown templates, detection rules"
             >
@@ -1072,6 +1082,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           )}
           <button
             className={`panel-tab${rightTab === 'chat' ? ' active' : ''}`}
+            aria-pressed={rightTab === 'chat'}
             onClick={() => setRightTab('chat')}
           >
             Chat
@@ -1105,8 +1116,9 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
               note={note}
               evidence={{ evidenceData, setEvidenceData, evidenceLoading, setEvidenceLoading }}
               crossInv={crossInv}
+              ties={nodeTies}
               copied={copied}
-              actions={{ togglePin, pivotHere, pivot, copyNodeJson, copyText, openInv }}
+              actions={{ togglePin, pivotHere, pivot, copyNodeJson, copyText, openInv, focusNode }}
             />
           )}
           {rightTab === 'timeline' && (

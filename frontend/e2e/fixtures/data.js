@@ -198,7 +198,8 @@ export const evidence = (invId, nodeId) => {
   return {
     node_id: nodeId, value: n.value,
     evidence: [{
-      cache_key: `rdap|https://rdap.example.com/ip/${n.value}`,
+      // http_client's default key: METHOD|url|params.
+      cache_key: `GET|https://rdap.example.com/ip/${n.value}|None`,
       data: { handle: 'NET-192-0-2-0-1', name: 'TEST-NET-1' },
       cached_at: T0 + 3605,
     }],

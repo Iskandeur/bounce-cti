@@ -25,14 +25,14 @@ export const test = base.extend({
 export { expect }
 
 // The two export buttons of the graph toolbar. Their visible label flips to
-// "✓ copied" after a click, so they are found by their title.
+// "copied" after a click, so they are found by their title.
 export const jsonButton = page => page.getByTitle(/as JSON/)
 export const maltegoButton = page => page.getByTitle(/in Maltego paste format/)
 
-// The canvas cannot be read from the DOM. The toolbar's "↓ JSON (N)" counts
+// The canvas cannot be read from the DOM. The toolbar's "JSON (N)" counts
 // the nodes Cytoscape holds, so it says when the snapshot has been drawn.
 export async function expectGraphDrawn(page, inv) {
-  await expect(jsonButton(page)).toContainText(`↓ JSON (${DRAWN_NODES[inv]})`)
+  await expect(jsonButton(page)).toContainText(`JSON (${DRAWN_NODES[inv]})`)
 }
 
 // A row of the History list, found by its seed value.

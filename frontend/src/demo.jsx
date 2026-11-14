@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import SharedView from './SharedView.jsx'
+import Icon from './components/Icon.jsx'
 import './styles.css'
 
 // Entry of the static demo (vite.demo.config.js → dist-demo/). The snapshots
@@ -25,9 +26,9 @@ function NoSnapshot() {
         <div className="logo">BOUNCE<span>CTI</span></div>
         <div className="auth-label">No investigation is frozen in this build yet (eval/demo/ was empty).</div>
         <a className="auth-btn" href={`${REPO_URL}/blob/main/media/demo.mp4`} style={link}>
-          ▶ Watch the 20-second demo
+          <Icon name="external" />Watch the 20-second demo
         </a>
-        <a className="auth-btn secondary" href={REPO_URL} style={link}>Bounce-CTI on GitHub</a>
+        <a className="auth-btn secondary" href={REPO_URL} style={link}><Icon name="external" />Bounce-CTI on GitHub</a>
       </div>
     </div>
   )
