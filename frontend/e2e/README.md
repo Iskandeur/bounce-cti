@@ -65,9 +65,12 @@ view are not opened by this test.
 
 ## What the suite does not cover
 
-- Clicks on the graph canvas. Cytoscape draws in a `<canvas>` and places the
-  nodes with a randomised layout, so a node has no stable position to click.
-  Nodes are selected through the search field and the report's IOC chips.
+- Clicks on the graph canvas, `picks.spec.js` excepted. Cytoscape draws in a
+  `<canvas>` and places the nodes with a randomised layout, so a node has no
+  stable position to click. Nodes are selected through the search field and the
+  report's IOC chips. `picks.spec.js` needs a ctrl / cmd + click, which only
+  the canvas offers: it asks Cytoscape where the node is, once the layout has
+  come to rest, and clicks there.
 - Pixel comparisons. There is no `toHaveScreenshot` baseline: rendering differs
   per OS and the graph layout is randomised.
 - The backend, and whether the fixtures still match it.
