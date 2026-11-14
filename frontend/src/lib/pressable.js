@@ -16,3 +16,10 @@ export function pressable(onPress) {
     },
   }
 }
+
+// What a button gets while its action runs: announced as busy, deaf to a
+// second press, and not dimmed (a disabled button would hide the line that
+// runs under its label). At rest, the press handler. Its label is a
+// <BusyLabel> (components/BusyLabel.jsx).
+export const busyProps = (busy, onPress) =>
+  busy ? { 'aria-busy': true, 'aria-disabled': true } : { onClick: onPress }
