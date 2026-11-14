@@ -75,14 +75,38 @@ html, body, #root {
   border-right: 1px solid var(--outline);
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  overflow-y: auto;
+  overflow: hidden;
   /* The panel is resized by hand (180 to 520px): its content adapts to its
      own width (the @container sidebar rules), and never scrolls sideways. */
-  overflow-x: hidden;
   container: sidebar / inline-size;
+}
+/* Two zones share the panel's height. The column above (form, history, add
+   IOC) scrolls; the run of the open investigation (progress line and agent
+   log) keeps the foot at a height of its own. In one scrolling column the log
+   was the only block free to shrink, and it took the whole overflow: 14px
+   left of it in any window shorter than the column. */
+.sidebar-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 14px 10px;
 }
+/* The history alone gives way (see .inv-list): a textarea is a scroll
+   container too, and would be squeezed like the log was. */
+.sidebar-main > * { flex-shrink: 0; }
+.sidebar-run {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px 14px;
+  border-top: 1px solid var(--outline);
+}
+.sidebar-run .section-label { margin-top: 8px; }
+.sidebar-run .section-label:first-child { margin-top: 0; }
 
 .logo {
   font-size: 16px;
@@ -185,14 +209,17 @@ button.secondary:hover {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  /* Grow to consume the sidebar's leftover height instead of a fixed cap,
-     so on short/wide viewports History isn't squeezed down to one card.
-     min-height guarantees a few rows are always visible; the sidebar
-     itself scrolls when everything together overflows. */
-  flex: 1 1 auto;
-  min-height: 200px;
+  /* As tall as its rows, up to 60vh, where it scrolls on its own so that
+     what follows stays within reach. */
+  flex: 0 0 auto;
   max-height: 60vh;
   overflow-y: auto;
+}
+/* From three rows up it gives way to the rest of the column, down to about
+   three rows; the column scrolls when everything together overflows. */
+.inv-list:has(> .inv-item:nth-child(3)) {
+  flex-shrink: 1;
+  min-height: 200px;
 }
 
 .inv-item {
@@ -292,7 +319,7 @@ button.secondary:hover {
 }
 .add-seed-form {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px;
   margin-bottom: 6px;
 }
@@ -428,19 +455,6 @@ button.secondary:hover {
 @media (prefers-reduced-motion: reduce) {
   .run-progress-fill { transition: none; }
 }
-/* In the sidebar it sits above the agent log, and sticks to the bottom edge
-   when the log is below the fold, so it is read without scrolling. Stuck, it
-   spans the sidebar's own padding (14px 10px), so nothing of the form it
-   passes over shows around it. */
-.run-progress-sidebar {
-  position: sticky;
-  bottom: -14px;
-  z-index: 1;
-  margin: 10px -10px 0;
-  padding: 8px 10px;
-  background: var(--surface);
-  border-top: 1px solid var(--outline);
-}
 /* Live region for phase changes and the end of a run: read out, never shown. */
 .run-progress-live {
   position: absolute;
@@ -461,10 +475,17 @@ button.secondary:hover {
   border: 1px solid var(--outline);
   border-radius: var(--radius-sm);
   padding: 6px;
-  max-height: 200px;
+  /* Once the run is over: as tall as its lines, up to about seven. */
+  max-height: clamp(72px, 14vh, 132px);
   overflow-y: auto;
   font-size: 11px;
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+/* While a run is live the log is what the analyst watches: a height of its
+   own, 7 lines at least, that does not move as lines arrive. */
+.sidebar-run.live .event-log {
+  height: clamp(132px, 30vh, 300px);
+  max-height: none;
 }
 
 .event-line {
@@ -2677,14 +2698,18 @@ button.secondary:hover {
   /* Sidebar internals: a hair more breathing room, but still dense. The
      generous bottom padding clears the iOS home-indicator AND gives the
      last list items room to breathe past Safari's collapsing chrome. */
-  .sidebar {
-    padding: 12px 12px calc(72px + env(safe-area-inset-bottom));
+  .sidebar { display: block; }
+  .sidebar-main {
+    overflow: visible;
+    padding: 12px 12px 0;
     gap: 6px;
   }
-  .event-log { max-height: 32vh; }
-  /* In the mobile drawer the sidebar scrolls as one column, so let History
-     size to its content instead of growing to fill the viewport. */
-  .inv-list  { flex: 0 1 auto; min-height: 0; max-height: none; }
+  .sidebar-run { padding: 8px 12px 0; border-top: 0; }
+  .sidebar > :last-child { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  /* The drawer scrolls as one column, the agent log at its end: nothing in
+     it shrinks. History scrolls on its own past 45vh, so that a long one
+     does not push Add IOC and the log out of reach. */
+  .inv-list { max-height: 45vh; }
   /* Inline action buttons that aren't primary CTAs shouldn't grow to the
      full 40px touch height — they're meant to read as small toggles next
      to a section label, not as standalone buttons. */
@@ -2916,8 +2941,9 @@ button.secondary:hover {
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-/* A narrow sidebar keeps the three words and drops their icons. */
-@container sidebar (max-width: 250px) {
+/* A narrow sidebar keeps the three words and drops their icons. The container
+   is the whole panel, the 10px of padding on each side included. */
+@container sidebar (max-width: 270px) {
   .seg-option { padding: 7px 2px; gap: 0; }
   .seg-icon { display: none; }
 }

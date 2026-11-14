@@ -619,6 +619,12 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
   `frontend/src/components/`, the state slices in `hooks/`, the pure helpers in `lib/`
   (`Login`, `AdminPanel`, `ShareModal`, `SharedView` stay at the top of `src/`).
   View switching is done with local state, not URLs.
+  The sidebar has two zones: `.sidebar-main` (form, history, add IOC) scrolls, and
+  `.sidebar-run` (progress line, agent log; only while an investigation is open) keeps
+  the foot at a height of its own. In `.sidebar-main` only the history can shrink; a
+  new block there that is a scroll container keeps its height through
+  `.sidebar-main > * { flex-shrink: 0 }` (the agent log was once the one block free to
+  shrink, and was 14px tall). Pinned by `frontend/e2e/sidebar.spec.js`.
   The desktop grid columns come from `panelColumns` (`hooks/usePanelResize.js`): each
   side panel has the width it was dragged to, and in a window too narrow for both
   (769 to about 1100px at the default widths) they share what is left once the graph
