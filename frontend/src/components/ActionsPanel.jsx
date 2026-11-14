@@ -188,7 +188,7 @@ export default function ActionsPanel({ activeInv, graphReady }) {
             ))}
             <div style={{ flex: 1 }} />
             <button
-              className="btn-sm secondary"
+              className="btn-sm"
               onClick={copy}
               disabled={!content}
               title="Copy to clipboard"
@@ -196,7 +196,7 @@ export default function ActionsPanel({ activeInv, graphReady }) {
               <CopyLabel done={copied}><Icon name="copy" />Copy</CopyLabel>
             </button>
             <button
-              className="btn-sm secondary"
+              className="btn-sm"
               onClick={download}
               disabled={!content}
               title="Download file"
@@ -273,20 +273,20 @@ function TakedownCard({ item }) {
       <div className="takedown-card-actions">
         <a
           href={item.mailto}
-          className="btn-sm"
+          className="btn-sm btn-lead"
           target="_blank"
           rel="noopener noreferrer"
           title="Open this in your default mail client"
         >
           <Icon name="external" />Open in mail client
         </a>
-        <button className="btn-sm secondary" onClick={() => copyText(item.abuse_email, 'email')}>
+        <button className="btn-sm" onClick={() => copyText(item.abuse_email, 'email')}>
           <CopyLabel done={copied === 'email'}><Icon name="copy" />Address</CopyLabel>
         </button>
-        <button className="btn-sm secondary" onClick={() => copyText(item.subject, 'subject')}>
+        <button className="btn-sm" onClick={() => copyText(item.subject, 'subject')}>
           <CopyLabel done={copied === 'subject'}><Icon name="copy" />Subject</CopyLabel>
         </button>
-        <button className="btn-sm secondary" onClick={() => copyText(item.body, 'body')}>
+        <button className="btn-sm" onClick={() => copyText(item.body, 'body')}>
           <CopyLabel done={copied === 'body'}><Icon name="copy" />Body</CopyLabel>
         </button>
       </div>

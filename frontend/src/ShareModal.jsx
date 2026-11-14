@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import Icon from './components/Icon.jsx'
 import CopyLabel from './components/CopyLabel.jsx'
+import BusyLabel from './components/BusyLabel.jsx'
+import { busyProps } from './lib/pressable.js'
 
 // Sections an analyst can opt into when sharing. `graph` is implicit (always
 // included server-side). `chats` is OFF by default — sharing prompt history
@@ -148,8 +150,8 @@ export default function ShareModal({ inv, onClose }) {
 
         {err && <div className="auth-error" style={{ marginBottom: 10 }}>{err}</div>}
 
-        <button className="auth-btn" disabled={busy} onClick={create}>
-          {busy ? 'Creating…' : 'Create a link and copy it'}
+        <button className="auth-btn btn-primary" {...busyProps(busy, create)}>
+          <BusyLabel busy={busy} label="Creating…">Create a link and copy it</BusyLabel>
         </button>
 
         {shares.length > 0 && (
@@ -171,10 +173,10 @@ export default function ShareModal({ inv, onClose }) {
                       ))}
                     </div>
                     <div className="share-row-actions">
-                      <button className="btn-sm secondary" onClick={() => copy(sh)} disabled={sh.revoked}>
+                      <button className="btn-sm" onClick={() => copy(sh)} disabled={sh.revoked}>
                         <CopyLabel done={justCopied === sh.token}><Icon name="copy" />Copy</CopyLabel>
                       </button>
-                      <button className="btn-sm secondary" onClick={() => revoke(sh.token)} disabled={sh.revoked}>
+                      <button className="btn-sm btn-danger" onClick={() => revoke(sh.token)} disabled={sh.revoked}>
                         <Icon name="trash" />Revoke
                       </button>
                     </div>

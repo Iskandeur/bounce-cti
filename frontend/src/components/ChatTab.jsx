@@ -1,6 +1,8 @@
 import React from 'react'
 import HighlightedText from './HighlightedText.jsx'
 import PickedChips from './PickedChips.jsx'
+import BusyLabel from './BusyLabel.jsx'
+import { busyProps } from '../lib/pressable.js'
 import { iocString } from '../lib/ioc.js'
 
 export default function ChatTab({
@@ -99,14 +101,14 @@ export default function ChatTab({
             onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitCustomPrompt() }}
           />
           <button
-            className="auth-btn"
-            disabled={promptBusy || !customPrompt.trim()}
-            onClick={submitCustomPrompt}
+            className="auth-btn btn-primary"
+            disabled={!promptBusy && !customPrompt.trim()}
+            {...busyProps(promptBusy, submitCustomPrompt)}
             style={{ marginTop: 4, width: '100%' }}
           >
-            {promptBusy ? 'Agent is thinking…' : (pickedIds.size > 0
-              ? `Ask about ${pickedIds.size} selected`
-              : 'Send')}
+            <BusyLabel busy={promptBusy} label="Agent is thinking…">
+              {pickedIds.size > 0 ? `Ask about ${pickedIds.size} selected` : 'Send'}
+            </BusyLabel>
           </button>
         </div>
       )}

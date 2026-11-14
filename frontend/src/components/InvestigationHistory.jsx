@@ -54,11 +54,11 @@ export default function InvestigationHistory({ invs, activeInv, quotaState, acti
                 {i.model && <span className="inv-model-badge">{i.model}</span>}
                 <span className="inv-actions">
                   {i.status === 'running' && (
-                    <button className="icon-btn warning" title="Stop" aria-label="Stop" onClick={e => stopInv(i.id, e)}><Icon name="stop" solo /></button>
+                    <button className="icon-btn" title="Stop" aria-label="Stop" onClick={e => stopInv(i.id, e)}><Icon name="stop" solo /></button>
                   )}
                   {i.status === 'quota_exceeded' && (
                     <button
-                      className="icon-btn primary"
+                      className="icon-btn btn-lead"
                       title={quotaState.exhausted
                         ? `Claude quota cooldown — resumes in ${formatCountdown(quotaState.exhausted_until) || 'a moment'}`
                         : 'Resume this investigation from where it stopped'}
@@ -79,7 +79,7 @@ export default function InvestigationHistory({ invs, activeInv, quotaState, acti
                       unioning metadata + tags + sources_seen. Disabled while
                       the source is still running (its graph is half-built). */}
                   <button
-                    className={`icon-btn${mergePickerSrc === i.id ? ' active' : ''}`}
+                    className="icon-btn"
                     title={i.status === 'running'
                       ? 'Stop the investigation before merging'
                       : 'Merge into another investigation'}

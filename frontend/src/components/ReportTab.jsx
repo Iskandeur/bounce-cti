@@ -49,7 +49,7 @@ export default function ReportTab({
               ) : null
             })()}
             <button
-              className="btn-sm secondary export-btn"
+              className="btn-sm export-btn"
               style={{ marginLeft: 'auto' }}
               onClick={copyReportMarkdown}
               title="Copy the full report as markdown (paste into ticket / chat)"
@@ -58,7 +58,7 @@ export default function ReportTab({
             </button>
             {activeInv && (
               <button
-                className="btn-sm secondary export-btn"
+                className="btn-sm export-btn"
                 onClick={() => window.open(`/api/investigations/${activeInv}/pdf`, '_blank')}
                 title="Download a structured PDF report for sharing"
               >
@@ -67,7 +67,7 @@ export default function ReportTab({
             )}
             {activeInv && (
               <button
-                className="btn-sm secondary export-btn"
+                className="btn-sm export-btn"
                 onClick={() => window.open(`/api/investigations/${activeInv}/stix`, '_blank')}
                 title="Download STIX 2.1 bundle (JSON) for threat intel sharing"
               >
@@ -76,7 +76,7 @@ export default function ReportTab({
             )}
             {activeInv && (
               <button
-                className="btn-sm secondary export-btn"
+                className="btn-sm export-btn"
                 onClick={() => window.open(`/api/investigations/${activeInv}/csv`, '_blank')}
                 title="Download observables as STIX-flavoured CSV (ready for an OpenCTI workbench)"
               >
@@ -85,7 +85,7 @@ export default function ReportTab({
             )}
             {activeInv && (
               <button
-                className="btn-sm secondary export-btn"
+                className="btn-sm export-btn"
                 onClick={async () => {
                   try {
                     const r = await fetch(`/api/investigations/${activeInv}/osint_dossier`,
@@ -107,7 +107,7 @@ export default function ReportTab({
             )}
             {activeInv && (
               <button
-                className="btn-sm secondary export-btn"
+                className="btn-sm export-btn"
                 onClick={async () => {
                   try {
                     const r = await fetch(`/api/investigations/${activeInv}/kyb_dossier`,
@@ -129,7 +129,7 @@ export default function ReportTab({
             )}
             {activeInv && (
               <button
-                className="btn-sm export-btn share-btn"
+                className="btn-sm export-btn btn-lead"
                 onClick={() => setShareOpen(true)}
                 title="Generate a share link (graph-only, with optional report/timeline/evidence/chats)"
               >
@@ -380,7 +380,7 @@ export default function ReportTab({
             <div>
               <div className="section-label" style={{ margin: '12px 0 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>Analyst prompts ({report.prompt_history.length})</span>
-                <button className="btn-sm secondary btn-inline" onClick={() => setRightTab('chat')}>Open Chat</button>
+                <button className="btn-sm btn-inline" onClick={() => setRightTab('chat')}>Open Chat</button>
               </div>
             </div>
           )}

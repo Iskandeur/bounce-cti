@@ -58,6 +58,15 @@ disabled button that is dimmed and has no hover, and the contrast of each
 control when hovered, in both themes (4.5:1 for text, 3:1 for an icon alone).
 The sources are checked against the same rules by `src/lib/icons.test.js`.
 
+`button-style.spec.js` measures the look (the "Buttons" block of
+`src/styles.css`): one filled button in each panel and each dialog (the share
+dialog and the admin panel included, with routes of its own for what they
+fetch), no button that moves or changes size when hovered or pressed, 4.5:1 for
+every kind of button at rest, hovered and pressed in both themes, the check
+mark of "copied" that draws itself, and a busy button that changes its label,
+keeps its width and runs a line under it. The last two are also run under
+`prefers-reduced-motion`. `src/lib/buttons.test.js` checks the stylesheet.
+
 axe checks what is on the page when it runs, and leaves out what it cannot
 measure (text over a translucent background, such as the graph toolbar). A
 running or failed investigation, the admin panel, the modals and the shared

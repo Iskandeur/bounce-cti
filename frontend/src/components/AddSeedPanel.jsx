@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import Icon from './Icon.jsx'
+import BusyLabel from './BusyLabel.jsx'
 
 // Add-IOC panel: appears only when an investigation is open. Lets the
 // analyst attach a new peer seed (independent IOC) to the same graph.
@@ -37,7 +38,7 @@ export default function AddSeedPanel({ invs, activeInv, form, onAddSeed, setShar
           placeholder="Paste any IOC (auto-detected)"
         />
         <button
-          className="btn-sm"
+          className="btn-sm btn-lead"
           disabled={isRunning || !addSeedValue.trim()}
           onClick={submitAddSeed}
           title={isRunning
@@ -60,18 +61,19 @@ export default function AddSeedPanel({ invs, activeInv, form, onAddSeed, setShar
       />
       <label
         htmlFor="pdf-add-seed-input"
-        className={`btn-sm pdf-add-seed-btn${isRunning || pdfBusy ? ' disabled' : ''}`}
+        className={`btn-sm pdf-add-seed-btn${isRunning ? ' disabled' : ''}`}
+        aria-busy={pdfBusy || undefined}
         title={isRunning
           ? 'Agent is running — wait for it to finish'
           : 'Upload a CTI report PDF — extracted IOCs are added as seeds'}
       >
-        {pdfBusy ? 'Reading the PDF…' : <><Icon name="upload" />Import a PDF</>}
+        <BusyLabel busy={pdfBusy} label="Reading the PDF…"><Icon name="upload" />Import a PDF</BusyLabel>
       </label>
       {pdfError && <div className="pdf-error">{pdfError}</div>}
       {/* Share entry-point: visible as soon as an investigation is open
           (don't make analysts hunt for it inside the report tab). */}
       <button
-        className="btn-sm share-btn sidebar-share-btn"
+        className="btn-sm btn-lead sidebar-share-btn"
         onClick={() => setShareOpen(true)}
         title="Generate a share link for this investigation"
       >

@@ -170,7 +170,7 @@ export default function AdminPanel({ onClose, selfId, onImpersonate }) {
             <div className="admin-new-pin">
               <div className="admin-new-pin-label">PIN for user #{newPin.id} — copy it now:</div>
               <div className="pin-reveal">{newPin.pin}</div>
-              <button className="auth-btn secondary" onClick={() => setNewPin(null)}>Dismiss</button>
+              <button className="auth-btn" onClick={() => setNewPin(null)}>Dismiss</button>
             </div>
           ) : (
             <div className="admin-create">
@@ -198,7 +198,7 @@ export default function AdminPanel({ onClose, selfId, onImpersonate }) {
                   </label>
                 ))}
               </div>
-              <button className="auth-btn" disabled={busy} onClick={createUser}><Icon name="plus" />Create user & generate PIN</button>
+              <button className="auth-btn btn-primary" disabled={busy} onClick={createUser}><Icon name="plus" />Create user & generate PIN</button>
             </div>
           )}
         </div>
@@ -286,7 +286,7 @@ function UserRow({ user, selfId, allModels, expanded, onToggle, onDelete, onImpe
               onChange={e => setLabelDraft(e.target.value)}
             />
             <button
-              className="auth-btn"
+              className="auth-btn btn-lead"
               disabled={busy || !labelDirty}
               onClick={() => onSaveLabel(labelDraft.trim())}
               style={{ marginTop: 4 }}
@@ -314,7 +314,7 @@ function UserRow({ user, selfId, allModels, expanded, onToggle, onDelete, onImpe
                 ))}
               </div>
               <button
-                className="auth-btn"
+                className="auth-btn btn-lead"
                 disabled={busy || !modelsDirty}
                 onClick={() => onSaveModels(models)}
               >
@@ -366,7 +366,7 @@ function UserRow({ user, selfId, allModels, expanded, onToggle, onDelete, onImpe
           {/* Delete */}
           {user.id !== selfId && !user.is_admin && (
             <div className="admin-subsection admin-danger">
-              <button className="auth-btn danger" disabled={busy} onClick={onDelete}>
+              <button className="auth-btn btn-danger" disabled={busy} onClick={onDelete}>
                 <Icon name="trash" />Delete user and all their data
               </button>
             </div>
@@ -426,7 +426,7 @@ function LessonsLearnedSection() {
             <LessonsEntry key={i} entry={e} />
           ))}
           {entries && (
-            <button className="auth-btn secondary" style={{ marginTop: 6 }}
+            <button className="auth-btn" style={{ marginTop: 6 }}
                     onClick={load}>Refresh</button>
           )}
         </div>

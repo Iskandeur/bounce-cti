@@ -1,6 +1,8 @@
 import React from 'react'
 import { parseSeedInput } from '../lib/ioc.js'
 import Icon from './Icon.jsx'
+import BusyLabel from './BusyLabel.jsx'
+import { busyProps } from '../lib/pressable.js'
 
 export default function NewInvestigationForm({ form, settings, allowedModels }) {
   const {
@@ -10,6 +12,7 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
     sampleFileInputRef, start, startFromPdf, startFromSample,
   } = form
   const { model, setModel, effort, setEffort, vertical, setVertical, verticals, verticalPinned } = settings
+  const submitBusy = (inputMode === 'pdf' && pdfBusy) || (inputMode === 'sample' && sampleBusy)
   return (
     <>
       <div className="section-label">New investigation</div>
@@ -206,26 +209,28 @@ export default function NewInvestigationForm({ form, settings, allowedModels }) 
       <button
         type="button"
         className="btn-primary"
-        onClick={
+        {...busyProps(submitBusy,
           inputMode === 'pdf'    ? startFromPdf
           : inputMode === 'sample' ? startFromSample
           : start
-        }
-        disabled={
-          (inputMode === 'pdf' && (pdfBusy || !pdfFile)) ||
-          (inputMode === 'sample' && (sampleBusy || (!sampleFile && !sampleText.trim()))) ||
+        )}
+        disabled={!submitBusy && (
+          (inputMode === 'pdf' && !pdfFile) ||
+          (inputMode === 'sample' && !sampleFile && !sampleText.trim()) ||
           (inputMode === 'ioc' && parseSeedInput(seedText).length === 0)
-        }
+        )}
       >
-        {inputMode === 'pdf'
-          ? (pdfBusy ? 'Reading the PDF…' : 'Import the report')
-          : inputMode === 'sample'
-          ? (sampleBusy ? 'Hashing & extracting…' : (sampleFile ? 'Submit sample' : 'Investigate command'))
-          : (() => {
-              const n = parseSeedInput(seedText).length
-              if (n <= 1) return 'Investigate'
-              return `Launch ${n} IOCs`
-            })()}
+        <BusyLabel busy={submitBusy} label={inputMode === 'pdf' ? 'Reading the PDF…' : 'Hashing & extracting…'}>
+          {inputMode === 'pdf'
+            ? 'Import the report'
+            : inputMode === 'sample'
+            ? (sampleFile ? 'Submit sample' : 'Investigate command')
+            : (() => {
+                const n = parseSeedInput(seedText).length
+                if (n <= 1) return 'Investigate'
+                return `Launch ${n} IOCs`
+              })()}
+        </BusyLabel>
       </button>
     </>
   )

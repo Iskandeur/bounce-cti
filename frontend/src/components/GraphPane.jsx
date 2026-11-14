@@ -57,7 +57,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
           Relayout
         </button>
         <button
-          className={`toolbar-btn${showEdgeLabels ? ' active' : ''}`}
+          className="toolbar-btn"
           aria-pressed={showEdgeLabels}
           onClick={() => setShowEdgeLabels(v => !v)}
           title={`${showEdgeLabels ? 'Hide' : 'Show'} the relation written on each edge`}
@@ -65,7 +65,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
           <Icon name={showEdgeLabels ? 'boxChecked' : 'box'} />Labels
         </button>
         <button
-          className={`toolbar-btn${showPins ? ' active' : ''}`}
+          className="toolbar-btn"
           aria-pressed={showPins}
           onClick={() => setShowPins(v => !v)}
           title={`${showPins ? 'Hide' : 'Show'} the pin markers on the graph`}
@@ -73,7 +73,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
           <Icon name={showPins ? 'boxChecked' : 'box'} />Pins
         </button>
         <button
-          className={`toolbar-btn${showNotes ? ' active' : ''}`}
+          className="toolbar-btn"
           aria-pressed={showNotes}
           onClick={() => setShowNotes(v => !v)}
           title={`${showNotes ? 'Hide' : 'Show'} analyst notes (e.g. 'VPN', 'C2') under each node`}
@@ -82,7 +82,7 @@ export default function GraphPane({ containerRef, cyRef, search, display, export
         </button>
         {summary.defused > 0 && (
           <button
-            className={`toolbar-btn${showDefused ? ' active' : ''}`}
+            className="toolbar-btn"
             aria-pressed={showDefused}
             onClick={() => setShowDefused(v => !v)}
             title={`${showDefused ? 'Hide' : 'Show'} the ${summary.defused} defused node(s): CDN, parking, sinkhole, Tor exit, shared hosting and the like. Seeds and pinned nodes stay on the canvas, exports keep every node`}
