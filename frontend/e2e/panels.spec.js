@@ -36,10 +36,32 @@ test('an IOC chip of the report opens the Node tab on that node', async ({ page 
   // GET …/cross_investigations: the same address is in the other investigation.
   await expect(panel.getByText('Also seen in 1 prior investigation')).toBeVisible()
 
-  // GET …/evidence: {evidence: [{cache_key, data, cached_at}]}.
+  // GET …/evidence: {evidence: [{cache_key, data, cached_at}]}. The source is
+  // read from the cache key: the API's host and first path segment.
   await panel.getByRole('button', { name: 'Load' }).click()
+  await expect(panel.getByText('1 cached answer, oldest first.')).toBeVisible()
   await expect(panel.locator('.evidence-entry')).toHaveCount(1)
-  await expect(panel.locator('.evidence-entry .source-chip')).toHaveText('ip/192.0.2.10')
+  await expect(panel.locator('.evidence-entry summary b')).toHaveText('rdap.example.com/ip')
+})
+
+test('the Node tab says where a node came from and what ties it to the graph', async ({ page }) => {
+  const panel = page.locator('.panel-content')
+  await panel.locator('.ioc-chip', { hasText: '192.0.2.10' }).click()
+
+  const prov = panel.locator('section.prov')
+  await expect(prov.getByRole('heading', { name: 'Provenance' })).toBeVisible()
+  await expect(prov).toContainText('with dns_resolve named as its source')
+  await expect(prov).toContainText('Confidence given when it was added: 0.8 on a scale of 0 to 1.')
+  // The three edges of the fixture that touch 192.0.2.10, none with a reason.
+  await expect(prov).toContainText('Tied to the graph by 3 edges; none carries a written reason.')
+  await expect(prov.locator('.prov-ties li')).toHaveCount(3)
+  await expect(prov.locator('.prov-ties li').filter({ hasText: 'hosted_on_asn' }))
+    .toHaveText('this ip hosted_on_asn asn AS64496')
+
+  // The node at the other end of an edge is a button that opens it.
+  await prov.getByRole('button', { name: 'asn AS64496' }).click()
+  await expect(panel.locator('.node-value')).toHaveText('AS64496')
+  await expect(panel.locator('section.prov')).toContainText('Tied to the graph by 1 edge; it carries no written reason.')
 })
 
 test('the Timeline tab shows the persisted transcript', async ({ page }) => {

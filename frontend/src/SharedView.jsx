@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { readCanvasColors, edgeLabel } from './lib/graph.js'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
+import NodeProvenance from './components/NodeProvenance.jsx'
+import { useNodeTies } from './hooks/useNodeData.js'
 
 cytoscape.use(coseBilkent)
 
@@ -75,6 +77,19 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
   const [myInvs, setMyInvs] = useState([])
   const cyRef = useRef(null)
   const containerRef = useRef(null)
+  // Edges touching the selected node, for the Node tab's provenance.
+  const ties = useNodeTies(cyRef, selected)
+  // Open a neighbour from the provenance: the same result as tapping it.
+  const openNode = (id) => {
+    const cy = cyRef.current
+    const node = cy ? cy.$id(id) : null
+    if (!node || !node.length) return
+    cy.nodes().unselect()
+    node.select()
+    cy.animate({ fit: { eles: node.closedNeighborhood(), padding: 80 }, duration: 400 })
+    setSelected(node.data())
+    setTab(node.data('type') === 'report' ? 'report' : 'node')
+  }
 
   // Fetch share + auth status in parallel. When authed, also pull the
   // recipient's investigations so we can offer 'merge into existing' as an
@@ -486,6 +501,7 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
                         ))}
                       </div>
                     )}
+                    <NodeProvenance key={selected.id} node={selected} ties={ties} onOpenNode={openNode} />
                     <div>
                       <div className="section-label" style={{ margin: '8px 0 6px' }}>Metadata</div>
                       <pre className="meta-pre">{JSON.stringify(selected.metadata, null, 2)}</pre>
