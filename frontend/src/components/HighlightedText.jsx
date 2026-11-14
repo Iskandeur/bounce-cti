@@ -1,5 +1,6 @@
 import React from 'react'
 import { iocString } from '../lib/ioc.js'
+import { pressable } from '../lib/pressable.js'
 
 export default function HighlightedText({ text, nodeValues, onNodeClick }) {
   const str = typeof text === 'string' ? text : iocString(text)
@@ -15,7 +16,7 @@ export default function HighlightedText({ text, nodeValues, onNodeClick }) {
             <span
               key={i}
               className="ioc-link"
-              onClick={() => onNodeClick(id)}
+              {...pressable(() => onNodeClick(id))}
             >
               {token}
             </span>

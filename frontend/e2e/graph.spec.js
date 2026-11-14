@@ -51,7 +51,7 @@ test.describe('copy buttons', () => {
   test('"copied" shows on the clicked button only', async ({ page }) => {
     const json = jsonButton(page)
     const maltego = maltegoButton(page)
-    const copied = button => button.getByText('✓ copied')
+    const copied = button => button.getByText('copied')
     const clipboard = () => page.evaluate(() => navigator.clipboard.readText())
 
     await json.click()

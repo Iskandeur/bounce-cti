@@ -51,6 +51,13 @@ tolerated rules; it is empty. A rule goes there only when its fix cannot be in
 the same change, with the reason. An axe-core update can add rules, and with
 them new failures.
 
+`buttons.spec.js` measures the rules of the buttons on the same screens (and at
+375px): an accessible name, at least 24x24px to press, no glyph in a label, a
+toggle that keeps its label and flips `aria-pressed`, a 2px focus ring, a
+disabled button that is dimmed and has no hover, and the contrast of each
+control when hovered, in both themes (4.5:1 for text, 3:1 for an icon alone).
+The sources are checked against the same rules by `src/lib/icons.test.js`.
+
 axe checks what is on the page when it runs, and leaves out what it cannot
 measure (text over a translucent background, such as the graph toolbar). A
 running or failed investigation, the admin panel, the modals and the shared

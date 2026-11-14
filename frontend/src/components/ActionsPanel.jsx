@@ -1,4 +1,6 @@
 import React from 'react'
+import Icon from './Icon.jsx'
+import CopyLabel from './CopyLabel.jsx'
 
 // ── ActionsPanel ─────────────────────────────────────────────────────────
 // Operational deliverables for a finished investigation. Three cards:
@@ -137,9 +139,9 @@ export default function ActionsPanel({ activeInv, graphReady }) {
       <div className="actions-cards">
         <button
           className={`action-card${mode === 'block' ? ' active' : ''}`}
+          aria-pressed={mode === 'block'}
           onClick={() => open('block')}
         >
-          <div className="action-card-icon">🛑</div>
           <div className="action-card-body">
             <div className="action-card-title">Blocklist</div>
             <div className="action-card-desc">Firewall / DNS / EDR drop-list in 7 formats</div>
@@ -148,9 +150,9 @@ export default function ActionsPanel({ activeInv, graphReady }) {
 
         <button
           className={`action-card${mode === 'takedown' ? ' active' : ''}`}
+          aria-pressed={mode === 'takedown'}
           onClick={() => open('takedown')}
         >
-          <div className="action-card-icon">✉</div>
           <div className="action-card-body">
             <div className="action-card-title">Takedown</div>
             <div className="action-card-desc">Abuse-contact emails ready to send, one per host</div>
@@ -159,9 +161,9 @@ export default function ActionsPanel({ activeInv, graphReady }) {
 
         <button
           className={`action-card${mode === 'detect' ? ' active' : ''}`}
+          aria-pressed={mode === 'detect'}
           onClick={() => open('detect')}
         >
-          <div className="action-card-icon">🔍</div>
           <div className="action-card-body">
             <div className="action-card-title">Detection</div>
             <div className="action-card-desc">Sigma / Snort / YARA starter rule</div>
@@ -178,6 +180,7 @@ export default function ActionsPanel({ activeInv, graphReady }) {
               <button
                 key={f.id}
                 className={`format-pill${format === f.id ? ' active' : ''}`}
+                aria-pressed={format === f.id}
                 onClick={() => switchFormat(f.id)}
               >
                 {f.label}
@@ -190,7 +193,7 @@ export default function ActionsPanel({ activeInv, graphReady }) {
               disabled={!content}
               title="Copy to clipboard"
             >
-              {copied ? '✓ copied' : '⧉ copy'}
+              <CopyLabel done={copied}><Icon name="copy" />Copy</CopyLabel>
             </button>
             <button
               className="btn-sm secondary"
@@ -198,7 +201,7 @@ export default function ActionsPanel({ activeInv, graphReady }) {
               disabled={!content}
               title="Download file"
             >
-              ↓ file
+              <Icon name="download" />File
             </button>
           </div>
           {loading && <div className="actions-loading">Rendering…</div>}
@@ -275,16 +278,16 @@ function TakedownCard({ item }) {
           rel="noopener noreferrer"
           title="Open this in your default mail client"
         >
-          ✉ Open in mail client
+          <Icon name="external" />Open in mail client
         </a>
         <button className="btn-sm secondary" onClick={() => copyText(item.abuse_email, 'email')}>
-          {copied === 'email' ? '✓' : '⧉'} address
+          <CopyLabel done={copied === 'email'}><Icon name="copy" />Address</CopyLabel>
         </button>
         <button className="btn-sm secondary" onClick={() => copyText(item.subject, 'subject')}>
-          {copied === 'subject' ? '✓' : '⧉'} subject
+          <CopyLabel done={copied === 'subject'}><Icon name="copy" />Subject</CopyLabel>
         </button>
         <button className="btn-sm secondary" onClick={() => copyText(item.body, 'body')}>
-          {copied === 'body' ? '✓' : '⧉'} body
+          <CopyLabel done={copied === 'body'}><Icon name="copy" />Body</CopyLabel>
         </button>
       </div>
     </div>

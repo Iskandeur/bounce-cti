@@ -3,6 +3,7 @@ import Login from './Login.jsx'
 import AdminPanel from './AdminPanel.jsx'
 import ShareModal from './ShareModal.jsx'
 import SharedView from './SharedView.jsx'
+import Icon from './components/Icon.jsx'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 import { nextInvSearch } from './invUrl.js'
@@ -976,7 +977,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           aria-expanded={mobileLeftOpen}
           onClick={() => { setMobileLeftOpen(v => !v); setMobileRightOpen(false) }}
         >
-          <span className="mobile-burger" aria-hidden="true">☰</span>
+          <Icon name="menu" solo />
         </button>
         <div className="mobile-topbar-title">
           <span className="logo-mark mobile-topbar-logo" aria-hidden="true" />
@@ -988,7 +989,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           aria-expanded={mobileRightOpen}
           onClick={() => { setMobileRightOpen(v => !v); setMobileLeftOpen(false) }}
         >
-          <span className="mobile-burger" aria-hidden="true">⌘</span>
+          <Icon name="panel" solo />
         </button>
       </div>
       {/* Run progress on phones: under the top bar, readable without a drawer. */}
@@ -1050,18 +1051,21 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
         <div className="panel-tabs">
           <button
             className={`panel-tab${rightTab === 'report' ? ' active' : ''}`}
+            aria-pressed={rightTab === 'report'}
             onClick={() => setRightTab('report')}
           >
             Report
           </button>
           <button
             className={`panel-tab${rightTab === 'node' ? ' active' : ''}`}
+            aria-pressed={rightTab === 'node'}
             onClick={() => setRightTab('node')}
           >
             Node
           </button>
           <button
             className={`panel-tab${rightTab === 'timeline' ? ' active' : ''}`}
+            aria-pressed={rightTab === 'timeline'}
             onClick={() => setRightTab('timeline')}
           >
             Timeline
@@ -1069,6 +1073,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           {activeVertical === 'cti' && (
             <button
               className={`panel-tab${rightTab === 'actions' ? ' active' : ''}`}
+            aria-pressed={rightTab === 'actions'}
               onClick={() => setRightTab('actions')}
               title="Operational deliverables — blocklists, takedown templates, detection rules"
             >
@@ -1077,6 +1082,7 @@ function MainApp({ onLogout, isAdmin, allowedModels, userId }) {
           )}
           <button
             className={`panel-tab${rightTab === 'chat' ? ' active' : ''}`}
+            aria-pressed={rightTab === 'chat'}
             onClick={() => setRightTab('chat')}
           >
             Chat

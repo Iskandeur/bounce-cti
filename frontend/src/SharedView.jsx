@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import Icon from './components/Icon.jsx'
 import { readCanvasColors, edgeLabel } from './lib/graph.js'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
@@ -121,7 +122,7 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
       }
     }).catch((e) => {
       if (cancel) return
-      setErr(typeof e === 'number' ? `Lien introuvable, révoqué ou expiré (HTTP ${e})` : 'Erreur réseau')
+      setErr(typeof e === 'number' ? `Link not found, revoked or expired (HTTP ${e})` : 'Network error')
     })
     return () => { cancel = true }
   }, [token, demoSrc])
@@ -273,13 +274,13 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
       })
       if (!r.ok) {
         const t = await r.text()
-        alert(`Import a échoué: ${t || r.status}`)
+        alert(`Import failed: ${t || r.status}`)
         return
       }
       const d = await r.json()
       if (d.mode === 'merge') {
         // Friendly counters so the analyst sees what landed in their graph.
-        const summary = `Merge OK — +${d.nodes_added} nouveau(x), ${d.nodes_merged} dédupliqué(s), ${d.edges_added} edge(s).`
+        const summary = `Merge OK — +${d.nodes_added} new, ${d.nodes_merged} deduped, ${d.edges_added} edge(s).`
         try { console.log(summary) } catch (_) {}
       }
       window.location.href = `/?inv=${encodeURIComponent(d.id)}`
@@ -294,10 +295,10 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
         <div className="auth-card">
           <span className="logo-mark logo-mark-auth" role="img" aria-label="Bounce-CTI" />
           <div className="logo">BOUNCE<span>CTI</span></div>
-          <div className="auth-label">{demo ? 'Demo' : 'Lien partagé'}</div>
+          <div className="auth-label">{demo ? 'Demo' : 'Shared link'}</div>
           <div className="auth-error">{err}</div>
           <a href={demo ? REPO_URL : '/'} className="auth-btn secondary" style={{ textAlign: 'center', textDecoration: 'none' }}>
-            {demo ? 'Bounce-CTI on GitHub' : '← Retour à Bounce-CTI'}
+            {demo ? <><Icon name="external" />Bounce-CTI on GitHub</> : 'Back to Bounce-CTI'}
           </a>
         </div>
       </div>
@@ -309,7 +310,7 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
       <div className="auth-screen">
         <div className="auth-card">
           <div className="logo">BOUNCE<span>CTI</span></div>
-          <div className="auth-label">{demo ? 'Loading the investigation…' : 'Chargement du graphe partagé…'}</div>
+          <div className="auth-label">{demo ? 'Loading the investigation…' : 'Loading the shared graph…'}</div>
         </div>
       </div>
     )
@@ -330,7 +331,7 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
           <span className="logo-mark logo-mark-sidebar" aria-hidden="true" />
           <div>
             <div className="shared-title">
-              <span className="shared-badge">{demo ? 'DEMO' : 'PARTAGÉ'}</span>
+              <span className="shared-badge">{demo ? 'DEMO' : 'SHARED'}</span>
               <span className="shared-seed">
                 <span className="inv-type">{inv.seed_type}</span> {inv.seed_value}
               </span>
@@ -339,7 +340,7 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
               {demo
                 ? [demoMeta.label, runDate && `run ${runDate}`, demoMeta.model,
                    'autonomous agent, public CTI sources, read-only snapshot'].filter(Boolean).join(' · ')
-                : `${sections.filter(s => s !== 'graph').join(' · ')} · lecture seule`}
+                : `${sections.filter(s => s !== 'graph').join(' · ')} · read-only`}
             </div>
           </div>
         </div>
@@ -357,26 +358,28 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
           )}
           {demo && (
             <a className="auth-btn shared-import-btn" href={REPO_URL} style={{ textDecoration: 'none' }}>
-              Code on GitHub
+              <Icon name="external" />Code on GitHub
             </a>
           )}
           <button
             className="btn-sm secondary"
             onClick={() => setPanelOpen(v => !v)}
-            title="Toggle the side panel"
+            aria-pressed={panelOpen}
+            title={panelOpen ? 'Hide the side panel' : 'Show the side panel'}
           >
-            {demo ? (panelOpen ? '▶ panel' : '◀ panel') : (panelOpen ? '▶ panneau' : '◀ panneau')}
+            <Icon name={panelOpen ? 'boxChecked' : 'box'} />Panel
           </button>
           {!demo && me && myInvs.length > 0 && (
             <select
               className="shared-import-target"
               value={importTarget}
               onChange={e => setImportTarget(e.target.value)}
-              title="Choisir où atterrir : nouveau graphe ou merge dans une investigation existante"
+              title="Where the graph lands: a new investigation, or merged into one of yours"
+              aria-label="Import target"
               disabled={importBusy}
             >
-              <option value="">↪ Nouvelle investigation</option>
-              <optgroup label="Merger dans une investigation existante">
+              <option value="">New investigation</option>
+              <optgroup label="Merge into an existing investigation">
                 {myInvs.map(i => (
                   <option key={i.id} value={i.id}>
                     {i.seed_value.length > 36 ? i.seed_value.slice(0, 34) + '…' : i.seed_value}
@@ -391,18 +394,18 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
             disabled={importBusy}
             onClick={importToMyAccount}
             title={!me
-              ? 'Connectez-vous pour importer ce graphe'
+              ? 'Sign in to import this graph'
               : importTarget
-                ? 'Fusionner ce graphe dans l\'investigation choisie (dédupe par type+valeur)'
-                : 'Cloner ce graphe dans une nouvelle investigation'}
+                ? 'Merge this graph into the chosen investigation (deduplicated by type and value)'
+                : 'Clone this graph into a new investigation'}
           >
             {importBusy
-              ? 'Import…'
+              ? 'Importing…'
               : !me
-                ? 'Se connecter pour importer'
+                ? 'Sign in to import'
                 : importTarget
-                  ? '⤵ Merger ici'
-                  : '↓ Importer dans mon compte'}
+                  ? 'Merge here'
+                  : 'Import into my account'}
           </button>}
         </div>
       </header>
@@ -424,15 +427,15 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
           <aside className="shared-panel">
             <div className="panel-tabs">
               {sections.includes('report') && (
-                <button className={`panel-tab${tab === 'report' ? ' active' : ''}`} onClick={() => setTab('report')}>
-                  Rapport
+                <button className={`panel-tab${tab === 'report' ? ' active' : ''}`} aria-pressed={tab === 'report'} onClick={() => setTab('report')}>
+                  Report
                 </button>
               )}
-              <button className={`panel-tab${tab === 'node' ? ' active' : ''}`} onClick={() => setTab('node')}>
-                Nœud
+              <button className={`panel-tab${tab === 'node' ? ' active' : ''}`} aria-pressed={tab === 'node'} onClick={() => setTab('node')}>
+                Node
               </button>
               {sections.includes('timeline') && (
-                <button className={`panel-tab${tab === 'timeline' ? ' active' : ''}`} onClick={() => setTab('timeline')}>
+                <button className={`panel-tab${tab === 'timeline' ? ' active' : ''}`} aria-pressed={tab === 'timeline'} onClick={() => setTab('timeline')}>
                   Timeline
                 </button>
               )}
@@ -477,7 +480,7 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
                     )}
                   </>
                 ) : (
-                  <p className="hint">Le rapport n’a pas été inclus dans ce partage.</p>
+                  <p className="hint">The report is not part of this share.</p>
                 )
               )}
               {tab === 'node' && (
@@ -508,7 +511,7 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
                     </div>
                   </>
                 ) : (
-                  <p className="hint">Tapez un nœud du graphe pour l’inspecter.</p>
+                  <p className="hint">Click a node in the graph to inspect it.</p>
                 )
               )}
               {tab === 'timeline' && (() => {
@@ -549,7 +552,7 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
                       }
                     }
                   } else if (evt.kind === 'agent_starting') {
-                    items.push({ kind: 'status', ts, tsStr, label: '▶ agent démarré' })
+                    items.push({ kind: 'status', ts, tsStr, label: '▶ agent started' })
                   } else if (evt.kind === 'agent_exit') {
                     const m = evt.msg || {}
                     const phase = m.phase || ''
@@ -562,13 +565,13 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
                     // Written as {kind, status} by the backend; older rows nest it under msg.
                     const m = evt.msg || {}
                     const status = (typeof m === 'string' ? m : (m.status || evt.status || '')) || '?'
-                    items.push({ kind: 'status', ts, tsStr, label: `● statut : ${status}` })
+                    items.push({ kind: 'status', ts, tsStr, label: `● status: ${status}` })
                   } else if (evt.kind === 'node_tagged') {
                     items.push({ kind: 'tag', ts, tsStr, label: `+ tag ${evt.tag || ''}`.trim() })
                   }
                 }
                 if (items.length === 0) {
-                  return <p className="hint">Pas d’événement dans la timeline.</p>
+                  return <p className="hint">No event in the timeline.</p>
                 }
                 return (
                   <div className="timeline-list">

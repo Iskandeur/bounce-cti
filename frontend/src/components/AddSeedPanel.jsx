@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import Icon from './Icon.jsx'
 
 // Add-IOC panel: appears only when an investigation is open. Lets the
 // analyst attach a new peer seed (independent IOC) to the same graph.
@@ -43,7 +44,7 @@ export default function AddSeedPanel({ invs, activeInv, form, onAddSeed, setShar
             ? 'Agent is running — wait for it to finish before adding another seed'
             : 'Add this IOC as a peer seed on the current graph'}
         >
-          + Add
+          <Icon name="plus" />Add
         </button>
       </div>
       {/* Same affordance via PDF: drop a fresh write-up onto the
@@ -54,7 +55,8 @@ export default function AddSeedPanel({ invs, activeInv, form, onAddSeed, setShar
         type="file"
         accept="application/pdf,.pdf"
         onChange={e => { const f = e.target.files?.[0]; if (f) addPdfToActiveInv(f) }}
-        hidden
+        className="file-input"
+        disabled={isRunning || pdfBusy}
       />
       <label
         htmlFor="pdf-add-seed-input"
@@ -63,7 +65,7 @@ export default function AddSeedPanel({ invs, activeInv, form, onAddSeed, setShar
           ? 'Agent is running — wait for it to finish'
           : 'Upload a CTI report PDF — extracted IOCs are added as seeds'}
       >
-        {pdfBusy ? '… Analyse PDF' : '📄 Importer un PDF'}
+        {pdfBusy ? 'Reading the PDF…' : <><Icon name="upload" />Import a PDF</>}
       </label>
       {pdfError && <div className="pdf-error">{pdfError}</div>}
       {/* Share entry-point: visible as soon as an investigation is open
@@ -73,7 +75,7 @@ export default function AddSeedPanel({ invs, activeInv, form, onAddSeed, setShar
         onClick={() => setShareOpen(true)}
         title="Generate a share link for this investigation"
       >
-        ↗ Partager cette investigation
+        Share this investigation
       </button>
     </>
   )

@@ -370,7 +370,9 @@ frontend/
                         #   a node came from + the edges that tie it to the graph, as
                         #   text; also in SharedView), TimelineTab,
                         #   ActionsPanel, ChatTab, PromptBox, PickedChips,
-                        #   HighlightedText, CopyLabel (a copy button's label, fixed width)
+                        #   HighlightedText, CopyLabel (a copy button's label, fixed width),
+                        #   Icon (one icon of lib/icons.js: inline SVG, 1em, currentColor,
+                        #   aria-hidden)
     hooks/              # State slices used by MainApp: useRunSettings (model /
                         #   vertical / effort), useNewInvestigation (IOC / sample /
                         #   PDF form + submits), useNodeData (lead stats, cross-
@@ -393,7 +395,10 @@ frontend/
                         #   plain data: edgesOf, nodeTies, nodeOrigin; +
                         #   provenance.test.js), timeline, reportMarkdown, format,
                         #   runProgress (phase labels + the words of the progress
-                        #   line; runProgress.test.js, node --test, run in CI)
+                        #   line; runProgress.test.js, node --test, run in CI), icons (the icon
+                        #   set + which buttons take an icon; icons.test.js checks every
+                        #   button of the sources against it), pressable (keyboard-button
+                        #   props for an element that is not a <button>)
     invUrl.js           # Pure ?inv=<id> URL-sync helper (+ invUrl.test.js, node --test, run in CI)
     Login.jsx           # PIN login screen
     AdminPanel.jsx      # Admin dashboard (users, models, impersonation)
@@ -635,6 +640,18 @@ mirrored). Merging a Dependabot PR deploys to production like any other commit.
   side panel has the width it was dragged to, and in a window too narrow for both
   (769 to about 1100px at the default widths) they share what is left once the graph
   has 340px, never under the minimum of their handle (180 / 220px).
+- **Buttons follow one set of rules** (`lib/icons.js`, `components/Icon.jsx`, the "What
+  every button shares" block of `styles.css`). Icons come from `ICONS` only: no glyph, no
+  emoji, no arrow after a verb (a system font draws each one differently). An icon stands
+  alone where there is no room for a word (the button then has an `aria-label`); next to a
+  label it is kept for copy, download, upload, open elsewhere, add, delete and dismiss. A
+  toggle keeps one label and says its state with `aria-pressed` and a box, empty or ticked.
+  A hover rule of a button is written `:hover:where(:not(:disabled))` and sets both colour
+  and background (the base `button:hover` paints a background, so a rule that sets only a
+  colour ends up unreadable). An element that is clicked and is not a `<button>` takes
+  `pressable()` (`lib/pressable.js`). UI text is English. `src/lib/icons.test.js` checks
+  the sources and `e2e/buttons.spec.js` the rendered page: name, 24x24px, focus ring,
+  disabled look, contrast when hovered, in both themes.
 - **Backend serves the frontend**: In production, FastAPI mounts `frontend/dist/` at `/` as static files.
 - **MCP tools only**: The investigation agent communicates exclusively via MCP tools
   (graph + cti servers). Bash/Edit/Write/Read/Glob/Grep/Web* are explicitly disallowed.

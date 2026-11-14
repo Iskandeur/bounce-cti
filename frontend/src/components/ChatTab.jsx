@@ -105,8 +105,8 @@ export default function ChatTab({
             style={{ marginTop: 4, width: '100%' }}
           >
             {promptBusy ? 'Agent is thinking…' : (pickedIds.size > 0
-              ? `Ask about ${pickedIds.size} selected →`
-              : 'Send →')}
+              ? `Ask about ${pickedIds.size} selected`
+              : 'Send')}
           </button>
         </div>
       )}

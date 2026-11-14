@@ -1,4 +1,5 @@
 import React from 'react'
+import { pressable } from '../lib/pressable.js'
 import { NODE_COLORS } from '../lib/constants.js'
 
 // Unified timeline: graph nodes by creation time, interleaved with the
@@ -62,7 +63,7 @@ export default function TimelineTab({ cyRef, agentNotes, selected, focusNode, ex
                     key={tn.id}
                     ref={el => { if (el && isSel) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }}
                     className={`timeline-entry${isSel ? ' selected' : ''}`}
-                    onClick={() => focusNode(tn.id)}
+                    {...pressable(() => focusNode(tn.id))}
                     title="Click to focus this node on the graph"
                   >
                     <div className="timeline-line">
@@ -110,11 +111,12 @@ export default function TimelineTab({ cyRef, agentNotes, selected, focusNode, ex
                       <div
                         className={`timeline-note-text${isExp ? ' expanded' : ''}`}
                         title={isExp ? 'Click to collapse' : 'Click to expand full reasoning'}
-                        onClick={() => setExpandedReasoning(prev => {
+                        aria-expanded={isExp}
+                        {...pressable(() => setExpandedReasoning(prev => {
                           const next = new Set(prev)
                           if (next.has(i)) next.delete(i); else next.add(i)
                           return next
-                        })}
+                        }))}
                       >{tn.text}</div>
                     </div>
                   </div>
@@ -157,7 +159,7 @@ export default function TimelineTab({ cyRef, agentNotes, selected, focusNode, ex
                   <div
                     key={`mod-${i}`}
                     className={`timeline-entry timeline-mod${tn.nodeId ? ' clickable' : ''}`}
-                    onClick={tn.nodeId ? () => focusNode(tn.nodeId) : undefined}
+                    {...pressable(tn.nodeId ? () => focusNode(tn.nodeId) : undefined)}
                     title={tn.nodeId ? 'Click to focus this node' : undefined}
                   >
                     <div className="timeline-line">

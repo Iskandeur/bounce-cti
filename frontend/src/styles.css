@@ -20,6 +20,9 @@
   /* Share of a type or tag colour in a text written in it (.type-ink); the
      rest is the text colour. */
   --ink-mix: 50%;
+  /* Hover of a button that has no hover of its own (the base `button` rule). */
+  --btn-hover-bg: #2a4d7a;
+  --btn-hover-fg: #a8d8ff;
   --radius: 8px;
   --radius-sm: 4px;
   --radius-lg: 12px;
@@ -46,10 +49,11 @@
   --outline: #d1d9e0;
   --outline-dim: #e4e8ec;
   --ink-mix: 35%;
+  --btn-hover-bg: var(--primary);
+  --btn-hover-fg: #ffffff;
 }
-:root[data-theme="light"] button:hover { background: var(--primary); color: #ffffff; }
-:root[data-theme="light"] .share-btn:hover,
-:root[data-theme="light"] .sidebar-share-btn:hover { background: var(--primary); color: #ffffff; }
+:root[data-theme="light"] .share-btn:hover:where(:not(:disabled)),
+:root[data-theme="light"] .sidebar-share-btn:hover:where(:not(:disabled)) { background: var(--primary); color: #ffffff; }
 :root[data-theme="light"] .auth-btn { color: #ffffff; }
 :root[data-theme="light"] .format-pill.active { color: #ffffff; }
 :root[data-theme="light"] .ioc-link:hover { color: var(--primary); }
@@ -182,11 +186,63 @@ button {
   cursor: pointer;
   transition: background .12s, border-color .12s, color .12s;
 }
-button:hover {
-  background: #2a4d7a;
+button:hover:where(:not(:disabled)) {
+  background: var(--btn-hover-bg);
   border-color: var(--primary);
-  color: #a8d8ff;
+  color: var(--btn-hover-fg);
 }
+
+/* ── What every button shares ───────────────────────────────────────────────
+   Keyboard focus: one ring, in the accent colour, on anything that can be
+   pressed. A hidden file input shows it on the label that stands for it. */
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible,
+.file-input:focus-visible + label {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* Inside the tab strip, which clips what is drawn outside it. */
+.panel-tab:focus-visible { outline-offset: -2px; }
+/* Disabled: dimmed, and no hover (the hover rules of buttons are written
+   `:hover:where(:not(:disabled))`, which adds no specificity). The pointer
+   still reaches the button, so its title can say why it is disabled. */
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+/* A link that is a button (class btn-sm on an <a>) looks like one. */
+a.btn-sm,
+a.btn-sm:visited {
+  display: inline-block;
+  background: var(--primary-dim);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background .12s, border-color .12s, color .12s;
+}
+a.btn-sm:hover { background: var(--btn-hover-bg); color: var(--btn-hover-fg); }
+/* Icons (components/Icon.jsx): as tall as the text, a fixed gap before the
+   label, none when the icon is alone in its button. */
+.icon { flex: none; vertical-align: -0.14em; margin-inline-end: 0.4em; }
+.icon-solo { margin-inline-end: 0; }
+/* A file input that stays reachable with Tab; its <label> is what is seen. */
+.file-input {
+  position: absolute;
+  width: 1px !important;
+  height: 1px;
+  padding: 0 !important;
+  border: 0 !important;
+  opacity: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+/* Nothing that is pressed with a pointer is under 24x24 CSS px (WCAG 2.2,
+   2.5.8). The phone layout sets larger minimums further down. */
+.filter-chip, .format-pill, .export-btn, .ioc-chip.clickable, .timeline-note-text { min-height: 24px; }
+.ioc-chip.clickable { display: inline-flex; align-items: center; }
+/* A small button inside a line of text or a section label. */
+.btn-sm.btn-inline { width: auto; min-height: 24px; padding: 1px 8px; font-size: 11px; }
 
 .btn-sm {
   padding: 6px 10px;
@@ -198,7 +254,7 @@ button.secondary {
   border-color: var(--outline);
   color: var(--on-dim);
 }
-button.secondary:hover {
+button.secondary:hover:where(:not(:disabled)) {
   border-color: var(--on-dim);
   color: var(--on-surface);
   background: var(--surface-2);
@@ -247,6 +303,17 @@ button.secondary:hover {
   margin-bottom: 3px;
 }
 .inv-seed {
+  /* A <button> (the row's keyboard handle) that reads as the row's title.
+     Padding and an equal negative margin: 24px to press, the row unmoved. */
+  width: auto;
+  min-width: 0;
+  padding: 5px 0;
+  margin: -5px 0;
+  background: none;
+  border: 0;
+  border-radius: 2px;
+  text-align: left;
+  font-family: inherit;
   font-size: 12px;
   font-weight: 600;
   color: var(--on-bg);
@@ -255,6 +322,7 @@ button.secondary:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.inv-seed:hover:where(:not(:disabled)) { background: none; color: var(--on-bg); }
 /* Analyst-supplied title overrides the seed in the row label. Keep the
    seed in the tooltip; differentiate visually so it's not mistaken for
    an IOC string. */
@@ -354,46 +422,47 @@ button.secondary:hover {
 
 .icon-btn {
   width: auto;
-  padding: 2px 6px;
-  font-size: 12px;
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  font-size: 14px;
   background: transparent;
   border: 1px solid transparent;
   color: var(--on-dim);
   border-radius: var(--radius-sm);
   line-height: 1;
 }
-.icon-btn:hover {
+.icon-btn:hover:where(:not(:disabled)) {
   background: var(--surface-2);
   border-color: var(--outline);
   color: var(--on-surface);
 }
-.icon-btn.danger:hover {
+.icon-btn.danger:hover:where(:not(:disabled)) {
   border-color: var(--error);
   color: var(--error);
   background: #f8514912;
 }
-.icon-btn.warning:hover {
+.icon-btn.warning:hover:where(:not(:disabled)) {
   border-color: var(--warning);
   color: var(--warning);
   background: #e3b34112;
 }
 .icon-btn.primary {
-  color: #79c0ff;
-  border-color: #79c0ff44;
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 27%, transparent);
 }
-.icon-btn.primary:hover {
-  border-color: #79c0ff;
-  color: #c8e1ff;
-  background: #79c0ff15;
+.icon-btn.primary:hover:where(:not(:disabled)) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 .icon-btn.active {
-  border-color: #58a6ff;
-  color: #58a6ff;
-  background: #58a6ff15;
-}
-.icon-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 /* ── Inline merge picker ─────────────────────────────────────────────────── */
@@ -519,6 +588,7 @@ button.secondary:hover {
 :root {
   --graph-line: #30363d;
   --graph-pin: #fbbf24;
+  --pin-ink: #fbbf24;
   --graph-blue: #58a6ff;
   --graph-orange: #ffa657;
   --graph-edge-tint: 1;
@@ -526,6 +596,7 @@ button.secondary:hover {
 :root[data-theme="light"] {
   --graph-line: #8c959f;
   --graph-pin: #bf8700;
+  --pin-ink: var(--warning);
   --graph-blue: #0969da;
   --graph-orange: #bc4c00;
   --graph-edge-tint: 1.75;
@@ -570,7 +641,7 @@ button.secondary:hover {
   cursor: pointer;
   transition: color .12s, background .12s, border-color .12s;
 }
-.toolbar-btn:hover {
+.toolbar-btn:hover:where(:not(:disabled)) {
   color: var(--on-surface);
   border-color: var(--on-dim);
   background: color-mix(in srgb, var(--surface-2) 90%, transparent);
@@ -641,7 +712,11 @@ button.secondary:hover {
   transition: opacity .12s, background .12s;
   line-height: 1.6;
 }
-.filter-chip:hover { opacity: 0.85; }
+/* Hovered, a chip keeps its own colours (the base button hover would write
+   its label in the hover colour, unreadable on the chip's tint). */
+.filter-chip:hover:where(:not(:disabled)) { opacity: 0.85; }
+.filter-chip.type-ink:hover { color: color-mix(in srgb, var(--type, var(--on-dim)) var(--ink-mix), var(--on-bg)); }
+.filter-chip.off:hover { color: var(--on-dim); }
 /* A type that is filtered out: the dim text colour, struck through. */
 .filter-chip.off { color: var(--on-dim); text-decoration: line-through; }
 
@@ -1122,11 +1197,6 @@ button.secondary:hover {
   gap: 6px;
   margin-bottom: 4px;
 }
-.cross-inv-icon {
-  color: #a371f7;
-  font-weight: bold;
-  font-size: 12px;
-}
 .cross-inv-title {
   font-size: 11px;
   font-weight: 600;
@@ -1153,6 +1223,7 @@ button.secondary:hover {
   transition: background 0.1s ease, border-color 0.1s ease;
 }
 .cross-inv-item:hover {
+  color: var(--on-bg);
   background: var(--surface-4, var(--surface-3));
   border-color: rgba(163, 113, 247, 0.6);
 }
@@ -1371,7 +1442,7 @@ button.secondary:hover {
 .prov button.prov-more { align-self: flex-start; }
 .prov button.prov-load {
   width: auto;
-  min-height: 0;
+  min-height: 24px;
   margin-left: 8px;
   padding: 1px 10px;
   font-size: 11px;
@@ -1591,11 +1662,15 @@ button.secondary:hover {
   border: 1px solid var(--outline);
   color: var(--on-dim);
   width: 32px; height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
 }
-.admin-close:hover { color: var(--error); border-color: var(--error); }
+.admin-close:hover { color: var(--error); border-color: var(--error); background: transparent; }
 .admin-section { margin-bottom: 24px; }
 .admin-section-title {
   font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
@@ -1700,7 +1775,7 @@ button.secondary:hover {
   color: var(--error);
   border: 1px solid var(--error);
 }
-.auth-btn.danger:hover:not(:disabled) { background: rgba(248, 81, 73, 0.08); opacity: 1; }
+.auth-btn.danger:hover:not(:disabled) { background: rgba(248, 81, 73, 0.05); opacity: 1; }
 .admin-btn {
   background: transparent;
   color: var(--on-dim);
@@ -1834,9 +1909,10 @@ button.secondary:hover {
   font-size: 11px;
 }
 .hash-copy-btn {
-  padding: 2px 8px;
-  font-size: 12px;
-  min-width: auto;
+  padding: 2px 6px;
+  font-size: 13px;
+  min-width: 24px;
+  min-height: 24px;
 }
 
 /* ── Batch switch (Separate / Combined toggle) ──────────────────────────── */
@@ -1858,9 +1934,9 @@ button.secondary:hover {
 }
 .switch-track {
   position: relative;
-  width: 40px;
-  height: 22px;
-  border-radius: 11px;
+  width: 42px;
+  height: 24px;
+  border-radius: 12px;
   background: var(--outline);
   border: none;
   cursor: pointer;
@@ -1868,13 +1944,16 @@ button.secondary:hover {
   transition: background 200ms ease;
   flex-shrink: 0;
 }
-.switch-track.on {
+/* The base button hover does not repaint the track. */
+.switch-track:hover { background: var(--outline); }
+.switch-track.on,
+.switch-track.on:hover {
   background: var(--primary);
 }
 .switch-thumb {
   position: absolute;
-  top: 2px;
-  left: 2px;
+  top: 3px;
+  left: 3px;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -1911,14 +1990,20 @@ button.secondary:hover {
   border: 1px solid var(--outline);
   color: var(--on-dim);
   border-radius: var(--radius-sm);
-  padding: 2px 6px;
-  font-size: 11px;
+  padding: 2px 4px;
+  font-size: 13px;
   cursor: pointer;
   width: auto;
-  min-width: auto;
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
   transition: color 120ms, border-color 120ms;
 }
-.graph-search-action:hover {
+.graph-search-action:hover:where(:not(:disabled)) {
+  background: transparent;
   color: var(--primary);
   border-color: var(--primary);
 }
@@ -2593,7 +2678,6 @@ button.secondary:hover {
     cursor: pointer;
   }
   .mobile-icon-btn:active { background: var(--surface-3); }
-  .mobile-burger { font-size: 18px; line-height: 1; }
 
   /* Run progress: its own strip under the top bar, the bar flush with the
      strip's lower edge. The graph below takes what is left. */
@@ -2898,7 +2982,7 @@ button.secondary:hover {
   border: 1px solid var(--primary);
   font-weight: 500;
 }
-.share-btn:hover {
+.share-btn:hover:where(:not(:disabled)) {
   background: #2a4d7a;
   color: #a8d8ff;
 }
@@ -2912,7 +2996,7 @@ button.secondary:hover {
   color: var(--primary);
   border: 1px solid var(--primary);
 }
-.sidebar-share-btn:hover {
+.sidebar-share-btn:hover:where(:not(:disabled)) {
   background: rgba(88, 166, 255, 0.08);
   color: #a8d8ff;
 }
@@ -3034,11 +3118,10 @@ button.secondary:hover {
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-/* A narrow sidebar keeps the three words and drops their icons. The container
-   is the whole panel, the 10px of padding on each side included. */
+/* A narrow sidebar gives the three words less padding. The container is the
+   whole panel, the 10px of padding on each side included. */
 @container sidebar (max-width: 270px) {
   .seg-option { padding: 7px 2px; gap: 0; }
-  .seg-icon { display: none; }
 }
 .seg-option:hover {
   color: var(--on-surface);
@@ -3050,7 +3133,6 @@ button.secondary:hover {
   border-color: var(--outline);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
-.seg-icon { font-size: 12px; opacity: 0.85; }
 
 /* ── PDF dropzone (sidebar, 'New investigation' › PDF mode) ──────────── */
 .pdf-dropzone {
@@ -3378,16 +3460,16 @@ button.secondary:hover {
   font-size: 11px;
   white-space: nowrap;
 }
-.annot-pin:hover {
-  border-color: #fbbf24;
-  color: #fbbf24;
+.annot-pin:hover:where(:not(:disabled)) {
+  border-color: var(--graph-pin);
+  color: var(--pin-ink);
   background: rgba(251, 191, 36, 0.08);
 }
+/* Same weight as unpinned: the row does not move when the node is pinned. */
 .annot-pin.on {
-  border-color: #fbbf24;
+  border-color: var(--graph-pin);
   background: rgba(251, 191, 36, 0.12);
-  color: #fbbf24;
-  font-weight: 600;
+  color: var(--pin-ink);
 }
 .annot-note-input {
   flex: 1;
@@ -3431,13 +3513,15 @@ button.secondary:hover {
   cursor: pointer;
   transition: opacity 0.12s, color 0.12s, background 0.12s;
 }
-.relation-chip:hover { opacity: 0.85; }
-.relation-chip.off {
+.relation-chip:hover { opacity: 0.85; background: rgba(118, 131, 144, 0.12); color: var(--on-surface); }
+/* Off: struck through, dim text, no fill. Not faded: the chip still works,
+   and its label has to stay readable (it was 55% opaque, under 4.5:1). */
+.relation-chip.off,
+.relation-chip.off:hover {
   background: transparent;
   border-color: var(--outline);
   color: var(--on-dim);
   text-decoration: line-through;
-  opacity: 0.55;
 }
 
 /* Warning chip when bulk-prompt selection is heavy */
@@ -3553,7 +3637,8 @@ button.secondary:hover {
   font-family: inherit;
   transition: background 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
 }
-.action-card:hover {
+.action-card:hover:where(:not(:disabled)) {
+  color: var(--on-bg);
   background: var(--surface-3);
   border-color: var(--primary, #58a6ff);
 }
@@ -3562,12 +3647,6 @@ button.secondary:hover {
   background: var(--surface-3);
   border-color: var(--primary, #58a6ff);
   box-shadow: 0 0 0 1px var(--primary, #58a6ff);
-}
-.action-card-icon {
-  font-size: 20px;
-  line-height: 1;
-  flex-shrink: 0;
-  filter: saturate(0.9);
 }
 .action-card-body {
   display: flex;
@@ -3626,7 +3705,9 @@ button.secondary:hover {
   font-family: inherit;
   transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
-.format-pill:hover { color: var(--on); border-color: var(--primary, #58a6ff); }
+.format-pill:hover:where(:not(:disabled)) { color: var(--on-bg); background: var(--surface-1); border-color: var(--primary); }
+.format-pill.active:hover { background: var(--primary); color: #0d1117; }
+:root[data-theme="light"] .format-pill.active:hover { color: #ffffff; }
 .format-pill.active {
   background: var(--primary, #58a6ff);
   color: #0d1117;
@@ -3761,10 +3842,7 @@ button.secondary:hover {
   gap: 4px;
   margin-top: 2px;
 }
-.takedown-card-actions a.btn-sm,
-.takedown-card-actions a.btn-sm:visited {
-  text-decoration: none;
-}
+.takedown-card-actions .btn-sm { width: auto; }
 
 /* ── MITRE ATT&CK mapping (Report tab) ────────────────────────────────────
    Renders the agent-validated technique list. The technique ID is a

@@ -30,8 +30,8 @@ export default function PromptBox({ cyRef, pickedIds, customPrompt, setCustomPro
       style={{ marginTop: 4, width: '100%' }}
     >
       {promptBusy ? 'Sending…' : (pickedIds.size > 0
-        ? `Run on ${pickedIds.size} selected →`
-        : 'Run prompt →')}
+        ? `Run on ${pickedIds.size} selected`
+        : 'Run prompt')}
     </button>
   </div>
   )
