@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import Icon from './components/Icon.jsx'
+import BusyLabel from './components/BusyLabel.jsx'
+import { busyProps } from './lib/pressable.js'
 import { readCanvasColors, edgeLabel } from './lib/graph.js'
 import cytoscape from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
@@ -297,7 +299,7 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
           <div className="logo">BOUNCE<span>CTI</span></div>
           <div className="auth-label">{demo ? 'Demo' : 'Shared link'}</div>
           <div className="auth-error">{err}</div>
-          <a href={demo ? REPO_URL : '/'} className="auth-btn secondary" style={{ textAlign: 'center', textDecoration: 'none' }}>
+          <a href={demo ? REPO_URL : '/'} className="auth-btn btn-primary">
             {demo ? <><Icon name="external" />Bounce-CTI on GitHub</> : 'Back to Bounce-CTI'}
           </a>
         </div>
@@ -357,12 +359,12 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
             </select>
           )}
           {demo && (
-            <a className="auth-btn shared-import-btn" href={REPO_URL} style={{ textDecoration: 'none' }}>
+            <a className="auth-btn btn-primary shared-import-btn" href={REPO_URL}>
               <Icon name="external" />Code on GitHub
             </a>
           )}
           <button
-            className="btn-sm secondary"
+            className="btn-sm"
             onClick={() => setPanelOpen(v => !v)}
             aria-pressed={panelOpen}
             title={panelOpen ? 'Hide the side panel' : 'Show the side panel'}
@@ -390,22 +392,17 @@ export default function SharedView({ token, demoSrc, demoCases = [], demoCase = 
             </select>
           )}
           {!demo && <button
-            className="auth-btn shared-import-btn"
-            disabled={importBusy}
-            onClick={importToMyAccount}
+            className="auth-btn btn-primary shared-import-btn"
+            {...busyProps(importBusy, importToMyAccount)}
             title={!me
               ? 'Sign in to import this graph'
               : importTarget
                 ? 'Merge this graph into the chosen investigation (deduplicated by type and value)'
                 : 'Clone this graph into a new investigation'}
           >
-            {importBusy
-              ? 'Importing…'
-              : !me
-                ? 'Sign in to import'
-                : importTarget
-                  ? 'Merge here'
-                  : 'Import into my account'}
+            <BusyLabel busy={importBusy} label="Importing…">
+              {!me ? 'Sign in to import' : importTarget ? 'Merge here' : 'Import into my account'}
+            </BusyLabel>
           </button>}
         </div>
       </header>

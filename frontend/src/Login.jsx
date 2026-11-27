@@ -1,4 +1,6 @@
 import React, { useState } from 'react'
+import BusyLabel from './components/BusyLabel.jsx'
+import { busyProps } from './lib/pressable.js'
 
 export default function Login({ onAuth }) {
   const [pin, setPin] = useState('')
@@ -47,8 +49,8 @@ export default function Login({ onAuth }) {
           onKeyDown={e => e.key === 'Enter' && login()}
           disabled={busy}
         />
-        <button className="auth-btn" disabled={busy || pin.length !== 6} onClick={login}>
-          Sign in
+        <button className="auth-btn btn-primary" disabled={!busy && pin.length !== 6} {...busyProps(busy, login)}>
+          <BusyLabel busy={busy} label="Signing in…">Sign in</BusyLabel>
         </button>
         {error && <div className="auth-error">{error}</div>}
         <p className="auth-warn" style={{ marginTop: 4, fontSize: 12, color: 'var(--on-dim)' }}>

@@ -19,16 +19,15 @@ const REPO_URL = 'https://github.com/Iskandeur/bounce-cti'
 // A page published before any snapshot is committed still sends the reader
 // somewhere useful: the recorded demo and the code.
 function NoSnapshot() {
-  const link = { textAlign: 'center', textDecoration: 'none' }
   return (
     <div className="auth-screen">
       <div className="auth-card">
         <div className="logo">BOUNCE<span>CTI</span></div>
         <div className="auth-label">No investigation is frozen in this build yet (eval/demo/ was empty).</div>
-        <a className="auth-btn" href={`${REPO_URL}/blob/main/media/demo.mp4`} style={link}>
+        <a className="auth-btn btn-primary" href={`${REPO_URL}/blob/main/media/demo.mp4`}>
           <Icon name="external" />Watch the 20-second demo
         </a>
-        <a className="auth-btn secondary" href={REPO_URL} style={link}><Icon name="external" />Bounce-CTI on GitHub</a>
+        <a className="auth-btn" href={REPO_URL}><Icon name="external" />Bounce-CTI on GitHub</a>
       </div>
     </div>
   )
