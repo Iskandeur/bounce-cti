@@ -54,6 +54,24 @@ Serve the folder to open it, with no network:
 then http://127.0.0.1:8000/. Opened straight from disk, the page cannot load and
 says so: browsers do not run its scripts on a `file://` address.
 
+## Results
+
+Full page, with what the numbers do not show: [`EVAL_RESULTS.md`](./EVAL_RESULTS.md).
+
+- **Against the same model without the tool** (2026-10-21, `claude-opus-5`
+  throughout, five real-world positive cases): mean NR is 55.5 with
+  Bounce-CTI, 83.0 for the bare model with web search and 14.7 for the bare
+  model alone. The web-search figure favours search over investigation: the
+  ground truth is built from public write-ups, and the bare model fetched its
+  case's own write-up on 3 of the 5 cases.
+- **Over time, on the same five cases:** the v2 overall score went from 49.7
+  (2026-04-19) to 74.4 (2026-06-17); the decay-proof capability score (v3 CAP)
+  reads 92.9 → 96.0 over its three runs.
+- **Hallucination is a hard gate:** it fired once, in the first run, and the
+  scorecards that audit it report 0 since.
+- **Limits:** the scores are self-graded by this project's own scorer, the
+  rubric changed along the way, and so did the model.
+
 ## Features
 
 - **Live graph**: Cytoscape canvas updated over WebSocket as the agent pivots.
@@ -311,18 +329,8 @@ the deploy pipeline, required GitHub secrets, and rollback procedure.
 
 ## Eval
 
-**Results: [`EVAL_RESULTS.md`](./EVAL_RESULTS.md).** On the same five
-real-world cases, the v2 overall score went from 49.7 (2026-04-19) to 74.4
-(2026-06-17); the decay-proof capability score (v3 CAP) reads 92.9 → 96.0 over
-its three runs. Hallucination is a hard gate: it fired once, in the first run,
-and the scorecards that audit it report 0 since. The page also says what these
-numbers do not show: they are self-graded, the rubric changed, and the model
-changed. The one external reference is the same model run without the tool
-(2026-10-21, `claude-opus-5` throughout): mean NR on the five positive cases is
-55.5 with Bounce-CTI, 83.0 for the bare model with web search and 14.7 for the
-bare model alone. The web-search figure comes with a caveat: the ground truth
-is built from public write-ups, and the bare model fetched its case's own
-write-up on 3 of the 5 cases, so these cases favour search over investigation.
+The figures are summed up under [Results](#results) and published in full in
+[`EVAL_RESULTS.md`](./EVAL_RESULTS.md).
 
 `EVAL_PROTOCOL.md` is the active scoring rubric for the agent. Re-run it
 against a new commit whenever you touch the agent system prompt, MCP tool set,
