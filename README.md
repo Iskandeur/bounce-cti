@@ -66,11 +66,13 @@ Full page, with what the numbers do not show: [`EVAL_RESULTS.md`](./EVAL_RESULTS
   case's own write-up on 3 of the 5 cases.
 - **Over time, on the same five cases:** the v2 overall score went from 49.7
   (2026-04-19) to 74.4 (2026-06-17); the decay-proof capability score (v3 CAP)
-  reads 92.9 → 96.0 over its three runs.
+  reads 92.9 → 96.0 over its three runs. Across that series the rubric changed
+  along the way, and so did the model.
 - **Hallucination is a hard gate:** it fired once, in the first run, and the
   scorecards that audit it report 0 since.
-- **Limits:** the scores are self-graded by this project's own scorer, the
-  rubric changed along the way, and so did the model.
+- **Limits:** every score is self-graded by this project's own scorer; the
+  bare-model baseline is a reference point scored the same way, not an
+  independent judge.
 
 ## Features
 
